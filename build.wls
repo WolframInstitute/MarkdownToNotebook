@@ -1,26 +1,16 @@
 #!/usr/bin/env wolframscript
-(* Self-hosting loop: define MarkdownToNotebook from its own markdown source,
-   then run it on that same source to (re)produce its Function Repository
-   definition notebook. The only hand-written part is the tiny Definition-cell
-   extractor below; everything else comes from the markdown. *)
+(* Self-hosting build: define MarkdownToNotebook from its own markdown source,
+   run it on that same source to (re)produce its Function Repository definition
+   notebook, then deploy that notebook publicly to the cloud. The only
+   hand-written part is the tiny Definition-cell extractor below; everything else
+   comes from the markdown. *)
 
 print[args___] := WriteString["stdout", StringJoin[ToString /@ {args}], "\n"]
 
-(* a self-contained page that renders the ORIGINAL markdown with marked.js;
-   the markdown is embedded inline, so there is no cross-origin fetch (and
-   hence no CORS dependency) and no third-party viewer site. A button links to
-   a zip of the raw source (.md + .wl). *)
-readerPage[mdText_String, zipUrl_String] := StringJoin[
-    "<!doctype html><html><head><meta charset='utf-8'><title>MarkdownToNotebook</title>",
-    "<script src='https://cdn.jsdelivr.net/npm/marked/marked.min.js'></script>",
-    "<style>body{max-width:760px;margin:40px auto;font:16px/1.6 -apple-system,system-ui,sans-serif;padding:0 20px;color:#1a1a1a}",
-    "pre{background:#f5f5f5;padding:12px;border-radius:6px;overflow:auto}code{font-family:Menlo,monospace}",
-    "a.dl{display:inline-block;margin:0 0 24px;padding:8px 14px;background:#3b6ea5;color:#fff;text-decoration:none;border-radius:6px;font:14px sans-serif}</style>",
-    "</head><body>",
-    "<a class='dl' href='", zipUrl, "' download>Download source (.md + .wl)</a>",
-    "<div id='c'></div>",
-    "<script>document.getElementById('c').innerHTML=marked.parse(", ExportString[mdText, "JSON"], ");</script></body></html>"
-]
+(* the definition-notebook template version follows the kernel's
+   DefinitionNotebookClient paclet; pull the latest so the generated notebook is
+   not flagged "out of date" when opened in a newer front end. *)
+Quiet @ PacletInstall["DefinitionNotebookClient", UpdateSites -> True]
 
 dir = DirectoryName[$InputFileName]
 src = FileNameJoin[{dir, "MarkdownToNotebook.md"}]
@@ -44,7 +34,7 @@ definitionCells[t_String] := StringCases[
 includeFiles[t_String] := FileNameJoin[{dir, StringTrim[#]}] & /@
     StringCases[definitionSection[t], StartOfLine ~~ "#|" ~~ Whitespace... ~~ "file:" ~~ p : Except["\n"].. :> p]
 
-print["bootstrap: defining function from ", FileNameTake[src]]
+print["build: defining function from ", FileNameTake[src]]
 includes = includeFiles[text]
 If[ includes =!= {},
     print["  including: ", FileNameTake /@ includes];
@@ -60,7 +50,7 @@ If[ DownValues[MarkdownToNotebook] === {},
 ]
 
 (* phase 2: run the function on its own source (cold) *)
-print["bootstrap: converting itself (cold run)"]
+print["build: converting itself (cold run)"]
 cacheFile = src <> ".cache.wxf"
 If[ FileExistsQ[cacheFile], DeleteFile[cacheFile] ]
 
@@ -83,26 +73,19 @@ print["  warm run:    ", warmTime, " s (cache ", If[FileExistsQ[cacheFile], "hit
 outNb = MarkdownToResourceFunction[src]
 print["  wrote:       ", FileNameTake[outNb], " (", Head @ Quiet @ Get[outNb], ")"]
 
-(* phase 5: zip the raw source (.md + .wl) and deploy a public reader page at
-   the .md object that renders the original markdown and links to that zip. *)
-print["bootstrap: publishing reader + source zip to the cloud"]
+(* phase 5: deploy the resource function publicly to the cloud (the docked
+   Deploy > "Publicly in the cloud" action = DeployResource[..., "CloudPublic"]). *)
+print["build: deploying the resource function publicly to the cloud"]
+Needs["DefinitionNotebookClient`"]
 If[ Not[TrueQ[$CloudConnected]], Quiet @ CloudConnect[] ]
 If[ TrueQ[$CloudConnected],
-    zipPath = FileNameJoin[{$TemporaryDirectory, "MarkdownToNotebook.zip"}];
-    If[ FileExistsQ[zipPath], DeleteFile[zipPath] ];
-    CreateArchive[{src, FileNameJoin[{dir, "MarkdownToNotebook.wl"}]}, zipPath];
-    CopyFile[zipPath, CloudObject["MarkdownToNotebook.zip", Permissions -> "Public"], OverwriteTarget -> True];
-    zipUrl = First @ CloudObject["MarkdownToNotebook.zip"];
-    reader = CloudDeploy[
-        Delayed @ HTTPResponse[readerPage[text, zipUrl], <|"ContentType" -> "text/html"|>],
-        CloudObject["MarkdownToNotebook.md"],
-        Permissions -> "Public"
-    ];
-    Quiet @ DeleteObject[CloudObject["MarkdownToNotebook.html"]];
-    print["  reader (.md): ", First[reader], " (renders the original markdown)"];
-    print["  source zip:   ", zipUrl]
+    deployed = UsingFrontEnd @ DefinitionNotebookClient`DeployResource["Function", File[outNb], "CloudPublic"];
+    print["  deployed: ", Replace[deployed, ro_ResourceObject :> ro["DocumentationLink"]] ]
     ,
-    print["  skipped:      not cloud-connected (run CloudConnect[] first)"]
+    print["  skipped:  not cloud-connected (run CloudConnect[] first)"]
 ]
 
-print["bootstrap: done"]
+(* The source (.md + .wl) lives on GitHub, which renders the markdown directly:
+   https://github.com/sw1sh/MarkdownToNotebook . Submit outNb with the docked
+   Submit button (or ResourceSubmit) to publish to the Function Repository. *)
+print["build: done (source: github.com/sw1sh/MarkdownToNotebook)"]

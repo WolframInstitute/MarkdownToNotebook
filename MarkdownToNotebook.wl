@@ -1036,7 +1036,11 @@ resourceNotebook[resourceType_String, data0_] := Block[{template, data = Append[
         rawSlotValue[n, {o}, data["meta"]];
     (* ReplaceRepeated: some slots (e.g. the Compatibility group) nest sub-slots
        inside their DefaultValue, which a single pass would not reach. *)
-    template //. TemplateSlot[n_, o___] :> Sequence @@ fillSlot[n, {o}, data]
+    template = template //. TemplateSlot[n_, o___] :> Sequence @@ fillSlot[n, {o}, data];
+    (* collapse the Definition section by default - the inlined source can be long.
+       The section header is a "Section" cell tagged "Definition". *)
+    template /. Cell[CellGroupData[{hdr : Cell[_, "Section", ___, CellTags -> {___, "Definition", ___}, ___], body___}, Open], go___] :>
+        Cell[CellGroupData[{hdr, body}, Closed], go]
 ]
 
 buildNotebook["FunctionResource", data_] := resourceNotebook["Function", data]

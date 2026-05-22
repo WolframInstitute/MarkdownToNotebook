@@ -33,9 +33,16 @@ contents of that local file or URL, resolved relative to this document.
 
 A single template registry drives the layout. `FunctionResource` fills the slots of the official `FunctionResourceDefinition.nb` template (preserving its docked Deploy/Submit toolbar); `Symbol` and `Guide` fill the DocumentationTools authoring templates (`ObjectName`/`Usage`/`Examples`, `GuideTitle`/`GuideAbstract` and so on); and `Default` maps headings and code directly to standard notebook styles. The frontmatter keys mirror each template's metadata, so the author never writes cell styles.
 
-Read this document rendered online: [wolframcloud.com/obj/nikm/MarkdownToNotebook.md](https://www.wolframcloud.com/obj/nikm/MarkdownToNotebook.md), a self-contained page (the bootstrap deploys it) that renders this markdown with marked.js and offers a button to download the raw source (`.md` + `.wl`) as a zip; no third-party viewer and no cross-origin fetch.
+This document and its `.wl` implementation live on GitHub, which renders the
+markdown directly: [github.com/sw1sh/MarkdownToNotebook](https://github.com/sw1sh/MarkdownToNotebook).
 
-To regenerate the definition notebook from that zip: extract `MarkdownToNotebook.md` and `MarkdownToNotebook.wl` into the same folder, evaluate `Get["MarkdownToNotebook.wl"]` to define the function, then `MarkdownToNotebook["MarkdownToNotebook.md"]`. The `#| file:` include in the Definition section pulls the code back in from the `.wl`, the example cells are evaluated and cached, and the `FunctionResource` template is filled, writing `MarkdownToNotebook.nb`. The whole loop (define from markdown, convert, publish) is what `bootstrap.wls` runs.
+To regenerate the definition notebook: get `MarkdownToNotebook.md` and
+`MarkdownToNotebook.wl` from the repository, evaluate `Get["MarkdownToNotebook.wl"]`
+to define the function, then `MarkdownToNotebook["MarkdownToNotebook.md"]`. The
+`#| file:` include in the Definition section pulls the code back in from the
+`.wl`, the example cells are evaluated and cached, and the `FunctionResource`
+template is filled, writing `MarkdownToNotebook.nb`. The whole loop (define from
+markdown, convert, publish) is what `bootstrap.wls` runs.
 
 ## Usage
 
