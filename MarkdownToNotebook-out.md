@@ -27,8 +27,9 @@ The implementation lives in a separate `.wl` file so it has full IDE and lint su
 - The layout is the document's own `Template` frontmatter key — `FunctionResource`, `Symbol`, `Guide`, `TechNote`, `Paclet`, or `Default` — so the source declares its own layout.
 - `FunctionResource` fills the official `FunctionResourceDefinition.nb` template (keeping its docked Deploy/Submit toolbar); `Symbol` and `Guide` fill the DocumentationTools authoring templates; `Default` maps headings and code to standard notebook styles.
 - The frontmatter keys mirror each template's metadata, so the author never writes cell styles.
-- The optional second argument selects the result: omitted (or `"Notebook"`) returns the `Notebook`, `"Association"` returns the parsed structure, and a file name writes the notebook to that file. The function itself takes no options.
-- Individual code cells carry `#|` options instead — `eval`, `file`, `screenshot`, `background` — documented under Scope.
+- The optional second argument selects the result: omitted (or `"Notebook"`) returns the `Notebook`, `"Association"` returns the parsed structure, a `.nb` file name writes the notebook, and a `.md` file name writes a *markdown twin* — the same document with every evaluated output rasterized to an image beside it. The function itself takes no options.
+- A `Flag` frontmatter key flags the whole document and a code cell's `#| flag:` option flags that cell, with one of the documentation build's flags — `Future`, `Excised`, `Obsolete`, `Temporary`, `Preview`, or `Internal` — the front end's Futurize / Excise toolbar buttons, written as the build's banner cell.
+- Individual code cells carry `#|` options instead — `eval`, `file`, `screenshot`, `background`, `flag` — documented under Scope.
 - Evaluated example outputs are cached as a `PersistentSymbol` per cell at the `"Local"` `PersistenceLocation`, keyed by a cumulative hash of the preceding cells, so re-runs reuse them across sessions.
 - Manage that cache the standard way: `PersistentObjects["MarkdownToNotebook/ExampleOutput/*", "Local"]` lists it, `DeleteObject` clears it, and `$PersistencePath` / `PersistenceLocation` relocate it.
 - The source lives on GitHub, which renders the markdown directly: [github.com/sw1sh/MarkdownToNotebook](https://github.com/sw1sh/MarkdownToNotebook).
@@ -40,7 +41,7 @@ The implementation lives in a separate `.wl` file so it has full IDE and lint su
 
 `MarkdownToNotebook[source, "Association"]` returns the parsed structure as an `Association` instead of the notebook.
 
-`MarkdownToNotebook[source, file]` writes the notebook to *file* and returns the file.
+`MarkdownToNotebook[source, file]` writes the notebook to *file* and returns the file; a `.md` *file* instead writes a markdown twin of the document with each evaluated output rasterized beside it.
 
 ## Basic Examples
 
@@ -164,13 +165,33 @@ A `"papertear"` title — `![alt](path "papertear")` — additionally applies th
 
 ### Returning a notebook, an association, or a file
 
-Omitted (or `"Notebook"`) returns the `Notebook`; `"Association"` returns the parsed structure for inspection; any other string writes the notebook to that file and returns it. The whole association exposes the notebook, the metadata, the section list, and the chosen template:
+Omitted (or `"Notebook"`) returns the `Notebook`; `"Association"` returns the parsed structure for inspection; a `.nb` file name writes the notebook and returns it. The whole association exposes the notebook, the metadata, the section list, and the chosen template:
 
 ```wl
 MarkdownToNotebook["---\nName: Demo\nKeywords: [alpha, beta]\n---\n# Demo", "Association"]
 ```
 
 ![output](images/MarkdownToNotebook-out-11.png)
+
+### Writing a markdown twin
+
+A `.md` file name writes a GitHub-renderable *twin* of the document — the same prose and code, but with each evaluated output rasterized to a PNG beside it (under an `images/` folder next to the target). This very repository's [`MarkdownToNotebook-out.md`](MarkdownToNotebook-out.md) is the twin of this document, produced this way. Here a small literate doc is converted to a twin and the resulting markdown read back, showing the output image spliced in after its code cell:
+
+```wl
+Module[{dir = CreateDirectory[]}, MarkdownToNotebook["## Squares\n\n```wl\nRange[5]^2\n```", FileNameJoin[{dir, "twin.md"}]]; Import[FileNameJoin[{dir, "twin.md"}], "Text"]]
+```
+
+![output](images/MarkdownToNotebook-out-12.png)
+
+### Flagging a document or cell
+
+The documentation build's *flags* — the front end's Futurize / Excise toolbar buttons — mark a page or cell as `Future`, `Excised`, `Obsolete`, `Temporary`, `Preview`, or `Internal`. A `Flag` frontmatter key flags the whole document; a code cell's `#| flag:` option flags that one cell. Each becomes the build's banner cell, here pulled back out of a flagged document:
+
+```wl
+Cases[MarkdownToNotebook["---\nFlag: Future\n---\n# Demo\n\ntext"], Cell[_, style_String /; StringEndsQ[style, "Flag"], ___], Infinity]
+```
+
+![output](images/MarkdownToNotebook-out-13.png)
 
 ## Applications
 
@@ -182,7 +203,7 @@ Generate a paclet's entire documentation set, the guide page, the symbol referen
 MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/AccessibleColors/main/docs/Guides/AccessibleColors.md"]
 ```
 
-![output](images/MarkdownToNotebook-out-12.png)
+![output](images/MarkdownToNotebook-out-14.png)
 
 ## Properties and Relations
 
@@ -192,7 +213,7 @@ The Wolfram Language already reads markdown into a plain notebook — `Import["d
 ImportString["# Title\n\nText with inline math $\\sin x$.", {"Markdown", "Notebook"}]
 ```
 
-![output](images/MarkdownToNotebook-out-13.png)
+![output](images/MarkdownToNotebook-out-15.png)
 
 `FunctionResource` then fills the same template `CreateNotebook["FunctionResource"]` opens (publishable with `ResourceSubmit`), and `Symbol`/`Guide` fill the DocumentationTools templates `DocumentationBuild` turns into reference pages.
 
@@ -204,7 +225,7 @@ A string that is neither a URL nor an existing file is treated as raw markdown, 
 MarkdownToNotebook["nonexistent.md", "Association"]["Sections"]
 ```
 
-![output](images/MarkdownToNotebook-out-14.png)
+![output](images/MarkdownToNotebook-out-16.png)
 
 ## Neat Examples
 
@@ -216,6 +237,6 @@ A literate document — prose, inline math, and a live computation — converts 
 MarkdownToNotebook["# A sine wave\n\nThe plot of $\\sin x$ over one period:\n\n```wl\nPlot[Sin[x], {x, 0, 2 Pi}]\n```\n\nIts mean value is zero."]
 ```
 
-![output](images/MarkdownToNotebook-out-15.png)
+![output](images/MarkdownToNotebook-out-17.png)
 
 Because this very document is itself such a literate source — its `## Definition` inlines `MarkdownToNotebook.wl` and its frontmatter is the resource metadata — running the function on it reproduces this definition notebook, so the function publishes itself.

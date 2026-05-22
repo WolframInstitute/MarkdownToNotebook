@@ -470,6 +470,46 @@ exampleIO[code_String, outBoxes_, n_Integer, outOpts_List : {}] := Block[{
     ]
 ]
 
+(* a documentation *flag* - the front end's Futurize / Excise / ... toolbar
+   buttons, which mark a page or cell for the doc build (DocumentationBuild reads
+   these flag-styled banner cells to include, hide, or defer content). A
+   document-level flag is the "Flag" frontmatter key; a per-cell flag is a code
+   cell's "#| flag: ..." option. The value is a friendly name mapped to the build's
+   flag cell style and its spaced-out banner text. *)
+$flagStyles = <|
+    "future" -> "FutureFlag", "futurize" -> "FutureFlag",
+    "excised" -> "ExcisedFlag", "excise" -> "ExcisedFlag",
+    "obsolete" -> "ObsoleteFlag",
+    "temporary" -> "TemporaryFlag",
+    "preview" -> "PreviewFlag",
+    "internal" -> "InternalFlag"
+|>
+$flagBanners = <|
+    "FutureFlag" -> "F  U  T  U  R  E",
+    "ExcisedFlag" -> "E  X  C  I  S  E  D",
+    "ObsoleteFlag" -> "O  B  S  O  L  E  T  E",
+    "TemporaryFlag" -> "T  E  M  P  O  R  A  R  Y",
+    "PreviewFlag" -> "P  R  E  V  I  E  W",
+    "InternalFlag" -> "I  N  T  E  R  N  A  L"
+|>
+flagCell[v_String] := With[{s = Lookup[$flagStyles, ToLowerCase[StringTrim[v]], None]},
+    If[s === None, Nothing, Cell[$flagBanners[s], s]]]
+flagCell[_] := Nothing
+
+(* prefix a list of cells with the block's per-cell flag banner ("#| flag: ...") *)
+withCellFlag[block_, cells_List] := With[{f = flagCell[Lookup[block["Options"], "flag", ""]]},
+    If[f === Nothing, cells, Prepend[cells, f]]]
+
+(* an example's cells (Input / Output), prefixed with its per-cell flag banner *)
+exampleIOFor[block_, n_Integer] :=
+    withCellFlag[block, exampleIO[block["Code"], block["OutputBoxes"], n, extraOutputOpts[block]]]
+
+(* a document-level flag banner ("Flag" frontmatter) prepended to the notebook *)
+applyDocFlag[nb_, ""] := nb
+applyDocFlag[Notebook[cells_, o___], v_String] := With[{f = flagCell[v]},
+    If[f === Nothing, Notebook[cells, o], Notebook[Prepend[cells, f], o]]]
+applyDocFlag[nb_, _] := nb
+
 functionSlot[opts_, defCode_String] := If[ defCode === "",
     slotDefault[opts],
     {Cell[BoxData[defCode], "Code", CellTags -> {"Function"}, InitializationCell -> True]}
@@ -579,7 +619,7 @@ exampleContent[sectionBlocks_, textStyle_String] := Block[{counter = 0, out = {}
             block["Type"] === "Image",
                 AppendTo[out, imageCell[block]],
             executableQ[block],
-                counter += 1; out = Join[out, exampleIO[block["Code"], block["OutputBoxes"], counter, extraOutputOpts[block]]]
+                counter += 1; out = Join[out, exampleIOFor[block, counter]]
         ],
         {block, sectionBlocks}
     ];
@@ -901,7 +941,7 @@ imageCell[block_] := Cell[BoxData[ToBoxes @ block["Image"]], "Text",
 
 docExampleCells[sections_] := Block[{cells = sectionCells[sections, "basic examples"], counter = 0},
     Catenate @ Map[
-        block |-> (counter += 1; exampleIO[block["Code"], block["OutputBoxes"], counter, extraOutputOpts[block]]),
+        block |-> (counter += 1; exampleIOFor[block, counter]),
         cells
     ]
 ]
@@ -1103,7 +1143,7 @@ tutorialBody[blocks_] := Block[{counter = 0},
             "List", Map[Cell[TextData @ inlineTextData[#], "Item"] &, block["Items"]],
             "Table", {tableCell[block]},
             "Image", {imageCell[block]},
-            "Code", If[executableQ[block], (counter += 1; exampleIO[block["Code"], block["OutputBoxes"], counter, extraOutputOpts[block]]), {Cell[block["Code"], "Program"]}],
+            "Code", If[executableQ[block], (counter += 1; exampleIOFor[block, counter]), withCellFlag[block, {Cell[block["Code"], "Program"]}]],
             _, {}
         ],
         blocks
@@ -1150,8 +1190,8 @@ defaultNotebook[data_] := Block[{counter = 0, cells},
             "Image", {imageCell[block]},
             "Code",
                 If[ executableQ[block],
-                    (counter += 1; exampleIO[block["Code"], block["OutputBoxes"], counter, extraOutputOpts[block]]),
-                    {Cell[block["Code"], "Program"]}
+                    (counter += 1; exampleIOFor[block, counter]),
+                    withCellFlag[block, {Cell[block["Code"], "Program"]}]
                 ],
             _, {}
         ],
@@ -1338,7 +1378,7 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic)] := Block[{
     sections = sectionsFrom[blocks];
     defCode = StringRiffle[#["Code"] & /@ sectionCells[sections, "definition"], "\n\n"];
     data = <|"meta" -> meta, "blocks" -> blocks, "sections" -> sections, "defCode" -> defCode|>;
-    filled = buildNotebook[tmplName, data];
+    filled = applyDocFlag[buildNotebook[tmplName, data], Lookup[meta, "Flag", ""]];
 
     Which[
         spec === Automatic || spec === "Notebook", filled,
