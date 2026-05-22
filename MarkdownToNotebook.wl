@@ -452,9 +452,27 @@ inputBoxes[code_String] := Block[{boxes, parsed},
    "#| background: papertear" sets BackgroundAppearance -> "PaperTear", the cell
    option the front end's Convert To > Paper Tear menu item toggles - a torn-paper
    edge, used to make a generated-notebook screenshot look like a screenshot. *)
+(* "#| background: papertear" gives an output cell the front end's torn-paper
+   appearance. The tear only shows once the cell is height-constrained, so pair it
+   with a CellSize; "#| tear: h" sets that visible height in points (smaller tears
+   more off). A tear option implies papertear. *)
+$defaultTearHeight = 200
+
+tearHeight[block_] := With[{v = Lookup[block["Options"], "tear", Missing[]]},
+    Which[
+        NumberQ[v], v,
+        StringQ[v] && NumberQ[Quiet @ ToExpression[v]], ToExpression[v],
+        True, $defaultTearHeight
+    ]
+]
+
+paperTearQ[block_] :=
+    ToLowerCase[StringTrim @ Lookup[block["Options"], "background", ""]] === "papertear" ||
+    KeyExistsQ[block["Options"], "tear"]
+
 extraOutputOpts[block_] := If[
-    ToLowerCase[StringTrim @ Lookup[block["Options"], "background", ""]] === "papertear",
-    {BackgroundAppearance -> "PaperTear"},
+    paperTearQ[block],
+    {BackgroundAppearance -> "PaperTear", CellSize -> {Automatic, tearHeight[block]}},
     {}
 ]
 
@@ -1301,7 +1319,7 @@ markdownWithImages[blocks_, meta_, target_String] := Block[{dir, base, imgDir, n
             n += 1; imgFile = base <> "-" <> ToString[n] <> ".png";
             Quiet @ Export[FileNameJoin[{imgDir, imgFile}],
                 UsingFrontEnd @ Rasterize[
-                    Notebook[{Cell[BoxData[b["OutputBoxes"]], "Output"]}, LightDark -> $lightDark, StyleDefinitions -> "Default.nb"],
+                    Notebook[{Cell[BoxData[b["OutputBoxes"]], "Output", Sequence @@ extraOutputOpts[b]]}, LightDark -> $lightDark, StyleDefinitions -> "Default.nb"],
                     ImageResolution -> 96]];
             fence <> "\n\n![output](images/" <> imgFile <> ")",
             fence

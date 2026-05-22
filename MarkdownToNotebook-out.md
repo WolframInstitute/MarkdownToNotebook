@@ -29,7 +29,7 @@ The implementation lives in a separate `.wl` file so it has full IDE and lint su
 - The frontmatter keys mirror each template's metadata, so the author never writes cell styles.
 - The optional second argument selects the result: omitted (or `"Notebook"`) returns the `Notebook`, `"Association"` returns the parsed structure, a `.nb` file name writes the notebook, and a `.md` file name writes a *markdown twin* - the same document with every evaluated output rasterized to an image beside it. The function itself takes no options.
 - A `Flag` frontmatter key flags the whole document and a code cell's `#| flag:` option flags that cell, with one of the documentation build's flags - `Future`, `Excised`, `Obsolete`, `Temporary`, `Preview`, or `Internal` - the front end's Futurize / Excise toolbar buttons, written as the build's banner cell.
-- Individual code cells carry `#|` options instead - `eval`, `file`, `screenshot`, `background`, `flag` - documented under Scope.
+- Individual code cells carry `#|` options instead - `eval`, `file`, `screenshot`, `background`, `tear`, `flag` - documented under Scope.
 - Evaluated example outputs are cached as a `PersistentSymbol` per cell at the `"Local"` `PersistenceLocation`, keyed by a cumulative hash of the preceding cells, so re-runs reuse them across sessions.
 - Manage that cache the standard way: `PersistentObjects["MarkdownToNotebook/ExampleOutput/*", "Local"]` lists it, `DeleteObject` clears it, and `$PersistencePath` / `PersistenceLocation` relocate it.
 - The source lives on GitHub, which renders the markdown directly: [github.com/sw1sh/MarkdownToNotebook](https://github.com/sw1sh/MarkdownToNotebook).
@@ -195,11 +195,12 @@ Cases[MarkdownToNotebook["---\nFlag: Future\n---\n# Demo\n\ntext"], Cell[_, styl
 
 ## Applications
 
-Generate a paclet's entire documentation set, the guide page, the symbol reference pages, and a publishable Function Repository definition, from plain markdown, so authors never edit notebook cell styles by hand. The published [Wolfram/AccessibleColors](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/AccessibleColors/) paclet is built this way end to end. Here its guide page is converted straight from the markdown on GitHub; the `#| screenshot: true` cell option rasterizes the produced notebook and `#| background: papertear` gives it a torn-paper screenshot look:
+Generate a paclet's entire documentation set, the guide page, the symbol reference pages, and a publishable Function Repository definition, from plain markdown, so authors never edit notebook cell styles by hand. The published [Wolfram/AccessibleColors](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/AccessibleColors/) paclet is built this way end to end. Here its guide page is converted straight from the markdown on [GitHub](https://github.com/sw1sh/AccessibleColors); the `#| screenshot: true` cell option rasterizes the produced notebook, `#| background: papertear` gives it a torn-paper screenshot look, and `#| tear: 150` sets how much of the output stays visible above the tear:
 
 ```wl
 #| screenshot: True
 #| background: papertear
+#| tear: 150
 MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/AccessibleColors/main/docs/Guides/AccessibleColors.md"]
 ```
 
@@ -229,11 +230,12 @@ MarkdownToNotebook["nonexistent.md", "Association"]["Sections"]
 
 ## Neat Examples
 
-A literate document - prose, inline math, and a live computation - converts into a notebook with the evaluated result rendered inline, shown here as a torn-paper screenshot (`#| screenshot: true` rasterizes, `#| background: papertear` tears):
+A literate document - prose, inline math, and a live computation - converts into a notebook with the evaluated result rendered inline, shown here as a torn-paper screenshot (`#| screenshot: true` rasterizes, `#| background: papertear` tears, `#| tear: 150` keeps the top 150 points above the tear):
 
 ```wl
 #| screenshot: True
 #| background: papertear
+#| tear: 150
 MarkdownToNotebook["# A sine wave\n\nThe plot of $\\sin x$ over one period:\n\n```wl\nPlot[Sin[x], {x, 0, 2 Pi}]\n```\n\nIts mean value is zero."]
 ```
 
