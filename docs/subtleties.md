@@ -119,6 +119,25 @@ would put a bare ` ``` ` at the start of a line, which both the fence splitter a
 GitHub read as a *closing* fence; a mid-line ` ``` ` inside a string literal is
 safe because fence detection only triggers at the start of a line.
 
+### "Paper Tear" is a cell option, not an image effect
+The front end's Convert To ▸ Paper Tear menu item runs `FE`PaperTearToggle[]`,
+which just sets the cell option `BackgroundAppearance -> "PaperTear"` (read the
+menu code in `…/SystemFiles/FrontEnd/TextResources/ContextMenus.tr` and
+`GetFEKernelInit.tr`). It is **not** `ImageEffect[…, "TornFrame"]` (a different,
+unrelated framing effect). So apply it by adding `BackgroundAppearance ->
+"PaperTear"` to the Output/image cell, not by transforming the image.
+
+### The resource Definition cell is `"Code"` + `InitializationCell -> True`
+The inlined function definition goes in a `Cell[BoxData[code], "Code",
+InitializationCell -> True, CellTags -> {"Function"}]` - a Code cell that runs on
+load - not a plain `"Input"` cell.
+
+### Markdown images resolve at the document base
+`![alt](path)` and `![alt](path "papertear")` import the image (file or URL)
+relative to the document, so resolve them in `resolveBlock` (which knows the base),
+like a `#| file:` include - not in `inlineTextData`, which has no base. A
+`"papertear"` title adds the `BackgroundAppearance -> "PaperTear"` cell option.
+
 ### The example section "Options" is for real options only
 A reference page's `## Options` section documents function *options*, one
 `### "Name"` subsubsection each. If the function has none, do not repurpose it -

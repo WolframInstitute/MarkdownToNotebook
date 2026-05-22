@@ -153,6 +153,22 @@ tableSplit[lines_List, collected_] := If[ tableRowLineQ[First[lines]],
     {Reverse[collected], lines}
 ]
 
+(* markdown image on its own line: ![alt](path) or ![alt](path "effect"). The
+   optional title is read as an effect keyword - "papertear" applies the front
+   end's Paper Tear background to the inlined image's cell. *)
+imageLineQ[line_String] := StringMatchQ[StringTrim[line], "![" ~~ ___ ~~ "](" ~~ ___ ~~ ")"]
+
+parseImageTarget[rest_String] := Block[{
+    m = StringCases[StringTrim[rest],
+        StartOfString ~~ p : Shortest[Except["\""] ..] ~~ "\"" ~~ t : Shortest[___] ~~ "\"" ~~ EndOfString :> {StringTrim[p], t}, 1]
+},
+    If[m === {}, {StringTrim[rest], ""}, First[m]]
+]
+
+imageBlock[line_String] := First @ StringCases[StringTrim[line],
+    "![" ~~ alt : Shortest[Except["]"] ...] ~~ "](" ~~ rest : Shortest[Except[")"] ..] ~~ ")" :>
+        With[{pt = parseImageTarget[rest]}, <|"Type" -> "Image", "Alt" -> alt, "Path" -> First[pt], "Effect" -> Last[pt]|>]]
+
 blockLoop[{}, acc_] := Reverse[acc]
 blockLoop[lines_List, acc_] := Block[{line = First[lines], rest = Rest[lines], split},
     Which[
@@ -165,6 +181,9 @@ blockLoop[lines_List, acc_] := Block[{line = First[lines], rest = Rest[lines], s
         ,
         headingQ[line],
             blockLoop[rest, Prepend[acc, headingBlock[line]]]
+        ,
+        imageLineQ[line],
+            blockLoop[rest, Prepend[acc, imageBlock[line]]]
         ,
         tableRowLineQ[line] && rest =!= {} && tableSepQ[First[rest]],
             split = tableSplit[lines, {}];
@@ -215,11 +234,15 @@ resolveSource[input_String] := Which[
 ]
 
 (* a code cell carrying a "file" option inlines that file's contents as its
-   body, resolved (file or URL) relative to the document. *)
-resolveBlock[b_Association, base_String] := If[
+   body, resolved (file or URL) relative to the document; a markdown image block
+   imports its image (file or URL) relative to the document. Both resolutions
+   happen here because the document base is known. *)
+resolveBlock[b_Association, base_String] := Which[
     b["Type"] === "Code" && KeyExistsQ[b["Options"], "file"],
-    Append[b, "Code" -> Import[joinSource[base, b["Options"]["file"]], "Text"]],
-    b
+        Append[b, "Code" -> Import[joinSource[base, b["Options"]["file"]], "Text"]],
+    b["Type"] === "Image",
+        Append[b, "Image" -> Quiet @ Import[joinSource[base, b["Path"]]]],
+    True, b
 ]
 
 resolveIncludes[blocks_List, base_String] := Map[resolveBlock[#, base] &, blocks]
@@ -401,21 +424,31 @@ inputBoxes[code_String] := Block[{boxes, parsed},
     ]
 ]
 
-exampleIO[code_String, outBoxes_, n_Integer] := Block[{
+(* extra options for an example's Output cell, from the code cell's "#|" options.
+   "#| background: papertear" sets BackgroundAppearance -> "PaperTear", the cell
+   option the front end's Convert To > Paper Tear menu item toggles - a torn-paper
+   edge, used to make a generated-notebook screenshot look like a screenshot. *)
+extraOutputOpts[block_] := If[
+    ToLowerCase[StringTrim @ Lookup[block["Options"], "background", ""]] === "papertear",
+    {BackgroundAppearance -> "PaperTear"},
+    {}
+]
+
+exampleIO[code_String, outBoxes_, n_Integer, outOpts_List : {}] := Block[{
     inCell = Cell[BoxData[inputBoxes[code]], "Input", CellLabel -> "In[" <> ToString[n] <> "]:= "]
 },
     If[ MissingQ[outBoxes] || outBoxes === Null,
         {inCell},
         {Cell[CellGroupData[{
             inCell,
-            Cell[BoxData[outBoxes], "Output", CellLabel -> "Out[" <> ToString[n] <> "]= "]
+            Cell[BoxData[outBoxes], "Output", CellLabel -> "Out[" <> ToString[n] <> "]= ", Sequence @@ outOpts]
         }, Open]]}
     ]
 ]
 
 functionSlot[opts_, defCode_String] := If[ defCode === "",
     slotDefault[opts],
-    {Cell[BoxData[defCode], "Input", CellTags -> {"Function"}]}
+    {Cell[BoxData[defCode], "Code", CellTags -> {"Function"}, InitializationCell -> True]}
 ]
 
 (* a Usage section is a sequence of usage statements, one per prose paragraph
@@ -521,8 +554,10 @@ exampleContent[sectionBlocks_, textStyle_String] := Block[{counter = 0, started 
                 started = True,
             block["Type"] === "Table",
                 AppendTo[out, tableCell[block]]; started = True,
+            block["Type"] === "Image",
+                AppendTo[out, imageCell[block]]; started = True,
             executableQ[block],
-                counter += 1; out = Join[out, exampleIO[block["Code"], block["OutputBoxes"], counter]]; started = True
+                counter += 1; out = Join[out, exampleIO[block["Code"], block["OutputBoxes"], counter, extraOutputOpts[block]]]; started = True
         ],
         {block, sectionBlocks}
     ];
@@ -829,9 +864,14 @@ tableCell[block_] := Block[{ncol = Length[block["Header"]], rows},
     ]], "Text"]
 ]
 
+(* an inlined markdown image (![alt](path)) -> an image cell. A "papertear" effect
+   applies the front end's Paper Tear background to the cell. *)
+imageCell[block_] := Cell[BoxData[ToBoxes @ block["Image"]], "Text",
+    Sequence @@ If[ToLowerCase[Lookup[block, "Effect", ""]] === "papertear", {BackgroundAppearance -> "PaperTear"}, {}]]
+
 docExampleCells[sections_] := Block[{cells = sectionCells[sections, "basic examples"], counter = 0},
     Catenate @ Map[
-        block |-> (counter += 1; exampleIO[block["Code"], block["OutputBoxes"], counter]),
+        block |-> (counter += 1; exampleIO[block["Code"], block["OutputBoxes"], counter, extraOutputOpts[block]]),
         cells
     ]
 ]
@@ -1032,7 +1072,8 @@ tutorialBody[blocks_] := Block[{counter = 0},
             "Prose", {Cell[TextData @ inlineTextData[block["Text"]], "Text"]},
             "List", Map[Cell[TextData @ inlineTextData[#], "Item"] &, block["Items"]],
             "Table", {tableCell[block]},
-            "Code", If[executableQ[block], (counter += 1; exampleIO[block["Code"], block["OutputBoxes"], counter]), {Cell[block["Code"], "Program"]}],
+            "Image", {imageCell[block]},
+            "Code", If[executableQ[block], (counter += 1; exampleIO[block["Code"], block["OutputBoxes"], counter, extraOutputOpts[block]]), {Cell[block["Code"], "Program"]}],
             _, {}
         ],
         blocks
@@ -1076,9 +1117,10 @@ defaultNotebook[data_] := Block[{counter = 0, cells},
             "Prose", {Cell[TextData @ inlineTextData[block["Text"]], "Text"]},
             "List", Map[Cell[TextData @ inlineTextData[#], "Item"] &, block["Items"]],
             "Table", {tableCell[block]},
+            "Image", {imageCell[block]},
             "Code",
                 If[ executableQ[block],
-                    (counter += 1; exampleIO[block["Code"], block["OutputBoxes"], counter]),
+                    (counter += 1; exampleIO[block["Code"], block["OutputBoxes"], counter, extraOutputOpts[block]]),
                     {Cell[block["Code"], "Program"]}
                 ],
             _, {}

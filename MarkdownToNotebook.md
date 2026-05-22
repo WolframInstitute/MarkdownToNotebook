@@ -73,6 +73,14 @@ NotebookPut[MarkdownToNotebook["# Notes\n\nA *key* idea, with inline `code`:\n\n
 
 The *source* is a file path, an `http(s)` URL, or a raw string, and the layout comes from the `Template` frontmatter key. The subsections below cover the markdown the converter understands and the results it returns.
 
+### Frontmatter
+
+A `---`-delimited block at the very top of the document is the *frontmatter*: `key: value` lines (a YAML-ish header) that carry the resource metadata — the `Name`, `Description`, `Template`, `Keywords`, and so on. Everything below it is content. Read the parsed metadata back with `"Association"`:
+
+```wl
+MarkdownToNotebook["---\nName: Demo\nTemplate: Default\nKeywords: [alpha, beta]\n---\n# Demo\n\ntext", "Association"]["Metadata"]
+```
+
 ### Headings and prose
 
 `#` becomes a `Title`, `##` a `Section`, `###` a `Subsection`; blank-line-separated paragraphs become `Text`:
@@ -115,23 +123,42 @@ NotebookPut[MarkdownToNotebook["```wl\nRange[5]^2\n```"]]
 
 ### Inlining a file
 
-A code cell whose first line is `#| file: path` is replaced by the contents of that local file or URL, resolved relative to the source — the mechanism the Definition section above uses to pull in `MarkdownToNotebook.wl`.
+A code cell whose first line is `#| file: path` is replaced by the contents of that local file or URL, resolved relative to the source — the mechanism the Definition section above uses to pull in `MarkdownToNotebook.wl`. Here a snippet written to disk is inlined and evaluated:
+
+```wl
+Export[FileNameJoin[{$TemporaryDirectory, "snippet.wl"}], "Range[5]^2", "Text"]; NotebookPut[MarkdownToNotebook[Export[FileNameJoin[{$TemporaryDirectory, "inc.md"}], "## Inlined\n\n```wl\n#| file: snippet.wl\n```", "Text"]]]
+```
+
+### Inlining an image
+
+A markdown image `![alt](path)` inlines the image (a local file or URL, resolved relative to the source). A title makes it the front end's Convert To ▸ Paper Tear effect — `![alt](path "papertear")` gives a torn-paper screenshot look:
+
+![A generated guide page](docs/images/guide-page.png "papertear")
 
 ### Returning a notebook, an association, or a file
 
-Omitted (or `"Notebook"`) returns the `Notebook`; `"Association"` returns the parsed structure for inspection; any other string writes the notebook to that file and returns it:
+Omitted (or `"Notebook"`) returns the `Notebook`; `"Association"` returns the parsed structure for inspection; any other string writes the notebook to that file and returns it. The whole association exposes the notebook, the metadata, the section list, and the chosen template:
 
 ```wl
-MarkdownToNotebook["---\nName: Demo\nKeywords: [alpha, beta]\n---\n# Demo", "Association"]["Metadata"]
+MarkdownToNotebook["---\nName: Demo\nKeywords: [alpha, beta]\n---\n# Demo", "Association"]
 ```
 
 ## Applications
 
-Generate a paclet's entire documentation set, the guide page, the symbol reference pages, and a publishable Function Repository definition, from plain markdown, so authors never edit notebook cell styles by hand. The published [Wolfram/AccessibleColors](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/AccessibleColors/) paclet is built this way end to end: its guide, four symbol reference pages, a tutorial, and the Paclet Repository definition notebook all come from the markdown in its `docs/` folder.
+Generate a paclet's entire documentation set, the guide page, the symbol reference pages, and a publishable Function Repository definition, from plain markdown, so authors never edit notebook cell styles by hand. The published [Wolfram/AccessibleColors](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/AccessibleColors/) paclet is built this way end to end: its guide, four symbol reference pages, a tutorial, and the Paclet Repository definition notebook all come from the markdown in its `docs/` folder. Here a markdown source becomes a notebook, shown as a torn-paper screenshot:
+
+```wl
+#| background: papertear
+Rasterize[MarkdownToNotebook["# Accessible Colors\n\nA *guide* with inline `WCAGContrastRatio` and a list:\n\n- contrast ratios\n- conformance levels"]]
+```
 
 ## Properties and Relations
 
-`FunctionResource` fills the same template that `CreateNotebook["FunctionResource"]` opens in the front end, and the result is a `ResourceObject` definition notebook ready for `ResourceSubmit`. `Symbol` and `Guide` fill the DocumentationTools authoring templates that `DocumentationBuild` turns into reference pages.
+`FunctionResource` fills the same template that `CreateNotebook["FunctionResource"]` opens in the front end, and the result is a `ResourceObject` definition notebook ready for `ResourceSubmit`. `Symbol` and `Guide` fill the DocumentationTools authoring templates that `DocumentationBuild` turns into reference pages. The layout always comes from the source's own frontmatter, which `"Association"` reports back:
+
+```wl
+MarkdownToNotebook["---\nTemplate: FunctionResource\n---\n# F\n\ntext", "Association"]["Template"]
+```
 
 ## Possible Issues
 
@@ -143,8 +170,11 @@ MarkdownToNotebook["nonexistent.md", "Association"]["Sections"]
 
 ## Neat Examples
 
-The `Template` frontmatter key alone switches the layout, so the same converter and source style yield a guide, a symbol page, or a plain notebook. Here the key selects the layout reported back:
+A literate document — prose, inline math, and a live computation — converts into a notebook with the evaluated result rendered inline. Shown here as a torn-paper screenshot of the generated notebook:
 
 ```wl
-MarkdownToNotebook["---\nTemplate: Guide\n---\n# Demo\n\ntext", "Association"]["Template"]
+#| background: papertear
+Rasterize[MarkdownToNotebook["# A sine wave\n\nThe plot of $Sin[x]$ over one period:\n\n```wl\nPlot[Sin[x], {x, 0, 2 Pi}]\n```\n\nIts mean value is zero."]]
 ```
+
+Because this very document is itself such a literate source — its `## Definition` inlines `MarkdownToNotebook.wl` and its frontmatter is the resource metadata — running the function on it reproduces this definition notebook, so the function publishes itself.
