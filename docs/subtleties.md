@@ -125,22 +125,24 @@ links. So: use `ParseTextTemplate` only for the `UsageInputs` cells (pure
 signatures, no strings), and parse prose `` `code` `` literally with
 `ReparseBoxStructurePacket` (preserves strings, adds no italics or links).
 
-### Symbol linking is annotated, not inferred from bare `code`
-Auto-linking every recognized symbol inside backticks is noise (and double-wraps:
-`ParseTextTemplate` links a System symbol, then a re-link pass wraps it again into
-`ButtonBox[ButtonBox[…]]`). So inline `` `code` `` is **never** linked; the author
-asks for a link with a markdown-link annotation, and the URL can be left implicit:
+### Linking only ever happens on backticked content
+Auto-linking every recognized symbol is noise (and double-wraps: `ParseTextTemplate`
+links a System symbol, then a re-link pass wraps it again into
+`ButtonBox[ButtonBox[…]]`). So inline `` `code` `` is **never** linked, and a link
+only ever applies to backticked content:
 
-- `[Notebook]` - an empty link (brackets, no `(url)`) - infers the ref URL from
-  the name (paclet context → `paclet:Pub/Name/ref/Name`, System → `paclet:ref/Name`)
-  and renders a code-styled reference link. This is the convenient form;
+- `` [`Notebook`] `` - an empty *backtick* link (no `(url)`) - infers the ref URL
+  from the name (paclet context → `paclet:Pub/Name/ref/Name`, System →
+  `paclet:ref/Name`) and renders a code-styled reference link. A bare `[Notebook]`
+  with no backticks is **left as literal text** - never linked;
 - `` [`WCAGContrastRatio`](paclet:Pub/Name/ref/WCAGContrastRatio) `` - an explicit
   URL with a `code`-wrapped label - is also a code-styled reference link;
-- `[the docs](https://…)` - a plain label with a URL - is an ordinary prose link;
+- `[the docs](https://…)` - a plain label with an explicit URL - is an ordinary
+  prose hyperlink (the author gave the URL, so it is intentional);
 - frontmatter lists (`SeeAlso`, `Links`, `RelatedGuides`) supply the rest.
 
-Order the `StringSplit` rules `[t](u)` **before** `[t]` so the URL form wins. For a
-usage signature, still `stripLinks` (`//. ButtonBox[c_, ___] :> c`) the
+Order the `StringSplit` rules `[t](u)` **before** `` [`t`] `` so the URL form wins.
+For a usage signature, still `stripLinks` (`//. ButtonBox[c_, ___] :> c`) the
 `ParseTextTemplate` output so its own eager System links are removed.
 
 ## Documentation pages
@@ -275,17 +277,25 @@ session before deploying: `CurrentValue[$FrontEnd, LightDark] = "Light"`. Same f
 any `Rasterize` of example output - bake `LightDark -> "Light"` into the rendered
 `Notebook[…]` so the image is light regardless of the session.
 
-### A `Notebook` result has no inline output form - render it with `CellPrint`
-A bare `Notebook[…]` as an example output shows nothing on the cloud page (there is
-no typeset form for a whole notebook), and rasterizing it to an image is lossy. The
-right way is the example itself: `CellPrint[First[MarkdownToNotebook[…]]]` renders
-the produced notebook's cells as real cells. To capture those in a headless build
-(no interactive notebook for `CellPrint` to write to), rebind it during evaluation:
-`Block[{CellPrint = (collect)}, Get[cell]]` where `collect` appends its cells to a
-buffer (this works even though `CellPrint` is `Protected` - `Block` localizes the
-value). Emit the collected cells into the Output area ahead of the result cell.
-`%`/`Out[]` history is **not** available under `Get`, so an example must thread the
-notebook through a variable (`nb = …; CellPrint[First[nb]]`), not `CellPrint[%]`.
+### Show a produced notebook as a `NotebookObject` thumbnail, the way WFRs do
+A bare `Notebook[…]` example output shows nothing on the cloud page (no typeset form
+for a whole notebook); `CellPrint`-ing its cells into the Output area *breaks* the
+web rendering. Published WFR functions that produce notebooks (e.g.
+`GenerateNotebookFromPalette`) return a **`NotebookObject`**, which the front end
+shows as a thumbnail. So the example opens the result -
+`NotebookPut[MarkdownToNotebook[…]]` - and the evaluator captures a
+`NotebookObject` output as a static thumbnail (`Rasterize[nbobj]`, then
+`NotebookClose`), since the bare reference box would not render once closed. The
+converter never rasterizes a `Notebook` *expression* on its own - the example
+chooses to display one by opening it. Rendering needs a front end, so wrap the
+example-evaluation pass in `UsingFrontEnd`, and set the session to light
+(`CurrentValue[$FrontEnd, LightDark] = "Light"`) so the thumbnail is not dark.
+
+### Layout comes from frontmatter, not an option
+There is no `"Template"` option - the document's `Template` frontmatter key is the
+single source of truth for layout. A specialization that forces a layout
+(`MarkdownToResourceFunction` → `FunctionResource`) does it by binding a private
+`$templateOverride` in a `Block`, not by exposing a redundant option.
 
 ### Drop the template's blank standalone usage placeholder
 The Function template seeds an empty `UsageInputs` cell beside the `Usage` slot

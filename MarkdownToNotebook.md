@@ -31,7 +31,7 @@ contents of that local file or URL, resolved relative to this document.
 
 ## Details & Options
 
-The *source* can be a local file path, an `http(s)` URL, or a raw markdown string. The layout comes from the `Template` frontmatter key (`FunctionResource`, `Symbol`, `Guide`, `TechNote`, `Paclet`, or `Default`). `MarkdownToResourceFunction[source]` is shorthand for `MarkdownToNotebook[source, "Template" -> "FunctionResource"]`, building a Function Repository definition notebook regardless of the frontmatter.
+The *source* can be a local file path, an `http(s)` URL, or a raw markdown string. The layout is the document's own `Template` frontmatter key (`FunctionResource`, `Symbol`, `Guide`, `TechNote`, `Paclet`, or `Default`), so the source declares its own layout. `MarkdownToResourceFunction[source]` builds a Function Repository definition notebook from any source, forcing the `FunctionResource` layout regardless of the frontmatter.
 
 A single template registry drives the layout. `FunctionResource` fills the slots of the official `FunctionResourceDefinition.nb` template (preserving its docked Deploy/Submit toolbar); `Symbol` and `Guide` fill the DocumentationTools authoring templates (`ObjectName`/`Usage`/`Examples`, `GuideTitle`/`GuideAbstract` and so on); and `Default` maps headings and code directly to standard notebook styles. The frontmatter keys mirror each template's metadata, so the author never writes cell styles.
 
@@ -40,7 +40,6 @@ The following options can be given:
 | option | default | description |
 |---|---|---|
 | `"Output"` | `Automatic` | what to return: `"Notebook"`, `"Association"` (the parsed structure), or `"File"` |
-| `"Template"` | `Automatic` | override the `Template` frontmatter key |
 | `"Cache"` | `True` | reuse cached example outputs instead of re-evaluating |
 | `"CacheDirectory"` | `Automatic` | where the example-output cache is written |
 
@@ -65,11 +64,10 @@ markdown, convert, publish) is what `build.wls` runs.
 
 ## Basic Examples
 
-Convert a markdown string into a notebook. With one argument the result is the `Notebook` itself; `CellPrint` renders its cells inline:
+Convert a markdown string into a notebook and open it. `MarkdownToNotebook` returns a `Notebook`, so `NotebookPut` displays it:
 
 ```wl
-nb = MarkdownToNotebook["# Title\n\nA paragraph.\n\n## Section\n\nMore text."];
-CellPrint[First[nb]]
+NotebookPut[MarkdownToNotebook["# Title\n\nA paragraph.\n\n## Section\n\nMore text."]]
 ```
 
 ## Scope
@@ -77,7 +75,7 @@ CellPrint[First[nb]]
 A `#` heading becomes a `Title`, `##` a `Section`, and inline `` `code` `` and `*emphasis*` carry their formatting through to the cells:
 
 ```wl
-CellPrint[First[MarkdownToNotebook["# Demo\n\nInline `code` and *emphasis* in a paragraph.\n\n## Notes\n\nA second section."]]]
+NotebookPut[MarkdownToNotebook["# Demo\n\nInline `code` and *emphasis* in a paragraph.\n\n## Notes\n\nA second section."]]
 ```
 
 ## Options
@@ -106,8 +104,8 @@ MarkdownToNotebook["nonexistent.md", "Output" -> "Association"]["Sections"]
 
 ## Neat Examples
 
-A `Template` option overrides the frontmatter, so one source can target several layouts:
+The layout comes from the document's `Template` frontmatter, defaulting to `Default`. `MarkdownToResourceFunction` instead forces the `FunctionResource` layout for any source, regardless of its frontmatter:
 
 ```wl
-MarkdownToNotebook["# X\n\ntext", "Output" -> "Association", "Template" -> "Default"]["Template"]
+MarkdownToResourceFunction["# X\n\ntext", "Output" -> "Association"]["Template"]
 ```

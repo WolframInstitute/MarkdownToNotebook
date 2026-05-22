@@ -258,25 +258,33 @@ sectionText[sections_, key_] := StringRiffle[
 
 cumulativeHashes[cells_List] := Map[Hash, Rest @ FoldList[#1 <> mdSep <> #2["Code"] &, "", cells]]
 
-accumEval[state_, b_] := Block[{code = state["code"] <> mdSep <> b["Code"], res, tmp, prints = {}, collect},
+(* output boxes for an evaluated cell. A NotebookObject result - an example that
+   opens the produced notebook, e.g. NotebookPut[MarkdownToNotebook[...]] - is shown
+   the way the front end shows any NotebookObject output: a thumbnail of the
+   notebook. We capture that thumbnail as a static image (a bare reference box would
+   not render once the notebook is closed). This is the published-WFR convention for
+   notebook-valued results; the converter does not rasterize Notebook *expressions*
+   itself - the example chooses to display one by opening it. *)
+outputBoxes[res_] := Which[
+    res === Null, Null,
+    Head[res] === NotebookObject,
+        With[{img = Quiet @ Rasterize[res, ImageResolution -> 96]}, Quiet @ NotebookClose[res]; ToBoxes[img]],
+    True, ToBoxes[res]
+]
+
+accumEval[state_, b_] := Block[{code = state["code"] <> mdSep <> b["Code"], res, tmp},
     (* Get a temp package so every top-level statement runs (ToExpression on a
        multi-statement string only takes the first); Get returns the last value. *)
     tmp = FileNameJoin[{$TemporaryDirectory, "mtnb-cell-" <> IntegerString[Hash[code], 36] <> ".wl"}];
     Export[tmp, b["Code"], "Text"];
-    (* Capture CellPrint cells so an example can render a produced notebook inline -
-       CellPrint[First[MarkdownToNotebook[...]]] - rather than returning an
-       unrenderable bare Notebook[...]. The collected cells become real Output-area
-       cells (see exampleIO), exactly as CellPrint would in an interactive notebook. *)
-    collect[args___] := (prints = Join[prints, Flatten[{args}]];);
-    res = Block[{CellPrint = collect}, Quiet @ Get[tmp]];
-    <|"code" -> code, "out" -> Append[state["out"], Hash[code] -> <|
-        "result" -> If[res === Null, Null, ToBoxes[res]],
-        "prints" -> prints
-    |>]|>
+    res = Quiet @ Get[tmp];
+    <|"code" -> code, "out" -> Append[state["out"], Hash[code] -> outputBoxes[res]]|>
 ]
 
+(* a front end is active for the whole pass so an example may open the notebook it
+   produces (NotebookPut) and have its thumbnail captured (see outputBoxes). *)
 evaluateAll[cells_List, ctx_String, ctxPath_List] := Block[{$Context = ctx, $ContextPath = ctxPath},
-    Fold[accumEval, <|"code" -> "", "out" -> <||>|>, cells]["out"]
+    UsingFrontEnd[Fold[accumEval, <|"code" -> "", "out" -> <||>|>, cells]]["out"]
 ]
 
 (* attach each executable block's output (by cumulative hash) so builders read
@@ -393,26 +401,16 @@ inputBoxes[code_String] := Block[{boxes, parsed},
     ]
 ]
 
-(* an evaluated cell's output is stored as <|"result" -> boxes|Null, "prints" ->
-   {cells}|> (a plain boxes value or Missing is also accepted, for robustness).
-   The Output area is the captured CellPrint cells (rendered as-is, e.g. a produced
-   notebook's cells) followed by the result Output cell, grouped under the input. *)
-exampleIO[code_String, output_, n_Integer] := Block[{
-    inCell = Cell[BoxData[inputBoxes[code]], "Input", CellLabel -> "In[" <> ToString[n] <> "]:= "],
-    result, prints, outCells
+exampleIO[code_String, outBoxes_, n_Integer] := Block[{
+    inCell = Cell[BoxData[inputBoxes[code]], "Input", CellLabel -> "In[" <> ToString[n] <> "]:= "]
 },
-    {result, prints} = If[ AssociationQ[output],
-        {Lookup[output, "result", Null], Lookup[output, "prints", {}]},
-        {output, {}}
-    ];
-    outCells = Join[
-        prints,
-        If[ MissingQ[result] || result === Null,
-            {},
-            {Cell[BoxData[result], "Output", CellLabel -> "Out[" <> ToString[n] <> "]= "]}
-        ]
-    ];
-    If[ outCells === {}, {inCell}, {Cell[CellGroupData[Prepend[outCells, inCell], Open]]}]
+    If[ MissingQ[outBoxes] || outBoxes === Null,
+        {inCell},
+        {Cell[CellGroupData[{
+            inCell,
+            Cell[BoxData[outBoxes], "Output", CellLabel -> "Out[" <> ToString[n] <> "]= "]
+        }, Open]]}
+    ]
 ]
 
 functionSlot[opts_, defCode_String] := If[ defCode === "",
@@ -458,7 +456,6 @@ notesSlot[opts_, sections_] := Block[{prose = rawSectionText[sections, "details 
 heroSlot[opts_, sections_] := Block[{cells = sectionCells[sections, "hero image"], out, code},
     If[ cells === {}, Return[slotDefault[opts]] ];
     out = First[cells]["OutputBoxes"];
-    out = If[AssociationQ[out], Lookup[out, "result", Null], out];
     code = First[cells]["Code"];
     If[ MissingQ[out] || out === Null, Return[slotDefault[opts]] ];
     {Cell[CellGroupData[{
@@ -753,12 +750,12 @@ inferURL[name_String] := Which[
     True, None
 ]
 
-(* an "empty" markdown link [text] (no URL) is the convenient explicit annotation:
-   infer the URL from the symbol name and render a code-styled reference link, the
-   way auto-linking used to. A `code`-wrapped label is accepted too. If the name
-   does not resolve, fall back to plain inline code (or text). *)
-linkInferred[text_String] := Block[{name = If[StringMatchQ[text, "`" ~~ ___ ~~ "`"], StringTake[text, {2, -2}], text], url},
-    url = inferURL[name];
+(* an "empty" backtick link [`Name`] (brackets, no URL) is the convenient symbol
+   annotation: infer the ref URL from the name and render a code-styled reference
+   link, the way auto-linking used to. Linking only ever happens on backticked
+   content - a bare [Name] is left as literal text. If the name does not resolve,
+   fall back to plain inline code. *)
+linkInferred[name_String] := Block[{url = inferURL[name]},
     If[ url === None,
         codeToInline[name],
         Cell[BoxData @ ButtonBox[name, BaseStyle -> "Link", ButtonData -> url], "InlineFormula"]
@@ -767,7 +764,7 @@ linkInferred[text_String] := Block[{name = If[StringMatchQ[text, "`" ~~ ___ ~~ "
 
 inlineTextData[text_String] := StringSplit[text, {
     "[" ~~ t : Shortest[Except["]"] ..] ~~ "](" ~~ u : Shortest[Except[")"] ..] ~~ ")" :> linkInline[t, u],
-    "[" ~~ t : Shortest[Except["]"] ..] ~~ "]" :> linkInferred[t],
+    "[`" ~~ t : Shortest[Except["`"] ..] ~~ "`]" :> linkInferred[t],
     "``" ~~ c : Shortest[__] ~~ "``" :> literalCodeInline[c],
     "`" ~~ c : Shortest[__] ~~ "`" :> codeToInline[c],
     "$" ~~ m : Shortest[Except["$"] ..] ~~ "$" :> mathInline[m],
@@ -1135,7 +1132,12 @@ buildNotebook[_, data_] := defaultNotebook[data]
 
 (* === entry point === *)
 
-Options[MarkdownToNotebook] = {"Cache" -> True, "Output" -> Automatic, "Template" -> Automatic, "CacheDirectory" -> Automatic}
+Options[MarkdownToNotebook] = {"Cache" -> True, "Output" -> Automatic, "CacheDirectory" -> Automatic}
+
+(* the layout comes from the document's own Template frontmatter key - there is no
+   Template option, since the source declares its own layout. MarkdownToResourceFunction
+   forces FunctionResource for any source by binding this internally. *)
+$templateOverride = None
 
 (* one argument: return the Notebook expression. two arguments: also write it to
    the file target and return that file. The "Output" option overrides: "Notebook"
@@ -1154,7 +1156,7 @@ MarkdownToNotebook[file_String, outNbArg : (_String | None), opts : OptionsPatte
     $docPaclet = Lookup[meta, "Paclet", ""];
     $docContext = Lookup[meta, "Context", ""];
     blocks = resolveIncludes[parsed["Blocks"], src["Base"]];
-    tmplName = Replace[OptionValue["Template"], Automatic :> Lookup[meta, "Template", "Default"]];
+    tmplName = If[StringQ[$templateOverride], $templateOverride, Lookup[meta, "Template", "Default"]];
 
     (* evaluate every executable cell in document order, threading state in a
        private context (so the document's own code can't clobber the live
@@ -1196,7 +1198,10 @@ MarkdownToNotebook[file_String, outNbArg : (_String | None), opts : OptionsPatte
     ]
 ]
 
-(* back-compat: the self-hosting FunctionResource entry forces that template *)
+(* the FunctionResource specialization: build a definition notebook from any
+   source, regardless of its frontmatter Template, by forcing the layout. *)
 Options[MarkdownToResourceFunction] = Options[MarkdownToNotebook]
 
-MarkdownToResourceFunction[file_String, rest___] := MarkdownToNotebook[file, rest, "Template" -> "FunctionResource"]
+MarkdownToResourceFunction[file_String, rest___] := Block[{$templateOverride = "FunctionResource"},
+    MarkdownToNotebook[file, rest]
+]

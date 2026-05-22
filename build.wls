@@ -12,6 +12,11 @@ print[args___] := WriteString["stdout", StringJoin[ToString /@ {args}], "\n"]
    not flagged "out of date" when opened in a newer front end. *)
 Quiet @ PacletInstall["DefinitionNotebookClient", UpdateSites -> True]
 
+(* pin the front end session to light up front: a headless session resolves the
+   Automatic appearance to Dark, which would darken the example notebook thumbnails
+   (rendered during conversion) and the deployed page. *)
+Quiet @ UsingFrontEnd[CurrentValue[$FrontEnd, LightDark] = "Light"]
+
 dir = DirectoryName[$InputFileName]
 src = FileNameJoin[{dir, "MarkdownToNotebook.md"}]
 text = Import[src, "Text"]
