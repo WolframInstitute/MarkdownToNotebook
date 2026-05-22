@@ -336,19 +336,29 @@ session before deploying: `CurrentValue[$FrontEnd, LightDark] = "Light"`. Same f
 any `Rasterize` of example output - bake `LightDark -> "Light"` into the rendered
 `Notebook[…]` so the image is light regardless of the session.
 
-### Show a produced notebook as a `NotebookObject` thumbnail, the way WFRs do
-A bare `Notebook[…]` example output shows nothing on the cloud page (no typeset form
-for a whole notebook); `CellPrint`-ing its cells into the Output area *breaks* the
-web rendering. Published WFR functions that produce notebooks (e.g.
-`GenerateNotebookFromPalette`) return a **`NotebookObject`**, which the front end
-shows as a thumbnail. So the example opens the result -
-`NotebookPut[MarkdownToNotebook[…]]` - and the evaluator captures a
-`NotebookObject` output as a static thumbnail (`Rasterize[nbobj]`, then
-`NotebookClose`), since the bare reference box would not render once closed. The
-converter never rasterizes a `Notebook` *expression* on its own - the example
-chooses to display one by opening it. Rendering needs a front end, so wrap the
-example-evaluation pass in `UsingFrontEnd`, and set the session to light
-(`CurrentValue[$FrontEnd, LightDark] = "Light"`) so the thumbnail is not dark.
+### Show a produced notebook by *splicing its cells*, not rasterizing it
+A bare `Notebook[…]` example output shows nothing useful on the cloud page (no
+typeset form for a whole notebook). Rasterizing a `NotebookObject` to an image is
+**ugly** (low-res; the math/text blur). Instead, when an example opens the result
+(`NotebookPut[MarkdownToNotebook[…]]` → a `NotebookObject`), splice the produced
+notebook's **actual cells** under the input cell - crisp typeset, real inline math
+and links. `outputBoxes` does `First[NotebookGet[nbobj]]` (then `NotebookClose`)
+and wraps them in a marker `splicedNotebook[cells]`; `exampleIO` drops those cells
+into the example's `CellGroupData`. A plain `Notebook` *expression* result is left
+as its explicit expression boxes. Rendering needs a front end, so the
+example-evaluation pass runs in `UsingFrontEnd` with the session set to light.
+A deliberate raster *screenshot* (Applications/Neat) is the opposite case: there
+the example calls `Rasterize` itself and a `#| background: papertear` cell option
+gives it the torn-paper look - applied only on those cells, never to every image.
+
+### `$...$` is TeX, parsed by the built-in Markdown importer
+Inline `$math$` is **TeX**, not Wolfram code: `ImportString["$" <> tex <> "$",
+"TeX"]` returns a `Notebook` whose `BoxData` is the typeset math (`SqrtBox`, …);
+pull that out with `FirstCase[…, Cell[BoxData[b_], …] :> b]`. The Wolfram Language
+also imports whole markdown documents itself - `Import[file, "Notebook"]` /
+`ImportString[md, {"Markdown", "Notebook"}]` - which handles the same `$…$` TeX;
+`MarkdownToNotebook` is the richer layer on top (templates, frontmatter metadata,
+cell options, evaluated + cached examples).
 
 ### Layout comes from frontmatter; the result form is a positional argument
 There is no `"Template"` option and no second function - the document's `Template`

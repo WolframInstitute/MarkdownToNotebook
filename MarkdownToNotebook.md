@@ -91,10 +91,10 @@ NotebookPut[MarkdownToNotebook["# Title\n\n## Section\n\n### Subsection\n\nA par
 
 ### Inline formatting
 
-Inline `` `code` `` is formatted code, `*emphasis*` is italic, a double-backtick ``literal`` is a verbatim span, and `$...$` is inline math:
+Inline `` `code` `` is formatted code, `*emphasis*` is italic, a double-backtick ``literal`` is a verbatim span, and `$...$` is inline TeX math:
 
 ```wl
-NotebookPut[MarkdownToNotebook["Inline `Range[3]`, *emphasis*, ``verbatim``, and the value $Sin[x]$."]]
+NotebookPut[MarkdownToNotebook["Inline `Range[3]`, *emphasis*, ``verbatim``, and the math $\\sqrt{a^2 + b^2}$."]]
 ```
 
 ### Links
@@ -131,9 +131,11 @@ Export[FileNameJoin[{$TemporaryDirectory, "snippet.wl"}], "Range[5]^2", "Text"];
 
 ### Inlining an image
 
-A markdown image `![alt](path)` inlines the image (a local file or URL, resolved relative to the source). A title makes it the front end's Convert To ▸ Paper Tear effect — `![alt](path "papertear")` gives a torn-paper screenshot look:
+A markdown image `![alt](path)` inlines an image — a local file or URL, resolved relative to the source:
 
-![A generated guide page](docs/images/guide-page.png "papertear")
+![A built guide page](docs/images/guide-page.png)
+
+A `"papertear"` title — `![alt](path "papertear")` — additionally applies the front end's Convert To ▸ Paper Tear cell effect for a torn-screenshot look (used under Applications and Neat Examples below).
 
 ### Returning a notebook, an association, or a file
 
@@ -145,20 +147,22 @@ MarkdownToNotebook["---\nName: Demo\nKeywords: [alpha, beta]\n---\n# Demo", "Ass
 
 ## Applications
 
-Generate a paclet's entire documentation set, the guide page, the symbol reference pages, and a publishable Function Repository definition, from plain markdown, so authors never edit notebook cell styles by hand. The published [Wolfram/AccessibleColors](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/AccessibleColors/) paclet is built this way end to end: its guide, four symbol reference pages, a tutorial, and the Paclet Repository definition notebook all come from the markdown in its `docs/` folder. Here a markdown source becomes a notebook, shown as a torn-paper screenshot:
+Generate a paclet's entire documentation set, the guide page, the symbol reference pages, and a publishable Function Repository definition, from plain markdown, so authors never edit notebook cell styles by hand. The published [Wolfram/AccessibleColors](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/AccessibleColors/) paclet is built this way end to end. Here its guide page is converted straight from the markdown on GitHub, shown as a torn-paper screenshot:
 
 ```wl
 #| background: papertear
-Rasterize[MarkdownToNotebook["# Accessible Colors\n\nA *guide* with inline `WCAGContrastRatio` and a list:\n\n- contrast ratios\n- conformance levels"]]
+Rasterize[MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/AccessibleColors/main/docs/Guides/AccessibleColors.md"]]
 ```
 
 ## Properties and Relations
 
-`FunctionResource` fills the same template that `CreateNotebook["FunctionResource"]` opens in the front end, and the result is a `ResourceObject` definition notebook ready for `ResourceSubmit`. `Symbol` and `Guide` fill the DocumentationTools authoring templates that `DocumentationBuild` turns into reference pages. The layout always comes from the source's own frontmatter, which `"Association"` reports back:
+The Wolfram Language already reads markdown into a plain notebook — `Import["doc.md", "Notebook"]`, or `ImportString[markdown, {"Markdown", "Notebook"}]` for a string. `MarkdownToNotebook` builds on that idea and adds the resource layer: the layout chosen from frontmatter, the metadata slots, cell options, and evaluated and cached example cells. The built-in import of the same snippet gives just the bare cells (it does parse inline TeX math, the same convention `$...$` uses here):
 
 ```wl
-MarkdownToNotebook["---\nTemplate: FunctionResource\n---\n# F\n\ntext", "Association"]["Template"]
+ImportString["# Title\n\nText with inline math $\\sin x$.", {"Markdown", "Notebook"}]
 ```
+
+`FunctionResource` then fills the same template `CreateNotebook["FunctionResource"]` opens (publishable with `ResourceSubmit`), and `Symbol`/`Guide` fill the DocumentationTools templates `DocumentationBuild` turns into reference pages.
 
 ## Possible Issues
 
@@ -174,7 +178,7 @@ A literate document — prose, inline math, and a live computation — converts 
 
 ```wl
 #| background: papertear
-Rasterize[MarkdownToNotebook["# A sine wave\n\nThe plot of $Sin[x]$ over one period:\n\n```wl\nPlot[Sin[x], {x, 0, 2 Pi}]\n```\n\nIts mean value is zero."]]
+Rasterize[MarkdownToNotebook["# A sine wave\n\nThe plot of $\\sin x$ over one period:\n\n```wl\nPlot[Sin[x], {x, 0, 2 Pi}]\n```\n\nIts mean value is zero."]]
 ```
 
 Because this very document is itself such a literate source — its `## Definition` inlines `MarkdownToNotebook.wl` and its frontmatter is the resource metadata — running the function on it reproduces this definition notebook, so the function publishes itself.

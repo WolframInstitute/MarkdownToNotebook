@@ -281,17 +281,16 @@ sectionText[sections_, key_] := StringRiffle[
 
 cumulativeHashes[cells_List] := Map[Hash, Rest @ FoldList[#1 <> mdSep <> #2["Code"] &, "", cells]]
 
-(* output boxes for an evaluated cell. A NotebookObject result - an example that
-   opens the produced notebook, e.g. NotebookPut[MarkdownToNotebook[...]] - is shown
-   the way the front end shows any NotebookObject output: a thumbnail of the
-   notebook. We capture that thumbnail as a static image (a bare reference box would
-   not render once the notebook is closed). This is the published-WFR convention for
-   notebook-valued results; the converter does not rasterize Notebook *expressions*
-   itself - the example chooses to display one by opening it. *)
+(* output for an evaluated cell. A NotebookObject result - an example that opens
+   the produced notebook, e.g. NotebookPut[MarkdownToNotebook[...]] - is shown by
+   *splicing in the notebook's actual cells* (real, crisp typeset: formatted text,
+   inline math, links), not by rasterizing it to an image. We grab the cells and
+   close the object; exampleIO drops them under the input. A plain Notebook
+   *expression* result is left as its expression boxes (the explicit form). *)
 outputBoxes[res_] := Which[
     res === Null, Null,
     Head[res] === NotebookObject,
-        With[{img = Quiet @ Rasterize[res, ImageResolution -> 96]}, Quiet @ NotebookClose[res]; ToBoxes[img]],
+        With[{cells = First[NotebookGet[res], {}]}, Quiet @ NotebookClose[res]; splicedNotebook[cells]],
     True, ToBoxes[res]
 ]
 
@@ -437,12 +436,18 @@ extraOutputOpts[block_] := If[
 exampleIO[code_String, outBoxes_, n_Integer, outOpts_List : {}] := Block[{
     inCell = Cell[BoxData[inputBoxes[code]], "Input", CellLabel -> "In[" <> ToString[n] <> "]:= "]
 },
-    If[ MissingQ[outBoxes] || outBoxes === Null,
-        {inCell},
-        {Cell[CellGroupData[{
-            inCell,
-            Cell[BoxData[outBoxes], "Output", CellLabel -> "Out[" <> ToString[n] <> "]= ", Sequence @@ outOpts]
-        }, Open]]}
+    Which[
+        (* a NotebookObject result: splice the produced notebook's own cells under
+           the input, so the rendered notebook shows as crisp cells, not a raster *)
+        MatchQ[outBoxes, _splicedNotebook],
+            {Cell[CellGroupData[Prepend[First[outBoxes], inCell], Open]]},
+        MissingQ[outBoxes] || outBoxes === Null,
+            {inCell},
+        True,
+            {Cell[CellGroupData[{
+                inCell,
+                Cell[BoxData[outBoxes], "Output", CellLabel -> "Out[" <> ToString[n] <> "]= ", Sequence @@ outOpts]
+            }, Open]]}
     ]
 ]
 
@@ -772,9 +777,17 @@ codeToInline[code_String] := Cell[BoxData[inputBoxes[code]], "InlineFormula"]
    non-linkified monospace span (InlineCode), unlike Template Input. *)
 literalCodeInline[code_String] := Cell[BoxData[StyleBox[code, "InlineCode"]], "InlineCode"]
 
-(* $math$ -> the palette's "Traditional Math" button: boxes shown in
-   TraditionalForm inside an InlineFormula cell. *)
-mathInline[math_String] := Cell[BoxData[FormBox[inputBoxes[math], TraditionalForm]], "InlineFormula"]
+(* $math$ -> inline math. The content is TeX (LaTeX math notation): ImportString
+   parses "$...$" into typeset boxes (SqrtBox, FractionBox, ...). Fall back to a
+   Wolfram-expression parse in TraditionalForm if the TeX parse fails. *)
+mathInline[math_String] := Block[{nb, boxes},
+    nb = Quiet @ ImportString["$" <> math <> "$", "TeX"];
+    boxes = If[Head[nb] === Notebook, FirstCase[nb, Cell[BoxData[b_], ___] :> b, $Failed, Infinity], $Failed];
+    If[ boxes === $Failed,
+        Cell[BoxData[FormBox[inputBoxes[math], TraditionalForm]], "InlineFormula"],
+        Cell[BoxData[boxes], "InlineFormula"]
+    ]
+]
 
 (* markdown links: [text](paclet:Pub/Name/ref/Sym) -> a reference Link (palette
    "Custom URI"); [text](http...) -> a Hyperlink (palette "Link to URL"). The
