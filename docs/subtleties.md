@@ -49,15 +49,16 @@ serialized CheckboxData blob untouched** - rewriting `Checked` or resolving the
 blob's `TemplateSlot`s does *not* help and diverges from what works. When a
 control's encoding is opaque, diff a known-good notebook instead of guessing.
 
-### One example per group, separated by ExampleDelimiter
-An example is one computation, not a list of results. Within a section, each new
-prose lead-in (after earlier content) starts a new example: insert a
-`Cell["\t", "ExampleDelimiter"]` before it and restart the `In[]`/`Out[]`
-numbering at 1. (The authored delimiter wraps an `InterpretationBox[…, $Line=0]`
-to reset the counter on re-evaluation, but `$Line=0` evaluates if you build it
-programmatically - for a static page the plain delimiter plus a per-example
-counter reset is enough.) A `Dynamic`/`Manipulate` example in a resource notebook
-draws a `RasterizeDynamics` suggestion - benign; publishing rasterizes it.
+### Separate examples with an explicit `---`, never automatically
+An example is one computation, not a list of results. Separate sibling examples
+within a section with an **explicit** thematic-break line (`---` or `___` between
+blank lines) - it becomes a `Cell["\t", "ExampleDelimiter"]` and restarts the
+`In[]`/`Out[]` numbering at 1. Do **not** insert delimiters automatically (e.g. on
+each new prose lead-in): that guesses example boundaries and is surprising; let the
+author mark them. Detect the break by explicit character checks - in a string
+pattern a bare `"*"` is the wildcard, so `StringMatchQ[t, "*"..]` matches anything.
+A `Dynamic`/`Manipulate` example in a resource notebook draws a `RasterizeDynamics`
+suggestion - benign; publishing rasterizes it.
 
 ### Guide function listing: the "1-Line Function" template
 A `## Functions` entry must match the docked **1-Line Function** button's output:

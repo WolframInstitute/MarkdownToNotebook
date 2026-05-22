@@ -7,23 +7,15 @@ ContributedBy: Nikolay Murzin, Claude (Anthropic)
 Keywords: [markdown, literate programming, function repository, notebook, documentation, templates]
 Categories: [Notebook Documents & Presentation]
 SeeAlso: [ResourceFunction, ResourceObject, CreateNotebook, DefineResourceFunction]
-Links: ["[Wolfram/AccessibleColors - an example paclet authored entirely in markdown](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/AccessibleColors/)"]
+Links: [[Wolfram/AccessibleColors - an example paclet authored entirely in markdown](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/AccessibleColors/)]
 EntrySymbol: MarkdownToNotebook
 ---
 
-This document is the source of truth for the resource function it describes.
-The frontmatter above is the Function Repository metadata; the Definition
-section below inlines the implementation from a local `.wl` file; and the
-example cells are evaluated (with caching) to build the resource's
-documentation. Running the function on this very file reproduces its own
-definition notebook, so it publishes itself.
+This document is the source of truth for the resource function it describes. The frontmatter above is the Function Repository metadata; the Definition section below inlines the implementation from a local `.wl` file; and the example cells are evaluated (with caching) to build the resource's documentation. Running the function on this very file reproduces its own definition notebook, so it publishes itself.
 
 ## Definition
 
-The implementation lives in a separate `.wl` file so it has full IDE and lint
-support. The cell below inlines it at conversion time via the `file` option, a
-general mechanism: any code cell with `#| file: path` is replaced by the
-contents of that local file or URL, resolved relative to this document.
+The implementation lives in a separate `.wl` file so it has full IDE and lint support. The cell below inlines it at conversion time via the `file` option, a general mechanism: any code cell with `#| file: path` is replaced by the contents of that local file or URL, resolved relative to this document.
 
 ```wl
 #| file: MarkdownToNotebook.wl
@@ -58,23 +50,29 @@ Convert a markdown string into a notebook. The result is the explicit `Notebook`
 MarkdownToNotebook["# Title\n\nA paragraph.\n\n## Section\n\nMore text."]
 ```
 
+![output](images/MarkdownToNotebook-out-1.png)
+
 ---
 
 A whole notebook has no faithful inline form, so to show the produced notebook rendered in the documentation, add `#| screenshot: true` to the example cell — it rasterizes the notebook to an image (pair with `#| background: papertear` for a torn-paper screenshot):
 
 ```wl
-#| screenshot: true
+#| screenshot: True
 MarkdownToNotebook["# Title\n\nA paragraph.\n\n## Section\n\nMore text."]
 ```
+
+![output](images/MarkdownToNotebook-out-2.png)
 
 ---
 
 Prose formatting, inline code, and lists all carry through:
 
 ```wl
-#| screenshot: true
+#| screenshot: True
 MarkdownToNotebook["# Notes\n\nA *key* idea, with inline `code`:\n\n- first\n- second\n- third"]
 ```
+
+![output](images/MarkdownToNotebook-out-3.png)
 
 ## Scope
 
@@ -88,59 +86,73 @@ A `---` - delimited block at the very top of the document is the *frontmatter*: 
 MarkdownToNotebook["---\nName: Demo\nTemplate: Default\nKeywords: [alpha, beta]\n---\n# Demo\n\ntext", "Association"]["Metadata"]
 ```
 
+![output](images/MarkdownToNotebook-out-4.png)
+
 ### Headings and prose
 
 `#` becomes a `Title`, `##` a `Section`, `###` a `Subsection`; blank-line-separated paragraphs become `Text`:
 
 ```wl
-#| screenshot: true
+#| screenshot: True
 MarkdownToNotebook["# Title\n\n## Section\n\n### Subsection\n\nA paragraph of text."]
 ```
+
+![output](images/MarkdownToNotebook-out-5.png)
 
 ### Inline formatting
 
 Inline `` `code` `` is formatted code, `*emphasis*` is italic, a double-backtick ``literal`` is a verbatim span, and `$...$` is inline TeX math:
 
 ```wl
-#| screenshot: true
+#| screenshot: True
 MarkdownToNotebook["Inline `Range[3]`, *emphasis*, ``verbatim``, and the math $\\sqrt{a^2 + b^2}$."]
 ```
+
+![output](images/MarkdownToNotebook-out-6.png)
 
 ### Links
 
 `[label](url)` is a prose hyperlink; a backticked label with no target — `` [`Symbol`] `` or `` [`Symbol`]() `` — infers a documentation reference; `` [`Symbol`](url) `` links explicitly:
 
 ```wl
-#| screenshot: true
+#| screenshot: True
 MarkdownToNotebook["See [`Range`] and the [Wolfram site](https://www.wolfram.com)."]
 ```
+
+![output](images/MarkdownToNotebook-out-7.png)
 
 ### Lists and tables
 
 `-`, `*`, or `+` lines become items, and a GitHub-style pipe table becomes a grid:
 
 ```wl
-#| screenshot: true
+#| screenshot: True
 MarkdownToNotebook["- one\n- two\n\n| x | y |\n|---|---|\n| 1 | 2 |"]
 ```
+
+![output](images/MarkdownToNotebook-out-8.png)
 
 ### Evaluated code cells
 
 A fenced `wl` cell is evaluated and its output kept (then cached); a cell may carry options such as `#| eval: false` to show code without running it:
 
 ```wl
-#| screenshot: true
+#| screenshot: True
 MarkdownToNotebook["```wl\nRange[5]^2\n```"]
 ```
+
+![output](images/MarkdownToNotebook-out-9.png)
 
 ### Inlining a file
 
 A code cell whose first line is `#| file: path` is replaced by the contents of that local file or URL, resolved relative to the source — the mechanism the Definition section above uses to pull in `MarkdownToNotebook.wl`. Here a snippet written to disk is inlined and evaluated:
 
 ```wl
-#| screenshot: true
+#| screenshot: True
 Export[FileNameJoin[{$TemporaryDirectory, "snippet.wl"}], "Range[5]^2", "Text"]; NotebookPut[MarkdownToNotebook[Export[FileNameJoin[{$TemporaryDirectory, "inc.md"}], "## Inlined\n\n```wl\n#| file: snippet.wl\n```", "Text"]]]
 ```
+
+![output](images/MarkdownToNotebook-out-10.png)
 
 ### Inlining an image
 
@@ -158,15 +170,19 @@ Omitted (or `"Notebook"`) returns the `Notebook`; `"Association"` returns the pa
 MarkdownToNotebook["---\nName: Demo\nKeywords: [alpha, beta]\n---\n# Demo", "Association"]
 ```
 
+![output](images/MarkdownToNotebook-out-11.png)
+
 ## Applications
 
 Generate a paclet's entire documentation set, the guide page, the symbol reference pages, and a publishable Function Repository definition, from plain markdown, so authors never edit notebook cell styles by hand. The published [Wolfram/AccessibleColors](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/AccessibleColors/) paclet is built this way end to end. Here its guide page is converted straight from the markdown on GitHub; the `#| screenshot: true` cell option rasterizes the produced notebook and `#| background: papertear` gives it a torn-paper screenshot look:
 
 ```wl
-#| screenshot: true
+#| screenshot: True
 #| background: papertear
 MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/AccessibleColors/main/docs/Guides/AccessibleColors.md"]
 ```
+
+![output](images/MarkdownToNotebook-out-12.png)
 
 ## Properties and Relations
 
@@ -175,6 +191,8 @@ The Wolfram Language already reads markdown into a plain notebook — `Import["d
 ```wl
 ImportString["# Title\n\nText with inline math $\\sin x$.", {"Markdown", "Notebook"}]
 ```
+
+![output](images/MarkdownToNotebook-out-13.png)
 
 `FunctionResource` then fills the same template `CreateNotebook["FunctionResource"]` opens (publishable with `ResourceSubmit`), and `Symbol`/`Guide` fill the DocumentationTools templates `DocumentationBuild` turns into reference pages.
 
@@ -186,14 +204,18 @@ A string that is neither a URL nor an existing file is treated as raw markdown, 
 MarkdownToNotebook["nonexistent.md", "Association"]["Sections"]
 ```
 
+![output](images/MarkdownToNotebook-out-14.png)
+
 ## Neat Examples
 
 A literate document — prose, inline math, and a live computation — converts into a notebook with the evaluated result rendered inline, shown here as a torn-paper screenshot (`#| screenshot: true` rasterizes, `#| background: papertear` tears):
 
 ```wl
-#| screenshot: true
+#| screenshot: True
 #| background: papertear
 MarkdownToNotebook["# A sine wave\n\nThe plot of $\\sin x$ over one period:\n\n```wl\nPlot[Sin[x], {x, 0, 2 Pi}]\n```\n\nIts mean value is zero."]
 ```
+
+![output](images/MarkdownToNotebook-out-15.png)
 
 Because this very document is itself such a literate source — its `## Definition` inlines `MarkdownToNotebook.wl` and its frontmatter is the resource metadata — running the function on it reproduces this definition notebook, so the function publishes itself.

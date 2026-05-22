@@ -132,6 +132,15 @@ listItemQ[line_String] := Block[{t = StringTrim[line]},
 
 listText[line_String] := StringTrim @ StringDrop[StringTrim[line], 2]
 
+(* a thematic break - a line of only "-", "_" or "*" (3+) between blank lines -
+   is an explicit example separator (an ExampleDelimiter). Frontmatter "---" is
+   already stripped, and "|---|" table rules contain "|", so neither matches.
+   Tested by explicit character checks: in a string pattern a bare "*" is the
+   wildcard metacharacter, so StringMatchQ[t, "*"..] would match anything. *)
+separatorQ[line_String] := Block[{chars = Characters[StringTrim[line]]},
+    Length[chars] >= 3 && MemberQ[{"-", "_", "*"}, First[chars, ""]] && Length[DeleteDuplicates[chars]] === 1
+]
+
 listSplit[{}, collected_] := {Reverse[collected], {}}
 listSplit[lines_List, collected_] := If[ listItemQ[First[lines]],
     listSplit[Rest[lines], Prepend[collected, listText[First[lines]]]],
@@ -184,6 +193,9 @@ blockLoop[lines_List, acc_] := Block[{line = First[lines], rest = Rest[lines], s
         ,
         imageLineQ[line],
             blockLoop[rest, Prepend[acc, imageBlock[line]]]
+        ,
+        separatorQ[line],
+            blockLoop[rest, Prepend[acc, <|"Type" -> "Separator"|>]]
         ,
         tableRowLineQ[line] && rest =!= {} && tableSepQ[First[rest]],
             split = tableSplit[lines, {}];
@@ -285,22 +297,18 @@ cumulativeHashes[cells_List] := Map[Hash, Rest @ FoldList[#1 <> mdSep <> #2["Cod
    a NotebookObject), pinned to light mode. *)
 resultNotebook[res_] := Append[If[Head[res] === NotebookObject, NotebookGet[res], res], LightDark -> "Light"]
 
-(* output for an evaluated cell, chosen by the cell's "#|" options (both opt in,
-   for a Notebook expression or a NotebookObject - e.g. NotebookPut[...]):
-   - "#| notebook_splice: true" *frame splices*: the produced notebook's own cells
-     are spliced into a cell group under the input (crisp, real typeset, no raster);
-   - "#| screenshot: true" rasterizes the produced notebook to an image - pair with
-     "#| background: papertear" for a torn screenshot;
-   - with neither, the result is left as its normal output boxes (a bare Notebook
-     expression, what MarkdownToNotebook[source] returns, shows as itself). *)
+(* output for an evaluated cell. A whole notebook has no faithful inline form -
+   inlining its cells breaks the surrounding layout (a Title/Section renders
+   document-wide; a CellFrame is just a per-cell option, it does not bound a group).
+   So to show a produced notebook, the example opts in to a *rasterized screenshot*
+   with "#| screenshot: true" (pair with "#| background: papertear" for a torn
+   look). With no option, the result is its normal boxes; a NotebookObject left
+   open is closed and shown as its reference. *)
 outputBoxes[res_, opts_] := Which[
     res === Null, Null,
     TrueQ[Lookup[opts, "screenshot", False]] && MatchQ[Head[res], Notebook | NotebookObject],
         With[{img = Quiet @ Rasterize[resultNotebook[res], ImageResolution -> 144]},
             If[Head[res] === NotebookObject, Quiet @ NotebookClose[res]]; ToBoxes[img]],
-    TrueQ[Lookup[opts, "notebook_splice", False]] && MatchQ[Head[res], Notebook | NotebookObject],
-        With[{cells = First[resultNotebook[res], {}]},
-            If[Head[res] === NotebookObject, Quiet @ NotebookClose[res]]; splicedNotebook[cells]],
     Head[res] === NotebookObject, With[{b = ToBoxes[res]}, Quiet @ NotebookClose[res]; b],
     True, ToBoxes[res]
 ]
@@ -447,18 +455,12 @@ extraOutputOpts[block_] := If[
 exampleIO[code_String, outBoxes_, n_Integer, outOpts_List : {}] := Block[{
     inCell = Cell[BoxData[inputBoxes[code]], "Input", CellLabel -> "In[" <> ToString[n] <> "]:= "]
 },
-    Which[
-        (* frame splice: the produced notebook's own cells go in a nested cell group
-           under the input - real, crisp typeset, not a raster *)
-        MatchQ[outBoxes, _splicedNotebook],
-            {Cell[CellGroupData[{inCell, Cell[CellGroupData[First[outBoxes], Open]]}, Open]]},
-        MissingQ[outBoxes] || outBoxes === Null,
-            {inCell},
-        True,
-            {Cell[CellGroupData[{
-                inCell,
-                Cell[BoxData[outBoxes], "Output", CellLabel -> "Out[" <> ToString[n] <> "]= ", Sequence @@ outOpts]
-            }, Open]]}
+    If[ MissingQ[outBoxes] || outBoxes === Null,
+        {inCell},
+        {Cell[CellGroupData[{
+            inCell,
+            Cell[BoxData[outBoxes], "Output", CellLabel -> "Out[" <> ToString[n] <> "]= ", Sequence @@ outOpts]
+        }, Open]]}
     ]
 ]
 
@@ -548,32 +550,30 @@ examplesSlot[opts_, sections_] := Block[{keys},
 exampleDelimiterCell := Cell["\t", "ExampleDelimiter"]
 
 (* shared example-content builder: prose -> a text cell of the given style,
-   tables -> a GridBox, executable cells -> evaluated Input/Output. A new prose
-   lead-in after earlier content starts a new example, so an ExampleDelimiter is
-   inserted before it and the In[]/Out[] counter restarts. A "### Heading" inside a
-   section becomes a subsubsection (an ExampleSubsection on doc pages), so options
-   and other sub-topics each get their own subsubsection like reference pages do;
-   the heading itself separates examples, so it resets the counter without a
-   delimiter. *)
+   tables -> a GridBox, executable cells -> evaluated Input/Output. Examples are
+   separated explicitly by a thematic-break line (--- or ___), which becomes an
+   ExampleDelimiter and restarts the In[]/Out[] counter - never inserted
+   automatically. A "### Heading" becomes a subsubsection (an ExampleSubsection on
+   doc pages) and likewise restarts the counter. *)
 exampleSubStyle["ExampleText"] = "ExampleSubsection"
 exampleSubStyle[_] = "Subsubsection"
 
-exampleContent[sectionBlocks_, textStyle_String] := Block[{counter = 0, started = False, out = {}},
+exampleContent[sectionBlocks_, textStyle_String] := Block[{counter = 0, out = {}},
     Do[
         Which[
             block["Type"] === "Heading",
                 AppendTo[out, Cell[TextData @ inlineTextData[block["Text"]], exampleSubStyle[textStyle]]];
-                counter = 0; started = False,
+                counter = 0,
+            block["Type"] === "Separator",
+                AppendTo[out, exampleDelimiterCell]; counter = 0,
             block["Type"] === "Prose",
-                If[started, AppendTo[out, exampleDelimiterCell]; counter = 0];
-                AppendTo[out, Cell[TextData @ inlineTextData[block["Text"]], textStyle]];
-                started = True,
+                AppendTo[out, Cell[TextData @ inlineTextData[block["Text"]], textStyle]],
             block["Type"] === "Table",
-                AppendTo[out, tableCell[block]]; started = True,
+                AppendTo[out, tableCell[block]],
             block["Type"] === "Image",
-                AppendTo[out, imageCell[block]]; started = True,
+                AppendTo[out, imageCell[block]],
             executableQ[block],
-                counter += 1; out = Join[out, exampleIO[block["Code"], block["OutputBoxes"], counter, extraOutputOpts[block]]]; started = True
+                counter += 1; out = Join[out, exampleIO[block["Code"], block["OutputBoxes"], counter, extraOutputOpts[block]]]
         ],
         {block, sectionBlocks}
     ];
@@ -1224,6 +1224,54 @@ buildNotebook["Guide", data_] := guideNotebook[data]
 buildNotebook["TechNote", data_] := tutorialNotebook[data]
 buildNotebook[_, data_] := defaultNotebook[data]
 
+(* === markdown-out: a rendered markdown twin ===
+   MarkdownToNotebook[source, "out.md"] re-serializes the document to markdown but
+   follows each evaluated wl cell with an image of its output, saved under images/
+   beside the target. The prose, headings, lists, tables and frontmatter are written
+   back; only the outputs are added (as images a plain markdown viewer can show). *)
+fmLine[k_, v_String] := k <> ": " <> v
+fmLine[k_, v_List] := k <> ": [" <> StringRiffle[v, ", "] <> "]"
+fmLine[k_, v_] := k <> ": " <> ToString[v]
+
+serializeFrontmatter[meta_] := If[meta === <||> || meta === Null, "",
+    "---\n" <> StringRiffle[KeyValueMap[fmLine, meta], "\n"] <> "\n---\n"]
+
+serializeTableMd[block_] := StringRiffle[Join[
+    {"| " <> StringRiffle[block["Header"], " | "] <> " |",
+     "|" <> StringRiffle[ConstantArray["---", Length[block["Header"]]], "|"] <> "|"},
+    ("| " <> StringRiffle[#, " | "] <> " |") & /@ block["Rows"]
+], "\n"]
+
+markdownWithImages[blocks_, meta_, target_String] := Block[{dir, base, imgDir, n = 0, mdOf, codeMd},
+    dir = DirectoryName[target]; base = FileBaseName[target];
+    imgDir = FileNameJoin[{dir, "images"}];
+    Quiet @ CreateDirectory[imgDir, CreateIntermediateDirectories -> True];
+    codeMd[b_] := Block[{fence, imgFile},
+        fence = "```" <> b["Lang"] <> "\n" <> If[
+            KeyExistsQ[b["Options"], "file"], "#| file: " <> b["Options"]["file"] <> "\n",
+            StringJoin["#| " <> # <> ": " <> ToString[b["Options"][#]] <> "\n" & /@ Keys[b["Options"]]] <> b["Code"] <> "\n"
+        ] <> "```";
+        If[ executableQ[b] && ! MissingQ[b["OutputBoxes"]] && b["OutputBoxes"] =!= Null,
+            n += 1; imgFile = base <> "-" <> ToString[n] <> ".png";
+            Quiet @ Export[FileNameJoin[{imgDir, imgFile}], UsingFrontEnd @ Rasterize[RawBoxes[b["OutputBoxes"]], ImageResolution -> 96]];
+            fence <> "\n\n![output](images/" <> imgFile <> ")",
+            fence
+        ]
+    ];
+    mdOf[b_] := Switch[b["Type"],
+        "Heading", StringRepeat["#", b["Level"]] <> " " <> b["Text"],
+        "Prose", b["Text"],
+        "List", StringRiffle["- " <> # & /@ b["Items"], "\n"],
+        "Table", serializeTableMd[b],
+        "Separator", "---",
+        "Image", "![" <> Lookup[b, "Alt", ""] <> "](" <> Lookup[b, "Path", ""] <> ")",
+        "Code", codeMd[b],
+        _, ""
+    ];
+    Export[target, serializeFrontmatter[meta] <> "\n" <> StringRiffle[DeleteCases[mdOf /@ blocks, ""], "\n\n"] <> "\n", "Text"];
+    target
+]
+
 (* === example-output cache ===
    Evaluated example outputs are cached with the built-in persistence framework -
    a PersistentSymbol per cell, keyed by the cumulative hash, at the "Local"
@@ -1241,9 +1289,11 @@ exampleCacheSet[h_Integer, v_] := (PersistentSymbol[exampleCacheName[h], $cacheL
      MarkdownToNotebook[source]                -> the Notebook expression
      MarkdownToNotebook[source, "Notebook"]    -> the Notebook expression
      MarkdownToNotebook[source, "Association"] -> the parsed structure
+     MarkdownToNotebook[source, "out.md"]      -> a rendered markdown twin: the
+        document re-serialized with each wl output added as an image under images/
      MarkdownToNotebook[source, file]          -> write the notebook to file, return it
-   ("Notebook"/"Association" are reserved; any other string is a file path.) The
-   layout always comes from the document's own Template frontmatter key. *)
+   ("Notebook"/"Association" are reserved; a ".md" target writes markdown; any other
+   string is a notebook file path.) The layout comes from the Template frontmatter. *)
 MarkdownToNotebook[file_String] := MarkdownToNotebook[file, Automatic]
 
 MarkdownToNotebook[file_String, spec : (_String | Automatic)] := Block[{
@@ -1285,6 +1335,7 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic)] := Block[{
         spec === Automatic || spec === "Notebook", filled,
         spec === "Association",
             <|"Notebook" -> filled, "Metadata" -> meta, "Sections" -> Keys[sections], "Template" -> tmplName|>,
+        StringQ[spec] && StringEndsQ[ToLowerCase[spec], ".md"], markdownWithImages[blocks, meta, spec],
         True, Export[spec, filled, "NB"]
     ]
 ]
