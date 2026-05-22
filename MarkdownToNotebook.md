@@ -32,16 +32,16 @@ contents of that local file or URL, resolved relative to this document.
 ## Details & Options
 
 - The *source* is a local file path, an `http(s)` URL, or a raw markdown string.
-- The layout is the document's own `Template` frontmatter key — `FunctionResource`, `Symbol`, `Guide`, `TechNote`, `Paclet`, or `Default` — so the source declares its own layout.
+- The layout is the document's own `Template` frontmatter key - `FunctionResource`, `Symbol`, `Guide`, `TechNote`, `Paclet`, or `Default` - so the source declares its own layout.
 - `FunctionResource` fills the official `FunctionResourceDefinition.nb` template (keeping its docked Deploy/Submit toolbar); `Symbol` and `Guide` fill the DocumentationTools authoring templates; `Default` maps headings and code to standard notebook styles.
 - The frontmatter keys mirror each template's metadata, so the author never writes cell styles.
-- The optional second argument selects the result: omitted (or `"Notebook"`) returns the `Notebook`, `"Association"` returns the parsed structure, a `.nb` file name writes the notebook, and a `.md` file name writes a *markdown twin* — the same document with every evaluated output rasterized to an image beside it. The function itself takes no options.
-- A `Flag` frontmatter key flags the whole document and a code cell's `#| flag:` option flags that cell, with one of the documentation build's flags — `Future`, `Excised`, `Obsolete`, `Temporary`, `Preview`, or `Internal` — the front end's Futurize / Excise toolbar buttons, written as the build's banner cell.
-- Individual code cells carry `#|` options instead — `eval`, `file`, `screenshot`, `background`, `flag` — documented under Scope.
+- The optional second argument selects the result: omitted (or `"Notebook"`) returns the `Notebook`, `"Association"` returns the parsed structure, a `.nb` file name writes the notebook, and a `.md` file name writes a *markdown twin* - the same document with every evaluated output rasterized to an image beside it. The function itself takes no options.
+- A `Flag` frontmatter key flags the whole document and a code cell's `#| flag:` option flags that cell, with one of the documentation build's flags - `Future`, `Excised`, `Obsolete`, `Temporary`, `Preview`, or `Internal` - the front end's Futurize / Excise toolbar buttons, written as the build's banner cell.
+- Individual code cells carry `#|` options instead - `eval`, `file`, `screenshot`, `background`, `flag` - documented under Scope.
 - Evaluated example outputs are cached as a `PersistentSymbol` per cell at the `"Local"` `PersistenceLocation`, keyed by a cumulative hash of the preceding cells, so re-runs reuse them across sessions.
 - Manage that cache the standard way: `PersistentObjects["MarkdownToNotebook/ExampleOutput/*", "Local"]` lists it, `DeleteObject` clears it, and `$PersistencePath` / `PersistenceLocation` relocate it.
 - The source lives on GitHub, which renders the markdown directly: [github.com/sw1sh/MarkdownToNotebook](https://github.com/sw1sh/MarkdownToNotebook).
-- Running the function on this document — `Get` the `.wl`, then `MarkdownToNotebook["MarkdownToNotebook.md", "MarkdownToNotebook.nb"]` — reproduces this very definition notebook; that is the loop `build.wls` runs.
+- Running the function on this document - `Get` the `.wl`, then `MarkdownToNotebook["MarkdownToNotebook.md", "MarkdownToNotebook.nb"]` - reproduces this very definition notebook; that is the loop `build.wls` runs.
 
 ## Usage
 
@@ -61,7 +61,7 @@ MarkdownToNotebook["# Title\n\nA paragraph.\n\n## Section\n\nMore text."]
 
 ---
 
-A whole notebook has no faithful inline form, so to show the produced notebook rendered in the documentation, add `#| screenshot: true` to the example cell — it rasterizes the notebook to an image (pair with `#| background: papertear` for a torn-paper screenshot):
+A whole notebook has no faithful inline form, so to show the produced notebook rendered in the documentation, add `#| screenshot: true` to the example cell - it rasterizes the notebook to an image (pair with `#| background: papertear` for a torn-paper screenshot):
 
 ```wl
 #| screenshot: true
@@ -83,7 +83,7 @@ The *source* is a file path, an `http(s)` URL, or a raw string, and the layout c
 
 ### Frontmatter
 
-A `---` - delimited block at the very top of the document is the *frontmatter*: `key: value` lines (a YAML-ish header) that carry the resource metadata — the `Name`, `Description`, `Template`, `Keywords`, and so on. Everything below it is content. Read the parsed metadata back with `"Association"`:
+A `---` - delimited block at the very top of the document is the *frontmatter*: `key: value` lines (a YAML-ish header) that carry the resource metadata - the `Name`, `Description`, `Template`, `Keywords`, and so on. Everything below it is content. Read the parsed metadata back with `"Association"`:
 
 ```wl
 MarkdownToNotebook["---\nName: Demo\nTemplate: Default\nKeywords: [alpha, beta]\n---\n# Demo\n\ntext", "Association"]["Metadata"]
@@ -109,7 +109,7 @@ MarkdownToNotebook["Inline `Range[3]`, *emphasis*, ``verbatim``, and the math $\
 
 ### Links
 
-`[label](url)` is a prose hyperlink; a backticked label with no target — `` [`Symbol`] `` or `` [`Symbol`]() `` — infers a documentation reference; `` [`Symbol`](url) `` links explicitly:
+`[label](url)` is a prose hyperlink; a backticked label with no target - `` [`Symbol`] `` or `` [`Symbol`]() `` - infers a documentation reference; `` [`Symbol`](url) `` links explicitly:
 
 ```wl
 #| screenshot: true
@@ -136,7 +136,7 @@ MarkdownToNotebook["```wl\nRange[5]^2\n```"]
 
 ### Inlining a file
 
-A code cell whose first line is `#| file: path` is replaced by the contents of that local file or URL, resolved relative to the source — the mechanism the Definition section above uses to pull in `MarkdownToNotebook.wl`. Here a snippet written to disk is inlined and evaluated:
+A code cell whose first line is `#| file: path` is replaced by the contents of that local file or URL, resolved relative to the source - the mechanism the Definition section above uses to pull in `MarkdownToNotebook.wl`. Here a snippet written to disk is inlined and evaluated:
 
 ```wl
 #| screenshot: true
@@ -145,11 +145,11 @@ Export[FileNameJoin[{$TemporaryDirectory, "snippet.wl"}], "Range[5]^2", "Text"];
 
 ### Inlining an image
 
-A markdown image `![alt](path)` inlines an image — a local file or URL, resolved relative to the source:
+A markdown image `![alt](path)` inlines an image - a local file or URL, resolved relative to the source:
 
 ![A built guide page](docs/images/guide-page.png)
 
-A `"papertear"` title — `![alt](path "papertear")` — additionally applies the front end's Convert To ▸ Paper Tear cell effect for a torn-screenshot look (used under Applications and Neat Examples below).
+A `"papertear"` title - `![alt](path "papertear")` - additionally applies the front end's Convert To > Paper Tear cell effect for a torn-screenshot look (used under Applications and Neat Examples below).
 
 ### Returning a notebook, an association, or a file
 
@@ -161,7 +161,7 @@ MarkdownToNotebook["---\nName: Demo\nKeywords: [alpha, beta]\n---\n# Demo", "Ass
 
 ### Writing a markdown twin
 
-A `.md` file name writes a GitHub-renderable *twin* of the document — the same prose and code, but with each evaluated output rasterized to a PNG beside it (under an `images/` folder next to the target). This very repository's [`MarkdownToNotebook-out.md`](MarkdownToNotebook-out.md) is the twin of this document, produced this way. Here a small literate doc is converted to a twin and the resulting markdown read back, showing the output image spliced in after its code cell:
+A `.md` file name writes a GitHub-renderable *twin* of the document - the same prose and code, but with each evaluated output rasterized to a PNG beside it (under an `images/` folder next to the target). This very repository's [`MarkdownToNotebook-out.md`](MarkdownToNotebook-out.md) is the twin of this document, produced this way. Here a small literate doc is converted to a twin and the resulting markdown read back, showing the output image spliced in after its code cell:
 
 ```wl
 Module[{dir = CreateDirectory[]}, MarkdownToNotebook["## Squares\n\n```wl\nRange[5]^2\n```", FileNameJoin[{dir, "twin.md"}]]; Import[FileNameJoin[{dir, "twin.md"}], "Text"]]
@@ -169,7 +169,7 @@ Module[{dir = CreateDirectory[]}, MarkdownToNotebook["## Squares\n\n```wl\nRange
 
 ### Flagging a document or cell
 
-The documentation build's *flags* — the front end's Futurize / Excise toolbar buttons — mark a page or cell as `Future`, `Excised`, `Obsolete`, `Temporary`, `Preview`, or `Internal`. A `Flag` frontmatter key flags the whole document; a code cell's `#| flag:` option flags that one cell. Each becomes the build's banner cell, here pulled back out of a flagged document:
+The documentation build's *flags* - the front end's Futurize / Excise toolbar buttons - mark a page or cell as `Future`, `Excised`, `Obsolete`, `Temporary`, `Preview`, or `Internal`. A `Flag` frontmatter key flags the whole document; a code cell's `#| flag:` option flags that one cell. Each becomes the build's banner cell, here pulled back out of a flagged document:
 
 ```wl
 Cases[MarkdownToNotebook["---\nFlag: Future\n---\n# Demo\n\ntext"], Cell[_, style_String /; StringEndsQ[style, "Flag"], ___], Infinity]
@@ -187,7 +187,7 @@ MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/AccessibleColors/mai
 
 ## Properties and Relations
 
-The Wolfram Language already reads markdown into a plain notebook — `Import["doc.md", "Notebook"]`, or `ImportString[markdown, {"Markdown", "Notebook"}]` for a string. `MarkdownToNotebook` builds on that idea and adds the resource layer: the layout chosen from frontmatter, the metadata slots, cell options, and evaluated and cached example cells. The built-in import of the same snippet gives just the bare cells (it does parse inline TeX math, the same convention `$...$` uses here):
+The Wolfram Language already reads markdown into a plain notebook - `Import["doc.md", "Notebook"]`, or `ImportString[markdown, {"Markdown", "Notebook"}]` for a string. `MarkdownToNotebook` builds on that idea and adds the resource layer: the layout chosen from frontmatter, the metadata slots, cell options, and evaluated and cached example cells. The built-in import of the same snippet gives just the bare cells (it does parse inline TeX math, the same convention `$...$` uses here):
 
 ```wl
 ImportString["# Title\n\nText with inline math $\\sin x$.", {"Markdown", "Notebook"}]
@@ -205,7 +205,7 @@ MarkdownToNotebook["nonexistent.md", "Association"]["Sections"]
 
 ## Neat Examples
 
-A literate document — prose, inline math, and a live computation — converts into a notebook with the evaluated result rendered inline, shown here as a torn-paper screenshot (`#| screenshot: true` rasterizes, `#| background: papertear` tears):
+A literate document - prose, inline math, and a live computation - converts into a notebook with the evaluated result rendered inline, shown here as a torn-paper screenshot (`#| screenshot: true` rasterizes, `#| background: papertear` tears):
 
 ```wl
 #| screenshot: true
@@ -213,4 +213,4 @@ A literate document — prose, inline math, and a live computation — converts 
 MarkdownToNotebook["# A sine wave\n\nThe plot of $\\sin x$ over one period:\n\n```wl\nPlot[Sin[x], {x, 0, 2 Pi}]\n```\n\nIts mean value is zero."]
 ```
 
-Because this very document is itself such a literate source — its `## Definition` inlines `MarkdownToNotebook.wl` and its frontmatter is the resource metadata — running the function on it reproduces this definition notebook, so the function publishes itself.
+Because this very document is itself such a literate source - its `## Definition` inlines `MarkdownToNotebook.wl` and its frontmatter is the resource metadata - running the function on it reproduces this definition notebook, so the function publishes itself.

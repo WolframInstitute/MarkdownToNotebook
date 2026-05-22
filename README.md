@@ -31,15 +31,15 @@ ResourceFunction["https://www.wolframcloud.com/obj/nikm/DeployedResources/Functi
 
 ## Layout
 
-- [`MarkdownToNotebook.wl`](MarkdownToNotebook.wl) — the converter.
-- [`MarkdownToNotebook.md`](MarkdownToNotebook.md) — its own Function Repository
+- [`MarkdownToNotebook.wl`](MarkdownToNotebook.wl) - the converter.
+- [`MarkdownToNotebook.md`](MarkdownToNotebook.md) - its own Function Repository
   definition, authored in the very format it converts (self-hosting).
-- [`bootstrap.wls`](bootstrap.wls) — defines the function from the markdown,
+- [`bootstrap.wls`](bootstrap.wls) - defines the function from the markdown,
   converts it, and publishes it.
-- [`docs/`](docs/) — the markdown ↔ notebook mapping, the palette/button catalog,
+- [`docs/`](docs/) - the markdown <-> notebook mapping, the palette/button catalog,
   formatting and resource-notebook references, hard-won [subtleties](docs/subtleties.md),
   and [`update-screenshots.wls`](docs/update-screenshots.wls).
-- [`examples/AccessibleColors`](examples/AccessibleColors) — a complete worked
+- [`examples/AccessibleColors`](examples/AccessibleColors) - a complete worked
   example paclet (submodule), authored entirely in markdown and published as
   [Wolfram/AccessibleColors](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/AccessibleColors/):
   a guide, four symbol pages, a tutorial, and the Paclet Repository definition.
@@ -52,4 +52,25 @@ MarkdownToNotebook["path/to/doc.md"]              (* returns the Notebook expres
 MarkdownToNotebook["path/to/doc.md", "doc.nb"]   (* also writes doc.nb, returns the file *)
 ```
 
-See [docs/README.md](docs/README.md) for the full conventions.
+See [docs/README.md](docs/README.md) for the full conventions, and
+[GUIDE.md](GUIDE.md) for the Wolfram Language coding style the `.wl` and
+`.wls` sources follow.
+
+## Implementation notes
+
+Parsing is pure Wolfram, kept in the `## Definition` cells: there is no
+paclet directory and no native (C/Rust) extension. If inline-markdown
+fidelity ever needs a real CommonMark parser, swap only the inline layer
+(comrak via LibraryLink, or a pandoc shell-out); the block parser and the
+evaluate/cache engine are unaffected. Example outputs are evaluated once
+and cached as `PersistentObjects` keyed by a cumulative content hash of
+the example cells.
+
+The official, submittable `FunctionResource` definition notebook is the one
+`CreateNotebook["FunctionResource"]` (front end) or
+`ResourceFunction["CreateResourceNotebook"]["Function"]` (kernel) opens. Its
+template is `FunctionResource/Kernel/Templates/FunctionResourceDefinition.nb`;
+the Deploy / Submit toolbar lives in docked cells
+(`TemplateBox[{}, "MainGridTemplate"]`) of `FunctionResourceDefinitionStyles.nb`,
+driven by the `DefinitionNotebookClient` paclet. The converter fills that
+template directly, so publishing stays headless.

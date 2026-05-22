@@ -183,8 +183,8 @@ links a System symbol, then a re-link pass wraps it again into
 only ever applies to backticked content:
 
 - `` [`Notebook`] `` (or the empty-target form `` [`Notebook`]() ``) - a backtick
-  label with no real URL - infers the ref URL from the name (paclet context →
-  `paclet:Pub/Name/ref/Name`, System → `paclet:ref/Name`) and renders a code-styled
+  label with no real URL - infers the ref URL from the name (paclet context ->
+  `paclet:Pub/Name/ref/Name`, System -> `paclet:ref/Name`) and renders a code-styled
   reference link. A bare `[Notebook]` with no backticks is **left as literal
   text** - never linked;
 - `` [`WCAGContrastRatio`](paclet:Pub/Name/ref/WCAGContrastRatio) `` - an explicit
@@ -346,9 +346,9 @@ to `RawBoxes` them (that silently drops Text/Input content) and not under the in
 flat (that breaks layout). Rendering a notebook output is **opt in** via a `#|`
 cell option (never automatic, never a default raster):
 
-- `#| notebook_splice: true` → frame splice (the cells, crisp). `outputBoxes`
+- `#| notebook_splice: true` -> frame splice (the cells, crisp). `outputBoxes`
   returns a `splicedNotebook[cells]` marker that `exampleIO` drops into the group.
-- `#| screenshot: true` → rasterize to an image; pair with `#| background:
+- `#| screenshot: true` -> rasterize to an image; pair with `#| background:
   papertear` for the torn-paper screenshots under Applications/Neat.
 
 With neither, the result is its normal output boxes (a bare `Notebook` expression,

@@ -1,16 +1,9 @@
-# AISkills style guide
+# Wolfram Language style guide
 
-This repository is a single, self-hosting Wolfram Function Repository
-function authored in literate markdown. The source of truth is
-[MarkdownToNotebook.md](MarkdownToNotebook.md): its YAML
-frontmatter is the Function Repository metadata, and its body holds the
-function definition, usage, and examples. The function converts such a
-document into a `ResourceObject`, so it can publish itself
-([bootstrap.wls](bootstrap.wls) defines it from the markdown once, then
-runs it on its own source).
-
-The conventions below apply to the Wolfram code inside ` ```wl ` cells and
-to the `*.wls` bootstrap/runner scripts.
+Conventions for Wolfram Language code: `.wl` package files, `.wls`
+scripts, `.wlt` test files, and code in ` ```wl ` markdown cells. The
+rules at the top are non-negotiable; the rest are conventions that keep
+code readable and consistent with the IDE auto-formatter.
 
 ## Rules the user has explicitly called out
 
@@ -429,8 +422,8 @@ meaning the inline expression doesn't.
 ## Tests
 
 Use `VerificationTest` from the standard testing framework. Test specs
-live in `*.wlt` files; the runner is a `.wls` script invoked by
-`make wl-test`.
+live in `.wlt` files, run by a `.wls` runner script that reports
+outcomes via `TestReport`.
 
 ```wolfram
 VerificationTest[
@@ -462,35 +455,3 @@ When practical, organize a `.wl` file in this order:
   expectations, etc.).
 - Don't narrate obvious code.
 - Prefer one short section comment over many tiny inline comments.
-
-## Project layout
-
-- `MarkdownToNotebook.md` - the source of truth. YAML
-  frontmatter = Function Repository metadata (keys mirror the
-  `FunctionResourceDefinition.nb` template slots: `Name`, `Description`,
-  `Usage`, `Keywords`, `Categories`, `ContributedBy`, ...). The
-  `## Definition` cells hold the function's own code; `## Usage` and the
-  `## Basic Examples` / `## Scope` / ... sections feed the resource's
-  docs and are evaluated with caching.
-- `bootstrap.wls` - extracts the `## Definition` cells, defines the
-  function, then runs it on its own markdown (the self-hosting loop:
-  markdown -> `ResourceObject` -> ready for `ResourceSubmit`).
-- `*.examples.wxf` - per-document evaluation cache (gitignored), keyed
-  by a cumulative content hash of the example cells.
-
-There is no paclet directory and no native (C/Rust) extension: parsing
-is pure Wolfram, kept in the `## Definition` cells. If inline-markdown
-fidelity ever needs a real CommonMark parser, swap only the inline layer
-(comrak via LibraryLink, or a pandoc shell-out); the block parser and the
-evaluate/cache engine are unaffected.
-
-### Function Repository targets (reference)
-
-The official, submittable definition notebook is created with
-`CreateNotebook["FunctionResource"]` (front end) or
-`ResourceFunction["CreateResourceNotebook"]["Function"]` (kernel). Its
-template is `FunctionResource/Kernel/Templates/FunctionResourceDefinition.nb`;
-the Deploy/Submit toolbar lives in docked cells
-(`TemplateBox[{}, "MainGridTemplate"]`) of `FunctionResourceDefinitionStyles.nb`,
-driven by the `DefinitionNotebookClient` paclet. We target the
-`ResourceObject` API directly instead, so publishing stays headless.
