@@ -336,20 +336,31 @@ session before deploying: `CurrentValue[$FrontEnd, LightDark] = "Light"`. Same f
 any `Rasterize` of example output - bake `LightDark -> "Light"` into the rendered
 `Notebook[…]` so the image is light regardless of the session.
 
-### Show a produced notebook by *splicing its cells*, not rasterizing it
-A bare `Notebook[…]` example output shows nothing useful on the cloud page (no
-typeset form for a whole notebook). Rasterizing a `NotebookObject` to an image is
-**ugly** (low-res; the math/text blur). Instead, when an example opens the result
-(`NotebookPut[MarkdownToNotebook[…]]` → a `NotebookObject`), splice the produced
-notebook's **actual cells** under the input cell - crisp typeset, real inline math
-and links. `outputBoxes` does `First[NotebookGet[nbobj]]` (then `NotebookClose`)
-and wraps them in a marker `splicedNotebook[cells]`; `exampleIO` drops those cells
-into the example's `CellGroupData`. A plain `Notebook` *expression* result is left
-as its explicit expression boxes. Rendering needs a front end, so the
-example-evaluation pass runs in `UsingFrontEnd` with the session set to light.
-A deliberate raster *screenshot* (Applications/Neat) is the opposite case: there
-the example calls `Rasterize` itself and a `#| background: papertear` cell option
-gives it the torn-paper look - applied only on those cells, never to every image.
+### Show a produced notebook: both renderings are opt-in cell options
+Faithfully splicing a produced notebook's **actual cells** works and is crisp -
+the trick is to splice the real `Cell` expressions (Title, Text with inline TeX,
+Section, Input/Output) into a **nested cell group** under the input
+(`Cell[CellGroupData[{inputCell, Cell[CellGroupData[cells, Open]]}, Open]]`), not
+to `RawBoxes` them (that silently drops Text/Input content) and not under the input
+flat (that breaks layout). Rendering a notebook output is **opt in** via a `#|`
+cell option (never automatic, never a default raster):
+
+- `#| notebook_splice: true` → frame splice (the cells, crisp). `outputBoxes`
+  returns a `splicedNotebook[cells]` marker that `exampleIO` drops into the group.
+- `#| screenshot: true` → rasterize to an image; pair with `#| background:
+  papertear` for the torn-paper screenshots under Applications/Neat.
+
+With neither, the result is its normal output boxes (a bare `Notebook` expression,
+what `MarkdownToNotebook[source]` returns, shows as itself). The option is named
+`notebook_splice`, not `splice` (which is ambiguous).
+
+### Self-referential examples need the converter's context on the path
+Example cells evaluate in a private `$Context` with `$ContextPath` of just the
+documented paclet's context + `System``. A document whose examples call
+`MarkdownToNotebook` itself (this very file) would leave the call **unevaluated**
+(the output shows the literal `MarkdownToNotebook[...]` code, or a raster of it) -
+because `MarkdownToNotebook` lives in `Global`` (or wherever it was loaded), off
+the path. Add `Context[MarkdownToNotebook]` to the example `$ContextPath`.
 
 ### `$...$` is TeX, parsed by the built-in Markdown importer
 Inline `$math$` is **TeX**, not Wolfram code: `ImportString["$" <> tex <> "$",

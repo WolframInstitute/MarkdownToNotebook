@@ -35,7 +35,8 @@ contents of that local file or URL, resolved relative to this document.
 - The layout is the document's own `Template` frontmatter key — `FunctionResource`, `Symbol`, `Guide`, `TechNote`, `Paclet`, or `Default` — so the source declares its own layout.
 - `FunctionResource` fills the official `FunctionResourceDefinition.nb` template (keeping its docked Deploy/Submit toolbar); `Symbol` and `Guide` fill the DocumentationTools authoring templates; `Default` maps headings and code to standard notebook styles.
 - The frontmatter keys mirror each template's metadata, so the author never writes cell styles.
-- The optional second argument selects the result: omitted (or `"Notebook"`) returns the `Notebook`, `"Association"` returns the parsed structure, and a file name writes the notebook to that file. There are no options.
+- The optional second argument selects the result: omitted (or `"Notebook"`) returns the `Notebook`, `"Association"` returns the parsed structure, and a file name writes the notebook to that file. The function itself takes no options.
+- Individual code cells carry `#|` options instead — `eval`, `file`, `notebook_splice`, `screenshot`, `background` — documented under Scope.
 - Evaluated example outputs are cached as a `PersistentSymbol` per cell at the `"Local"` `PersistenceLocation`, keyed by a cumulative hash of the preceding cells, so re-runs reuse them across sessions.
 - Manage that cache the standard way: `PersistentObjects["MarkdownToNotebook/ExampleOutput/*", "Local"]` lists it, `DeleteObject` clears it, and `$PersistencePath` / `PersistenceLocation` relocate it.
 - The source lives on GitHub, which renders the markdown directly: [github.com/sw1sh/MarkdownToNotebook](https://github.com/sw1sh/MarkdownToNotebook).
@@ -57,15 +58,17 @@ Convert a markdown string into a notebook. The result is the explicit `Notebook`
 MarkdownToNotebook["# Title\n\nA paragraph.\n\n## Section\n\nMore text."]
 ```
 
-Open the result with `NotebookPut` to see it rendered:
+Open the result with `NotebookPut` to get a `NotebookObject`. To render it in the documentation, an example cell carries a `#|` option: `#| notebook_splice: true` *frame splices* the produced notebook's own cells into a cell group right under the input, so you see it rendered in place; `#| screenshot: true` rasterizes it to an image instead (pair that with `#| background: papertear` for a torn-paper screenshot):
 
 ```wl
+#| notebook_splice: true
 NotebookPut[MarkdownToNotebook["# Title\n\nA paragraph.\n\n## Section\n\nMore text."]]
 ```
 
 Prose formatting, inline code, and lists all carry through:
 
 ```wl
+#| notebook_splice: true
 NotebookPut[MarkdownToNotebook["# Notes\n\nA *key* idea, with inline `code`:\n\n- first\n- second\n- third"]]
 ```
 
@@ -75,7 +78,7 @@ The *source* is a file path, an `http(s)` URL, or a raw string, and the layout c
 
 ### Frontmatter
 
-A `---`-delimited block at the very top of the document is the *frontmatter*: `key: value` lines (a YAML-ish header) that carry the resource metadata — the `Name`, `Description`, `Template`, `Keywords`, and so on. Everything below it is content. Read the parsed metadata back with `"Association"`:
+A `---` - delimited block at the very top of the document is the *frontmatter*: `key: value` lines (a YAML-ish header) that carry the resource metadata — the `Name`, `Description`, `Template`, `Keywords`, and so on. Everything below it is content. Read the parsed metadata back with `"Association"`:
 
 ```wl
 MarkdownToNotebook["---\nName: Demo\nTemplate: Default\nKeywords: [alpha, beta]\n---\n# Demo\n\ntext", "Association"]["Metadata"]
@@ -86,6 +89,7 @@ MarkdownToNotebook["---\nName: Demo\nTemplate: Default\nKeywords: [alpha, beta]\
 `#` becomes a `Title`, `##` a `Section`, `###` a `Subsection`; blank-line-separated paragraphs become `Text`:
 
 ```wl
+#| notebook_splice: true
 NotebookPut[MarkdownToNotebook["# Title\n\n## Section\n\n### Subsection\n\nA paragraph of text."]]
 ```
 
@@ -94,6 +98,7 @@ NotebookPut[MarkdownToNotebook["# Title\n\n## Section\n\n### Subsection\n\nA par
 Inline `` `code` `` is formatted code, `*emphasis*` is italic, a double-backtick ``literal`` is a verbatim span, and `$...$` is inline TeX math:
 
 ```wl
+#| notebook_splice: true
 NotebookPut[MarkdownToNotebook["Inline `Range[3]`, *emphasis*, ``verbatim``, and the math $\\sqrt{a^2 + b^2}$."]]
 ```
 
@@ -102,6 +107,7 @@ NotebookPut[MarkdownToNotebook["Inline `Range[3]`, *emphasis*, ``verbatim``, and
 `[label](url)` is a prose hyperlink; a backticked label with no target — `` [`Symbol`] `` or `` [`Symbol`]() `` — infers a documentation reference; `` [`Symbol`](url) `` links explicitly:
 
 ```wl
+#| notebook_splice: true
 NotebookPut[MarkdownToNotebook["See [`Range`] and the [Wolfram site](https://www.wolfram.com)."]]
 ```
 
@@ -110,6 +116,7 @@ NotebookPut[MarkdownToNotebook["See [`Range`] and the [Wolfram site](https://www
 `-`, `*`, or `+` lines become items, and a GitHub-style pipe table becomes a grid:
 
 ```wl
+#| notebook_splice: true
 NotebookPut[MarkdownToNotebook["- one\n- two\n\n| x | y |\n|---|---|\n| 1 | 2 |"]]
 ```
 
@@ -118,6 +125,7 @@ NotebookPut[MarkdownToNotebook["- one\n- two\n\n| x | y |\n|---|---|\n| 1 | 2 |"
 A fenced `wl` cell is evaluated and its output kept (then cached); a cell may carry options such as `#| eval: false` to show code without running it:
 
 ```wl
+#| notebook_splice: true
 NotebookPut[MarkdownToNotebook["```wl\nRange[5]^2\n```"]]
 ```
 
@@ -126,6 +134,7 @@ NotebookPut[MarkdownToNotebook["```wl\nRange[5]^2\n```"]]
 A code cell whose first line is `#| file: path` is replaced by the contents of that local file or URL, resolved relative to the source — the mechanism the Definition section above uses to pull in `MarkdownToNotebook.wl`. Here a snippet written to disk is inlined and evaluated:
 
 ```wl
+#| notebook_splice: true
 Export[FileNameJoin[{$TemporaryDirectory, "snippet.wl"}], "Range[5]^2", "Text"]; NotebookPut[MarkdownToNotebook[Export[FileNameJoin[{$TemporaryDirectory, "inc.md"}], "## Inlined\n\n```wl\n#| file: snippet.wl\n```", "Text"]]]
 ```
 
@@ -147,11 +156,12 @@ MarkdownToNotebook["---\nName: Demo\nKeywords: [alpha, beta]\n---\n# Demo", "Ass
 
 ## Applications
 
-Generate a paclet's entire documentation set, the guide page, the symbol reference pages, and a publishable Function Repository definition, from plain markdown, so authors never edit notebook cell styles by hand. The published [Wolfram/AccessibleColors](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/AccessibleColors/) paclet is built this way end to end. Here its guide page is converted straight from the markdown on GitHub, shown as a torn-paper screenshot:
+Generate a paclet's entire documentation set, the guide page, the symbol reference pages, and a publishable Function Repository definition, from plain markdown, so authors never edit notebook cell styles by hand. The published [Wolfram/AccessibleColors](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/AccessibleColors/) paclet is built this way end to end. Here its guide page is converted straight from the markdown on GitHub; the `#| screenshot: true` cell option rasterizes the produced notebook and `#| background: papertear` gives it a torn-paper screenshot look:
 
 ```wl
+#| screenshot: true
 #| background: papertear
-Rasterize[MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/AccessibleColors/main/docs/Guides/AccessibleColors.md"]]
+MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/AccessibleColors/main/docs/Guides/AccessibleColors.md"]
 ```
 
 ## Properties and Relations
@@ -174,11 +184,12 @@ MarkdownToNotebook["nonexistent.md", "Association"]["Sections"]
 
 ## Neat Examples
 
-A literate document — prose, inline math, and a live computation — converts into a notebook with the evaluated result rendered inline. Shown here as a torn-paper screenshot of the generated notebook:
+A literate document — prose, inline math, and a live computation — converts into a notebook with the evaluated result rendered inline, shown here as a torn-paper screenshot (`#| screenshot: true` rasterizes, `#| background: papertear` tears):
 
 ```wl
+#| screenshot: true
 #| background: papertear
-Rasterize[MarkdownToNotebook["# A sine wave\n\nThe plot of $\\sin x$ over one period:\n\n```wl\nPlot[Sin[x], {x, 0, 2 Pi}]\n```\n\nIts mean value is zero."]]
+MarkdownToNotebook["# A sine wave\n\nThe plot of $\\sin x$ over one period:\n\n```wl\nPlot[Sin[x], {x, 0, 2 Pi}]\n```\n\nIts mean value is zero."]
 ```
 
 Because this very document is itself such a literate source — its `## Definition` inlines `MarkdownToNotebook.wl` and its frontmatter is the resource metadata — running the function on it reproduces this definition notebook, so the function publishes itself.

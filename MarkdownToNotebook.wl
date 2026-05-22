@@ -281,16 +281,27 @@ sectionText[sections_, key_] := StringRiffle[
 
 cumulativeHashes[cells_List] := Map[Hash, Rest @ FoldList[#1 <> mdSep <> #2["Code"] &, "", cells]]
 
-(* output for an evaluated cell. A NotebookObject result - an example that opens
-   the produced notebook, e.g. NotebookPut[MarkdownToNotebook[...]] - is shown by
-   *splicing in the notebook's actual cells* (real, crisp typeset: formatted text,
-   inline math, links), not by rasterizing it to an image. We grab the cells and
-   close the object; exampleIO drops them under the input. A plain Notebook
-   *expression* result is left as its expression boxes (the explicit form). *)
-outputBoxes[res_] := Which[
+(* the notebook a result stands for (a Notebook expression, or the open notebook of
+   a NotebookObject), pinned to light mode. *)
+resultNotebook[res_] := Append[If[Head[res] === NotebookObject, NotebookGet[res], res], LightDark -> "Light"]
+
+(* output for an evaluated cell, chosen by the cell's "#|" options (both opt in,
+   for a Notebook expression or a NotebookObject - e.g. NotebookPut[...]):
+   - "#| notebook_splice: true" *frame splices*: the produced notebook's own cells
+     are spliced into a cell group under the input (crisp, real typeset, no raster);
+   - "#| screenshot: true" rasterizes the produced notebook to an image - pair with
+     "#| background: papertear" for a torn screenshot;
+   - with neither, the result is left as its normal output boxes (a bare Notebook
+     expression, what MarkdownToNotebook[source] returns, shows as itself). *)
+outputBoxes[res_, opts_] := Which[
     res === Null, Null,
-    Head[res] === NotebookObject,
-        With[{cells = First[NotebookGet[res], {}]}, Quiet @ NotebookClose[res]; splicedNotebook[cells]],
+    TrueQ[Lookup[opts, "screenshot", False]] && MatchQ[Head[res], Notebook | NotebookObject],
+        With[{img = Quiet @ Rasterize[resultNotebook[res], ImageResolution -> 144]},
+            If[Head[res] === NotebookObject, Quiet @ NotebookClose[res]]; ToBoxes[img]],
+    TrueQ[Lookup[opts, "notebook_splice", False]] && MatchQ[Head[res], Notebook | NotebookObject],
+        With[{cells = First[resultNotebook[res], {}]},
+            If[Head[res] === NotebookObject, Quiet @ NotebookClose[res]]; splicedNotebook[cells]],
+    Head[res] === NotebookObject, With[{b = ToBoxes[res]}, Quiet @ NotebookClose[res]; b],
     True, ToBoxes[res]
 ]
 
@@ -300,7 +311,7 @@ accumEval[state_, b_] := Block[{code = state["code"] <> mdSep <> b["Code"], res,
     tmp = FileNameJoin[{$TemporaryDirectory, "mtnb-cell-" <> IntegerString[Hash[code], 36] <> ".wl"}];
     Export[tmp, b["Code"], "Text"];
     res = Quiet @ Get[tmp];
-    <|"code" -> code, "out" -> Append[state["out"], Hash[code] -> outputBoxes[res]]|>
+    <|"code" -> code, "out" -> Append[state["out"], Hash[code] -> outputBoxes[res, b["Options"]]]|>
 ]
 
 (* a front end is active for the whole pass so an example may open the notebook it
@@ -437,10 +448,10 @@ exampleIO[code_String, outBoxes_, n_Integer, outOpts_List : {}] := Block[{
     inCell = Cell[BoxData[inputBoxes[code]], "Input", CellLabel -> "In[" <> ToString[n] <> "]:= "]
 },
     Which[
-        (* a NotebookObject result: splice the produced notebook's own cells under
-           the input, so the rendered notebook shows as crisp cells, not a raster *)
+        (* frame splice: the produced notebook's own cells go in a nested cell group
+           under the input - real, crisp typeset, not a raster *)
         MatchQ[outBoxes, _splicedNotebook],
-            {Cell[CellGroupData[Prepend[First[outBoxes], inCell], Open]]},
+            {Cell[CellGroupData[{inCell, Cell[CellGroupData[First[outBoxes], Open]]}, Open]]},
         MissingQ[outBoxes] || outBoxes === Null,
             {inCell},
         True,
@@ -1255,8 +1266,10 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic)] := Block[{
     orderedCode = Cases[blocks, b_ /; executableQ[b]];
     hashes = cumulativeHashes[orderedCode];
     ctx = "MTNB$" <> IntegerString[Hash[text], 36] <> "`";
-    (* let example cells resolve the documented paclet's symbols unqualified *)
-    ctxPath = DeleteDuplicates @ Flatten @ {Lookup[meta, "Context", Nothing], "System`"};
+    (* let example cells resolve the documented paclet's symbols unqualified, plus
+       MarkdownToNotebook's own context so self-referential examples (a doc whose
+       examples call MarkdownToNotebook itself) actually evaluate. *)
+    ctxPath = DeleteDuplicates @ Flatten @ {Lookup[meta, "Context", Nothing], Context[MarkdownToNotebook], "System`"};
     cached = AssociationMap[exampleCacheGet, hashes];
     allHit = hashes =!= {} && AllTrue[cached, ! MissingQ[#] &];
     outputs = If[ allHit, cached, evaluateAll[orderedCode, ctx, ctxPath] ];
