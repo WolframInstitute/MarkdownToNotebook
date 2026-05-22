@@ -37,7 +37,7 @@ contents of that local file or URL, resolved relative to this document.
 - The frontmatter keys mirror each template's metadata, so the author never writes cell styles.
 - The optional second argument selects the result: omitted (or `"Notebook"`) returns the `Notebook`, `"Association"` returns the parsed structure, a `.nb` file name writes the notebook, and a `.md` file name writes a *markdown twin* - the same document with every evaluated output rasterized to an image beside it. The function itself takes no options.
 - A `Flag` frontmatter key flags the whole document and a code cell's `#| flag:` option flags that cell, with one of the documentation build's flags - `Future`, `Excised`, `Obsolete`, `Temporary`, `Preview`, or `Internal` - the front end's Futurize / Excise toolbar buttons, written as the build's banner cell.
-- Individual code cells carry `#|` options instead - `eval`, `file`, `screenshot`, `background`, `tear`, `flag` - documented under Scope.
+- Individual code cells carry `#|` options instead - `eval`, `file`, `screenshot`, `tear`, `flag` - documented under Scope.
 - Evaluated example outputs are cached as a `PersistentSymbol` per cell at the `"Local"` `PersistenceLocation`, keyed by a cumulative hash of the preceding cells, so re-runs reuse them across sessions.
 - Manage that cache the standard way: `PersistentObjects["MarkdownToNotebook/ExampleOutput/*", "Local"]` lists it, `DeleteObject` clears it, and `$PersistencePath` / `PersistenceLocation` relocate it.
 - The source lives on GitHub, which renders the markdown directly: [github.com/sw1sh/MarkdownToNotebook](https://github.com/sw1sh/MarkdownToNotebook).
@@ -61,7 +61,7 @@ MarkdownToNotebook["# Title\n\nA paragraph.\n\n## Section\n\nMore text."]
 
 ---
 
-A whole notebook has no faithful inline form, so to show the produced notebook rendered in the documentation, add `#| screenshot: true` to the example cell - it rasterizes the notebook to an image (pair with `#| background: papertear` for a torn-paper screenshot):
+A whole notebook has no faithful inline form, so to show the produced notebook rendered in the documentation, add `#| screenshot: true` to the example cell - it rasterizes the notebook to an image (pair with `#| tear: true` for a torn-paper screenshot):
 
 ```wl
 #| screenshot: true
@@ -149,7 +149,7 @@ A markdown image `![alt](path)` inlines an image - a local file or URL, resolved
 
 ![A built guide page](docs/images/guide-page.png)
 
-A `"papertear"` title - `![alt](path "papertear")` - additionally applies the front end's Convert To > Paper Tear cell effect for a torn-screenshot look (used under Applications and Neat Examples below).
+A `"papertear"` title - `![alt](path "papertear")` - additionally applies the front end's Convert To > Paper Tear cell effect for a torn-screenshot look (the same effect a code cell's `#| tear:` option gives its output, used under Applications below).
 
 ### Returning a notebook, an association, or a file
 
@@ -177,11 +177,10 @@ Cases[MarkdownToNotebook["---\nFlag: Future\n---\n# Demo\n\ntext"], Cell[_, styl
 
 ## Applications
 
-Generate a paclet's entire documentation set, the guide page, the symbol reference pages, and a publishable Function Repository definition, from plain markdown, so authors never edit notebook cell styles by hand. The published [Wolfram/AccessibleColors](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/AccessibleColors/) paclet is built this way end to end. Here its guide page is converted straight from the markdown on [GitHub](https://github.com/sw1sh/AccessibleColors); the `#| screenshot: true` cell option rasterizes the produced notebook, `#| background: papertear` gives it a torn-paper screenshot look, and `#| tear: 150` sets how much of the output stays visible above the tear:
+Generate a paclet's entire documentation set, the guide page, the symbol reference pages, and a publishable Function Repository definition, from plain markdown, so authors never edit notebook cell styles by hand. The published [Wolfram/AccessibleColors](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/AccessibleColors/) paclet is built this way end to end. Here its guide page is converted straight from the markdown on [GitHub](https://github.com/sw1sh/AccessibleColors); the `#| screenshot: true` cell option rasterizes the produced notebook and `#| tear: 150` gives it a torn-paper screenshot look, keeping the top 150 points of output visible above the tear:
 
 ```wl
 #| screenshot: true
-#| background: papertear
 #| tear: 150
 MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/AccessibleColors/main/docs/Guides/AccessibleColors.md"]
 ```
@@ -206,13 +205,10 @@ MarkdownToNotebook["nonexistent.md", "Association"]["Sections"]
 
 ## Neat Examples
 
-A literate document - prose, inline math, and a live computation - converts into a notebook with the evaluated result rendered inline, shown here as a torn-paper screenshot (`#| screenshot: true` rasterizes, `#| background: papertear` tears, `#| tear: 150` keeps the top 150 points above the tear):
+A literate document - prose, inline math, and a live computation - converts into a notebook with the evaluated result rendered inline. Here the produced notebook itself is opened, the live document rather than a flat picture of it:
 
 ```wl
-#| screenshot: true
-#| background: papertear
-#| tear: 150
-MarkdownToNotebook["# A sine wave\n\nThe plot of $\\sin x$ over one period:\n\n```wl\nPlot[Sin[x], {x, 0, 2 Pi}]\n```\n\nIts mean value is zero."]
+NotebookPut[MarkdownToNotebook["# A sine wave\n\nThe plot of $\\sin x$ over one period:\n\n```wl\nPlot[Sin[x], {x, 0, 2 Pi}]\n```\n\nIts mean value is zero."]]
 ```
 
 Because this very document is itself such a literate source - its `## Definition` inlines `MarkdownToNotebook.wl` and its frontmatter is the resource metadata - running the function on it reproduces this definition notebook, so the function publishes itself.

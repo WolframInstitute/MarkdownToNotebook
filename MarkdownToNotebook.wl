@@ -306,16 +306,18 @@ resultNotebook[res_] := Append[If[Head[res] === NotebookObject, NotebookGet[res]
 (* output for an evaluated cell. A whole notebook has no faithful inline form -
    inlining its cells breaks the surrounding layout (a Title/Section renders
    document-wide; a CellFrame is just a per-cell option, it does not bound a group).
-   So to show a produced notebook, the example opts in to a *rasterized screenshot*
-   with "#| screenshot: true" (pair with "#| background: papertear" for a torn
-   look). With no option, the result is its normal boxes; a NotebookObject left
-   open is closed and shown as its reference. *)
+   So a produced notebook is shown as a *rendered thumbnail*: a NotebookObject (the
+   notebook itself, opened with NotebookPut, as published WFR functions return) is
+   rasterized and closed, the WFR-canonical display; a bare Notebook *expression*
+   opts into the same rasterization with "#| screenshot: true" (otherwise it is
+   shown as its literal expression boxes). *)
 outputBoxes[res_, opts_] := Which[
     res === Null, Null,
-    TrueQ[Lookup[opts, "screenshot", False]] && MatchQ[Head[res], Notebook | NotebookObject],
+    Head[res] === NotebookObject,
         With[{img = Quiet @ Rasterize[resultNotebook[res], ImageResolution -> 144]},
-            If[Head[res] === NotebookObject, Quiet @ NotebookClose[res]]; ToBoxes[img]],
-    Head[res] === NotebookObject, With[{b = ToBoxes[res]}, Quiet @ NotebookClose[res]; b],
+            Quiet @ NotebookClose[res]; ToBoxes[img]],
+    TrueQ[Lookup[opts, "screenshot", False]] && Head[res] === Notebook,
+        ToBoxes @ Quiet @ Rasterize[resultNotebook[res], ImageResolution -> 144],
     True, ToBoxes[res]
 ]
 
@@ -452,23 +454,22 @@ inputBoxes[code_String] := Block[{boxes, parsed},
    "#| background: papertear" sets BackgroundAppearance -> "PaperTear", the cell
    option the front end's Convert To > Paper Tear menu item toggles - a torn-paper
    edge, used to make a generated-notebook screenshot look like a screenshot. *)
-(* "#| background: papertear" gives an output cell the front end's torn-paper
-   appearance. The tear only shows once the cell is height-constrained, so pair it
-   with a CellSize; "#| tear: h" sets that visible height in points (smaller tears
-   more off). A tear option implies papertear. *)
+(* "#| tear: ..." gives an output cell the front end's torn-paper appearance. The
+   tear only shows once the cell is height-constrained, so it also sets a CellSize:
+   "#| tear: h" keeps the top h points visible (smaller tears more off), while
+   "#| tear: true" (or yes / auto) uses a default height. "#| tear: false" (or no
+   tear option) leaves the output untorn. *)
 $defaultTearHeight = 200
 
-tearHeight[block_] := With[{v = Lookup[block["Options"], "tear", Missing[]]},
+paperTearQ[block_] := Lookup[block["Options"], "tear", False] =!= False
+
+tearHeight[block_] := With[{v = Lookup[block["Options"], "tear", True]},
     Which[
         NumberQ[v], v,
         StringQ[v] && NumberQ[Quiet @ ToExpression[v]], ToExpression[v],
         True, $defaultTearHeight
     ]
 ]
-
-paperTearQ[block_] :=
-    ToLowerCase[StringTrim @ Lookup[block["Options"], "background", ""]] === "papertear" ||
-    KeyExistsQ[block["Options"], "tear"]
 
 extraOutputOpts[block_] := If[
     paperTearQ[block],
