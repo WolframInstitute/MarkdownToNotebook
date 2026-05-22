@@ -232,6 +232,17 @@ If `fillSlot` only handles the Function names, a Paclet notebook builds without
 errors but is **empty of content** (the section titles are template defaults).
 Map each Paclet slot explicitly.
 
+### The template version follows the kernel's DefinitionNotebookClient paclet
+`DefinitionTemplate[...]` bakes a `TemplateVersion` into the notebook from the
+running kernel's `DefinitionNotebookClient`. If the kernel that builds is older
+than the front end that opens it, `Check` flags the notebook as out of date.
+Build with a current kernel (and `PacletInstall["DefinitionNotebookClient", UpdateSites -> True]`
+as a safeguard); note that a custom `wolframscript` may point at a different
+Wolfram installation (hence an older paclet) than your front end. Deploy a
+finished resource notebook publicly with
+`DefinitionNotebookClient`DeployResource[rtype, File[nb], "CloudPublic"]` (the
+docked Deploy > "Publicly in the cloud" action).
+
 ### `DefinitionMissing` can be a headless artifact (FunctionResource)
 A definition that inlines a whole multi-symbol package can report
 `DefinitionMissing` under headless `CheckDefinitionNotebook[File[…]]` while being
