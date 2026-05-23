@@ -3,7 +3,7 @@ Template: FunctionResource
 ResourceType: Function
 Name: MarkdownToNotebook
 Description: Convert a literate-markdown document into a Wolfram notebook using a template
-ContributedBy: Nikolay Murzin, Claude (Anthropic)
+ContributedBy: "Nikolay Murzin, Claude (Anthropic)"
 Keywords: [markdown, literate programming, function repository, notebook, documentation, templates]
 Categories: [Notebook Documents & Presentation]
 SeeAlso: [ResourceFunction, ResourceObject, CreateNotebook, DefineResourceFunction]
@@ -24,7 +24,7 @@ The implementation lives in a separate `.wl` file so it has full IDE and lint su
 ## Details & Options
 
 - The *source* is a local file path, an `http(s)` URL, or a raw markdown string.
-- The layout is the document's own `Template` frontmatter key - `FunctionResource`, `Symbol`, `Guide`, `TechNote`, `Paclet`, or `Default` - so the source declares its own layout.
+- The layout is the document's own `Template` frontmatter key - `FunctionResource`, `Symbol`, `Guide`, `TechNote`, `Paclet`, `Example`, or `Default` - so the source declares its own layout.
 - `FunctionResource` fills the official `FunctionResourceDefinition.nb` template (keeping its docked Deploy/Submit toolbar); `Symbol` and `Guide` fill the DocumentationTools authoring templates; `Default` maps headings and code to standard notebook styles.
 - The *frontmatter* is a YAML-style `key: value` header fenced by `---` lines at the very top of the document - the [front matter](https://jekyllrb.com/docs/front-matter/) convention static-site generators use - carrying the resource metadata. Its keys mirror the chosen template's slots (`Name`, `Description`, `Keywords`, `Categories`, `ContributedBy`, `SeeAlso`, `Links`, ...), so the author fills metadata, never cell styles.
 - The optional second argument selects the result: omitted (or `"Notebook"`) returns the [`Notebook`], `"Association"` returns the parsed structure, a `.nb` file name writes the notebook, and a `.md` file name writes a *markdown twin* - the same document with every evaluated output rasterized to an image beside it.
@@ -119,11 +119,11 @@ MarkdownToNotebook["# Title\n\n## Section\n\n### Subsection\n\nA paragraph of te
 
 ### Inline formatting
 
-Inline `` `code` `` is formatted code, `*emphasis*` is italic, a double-backtick ``literal`` is a verbatim span, and a `$x$` span is inline TeX math:
+Inline `` `code` `` is formatted code; `*italic*` (or `_italic_`) is emphasis, `**bold**` (or `__bold__`) is bold, and `~~struck~~` is strikethrough; a double-backtick ``literal`` is a verbatim span and a `$x$` span is inline TeX math. A backslash escapes the next punctuation, and underscore emphasis is matched only at word boundaries so a `snake_case` name in prose is left untouched:
 
 ```wl
 #| screenshot: True
-MarkdownToNotebook["Inline `Range[3]`, *emphasis*, ``verbatim``, and the math $\\sqrt{a^2 + b^2}$."]
+MarkdownToNotebook["Inline `Range[3]`, *italic*, **bold**, ~~struck~~, ``verbatim``, and the math $\\sqrt{a^2 + b^2}$."]
 ```
 
 ![output](images/MarkdownToNotebook-out-6.png)
@@ -147,14 +147,25 @@ MarkdownToNotebook["See [`Range`] and the [Wolfram site](https://www.wolfram.com
 
 ### Lists and tables
 
-`-`, `*`, or `+` lines become items, and a GitHub-style pipe table becomes a grid:
+`-`, `*`, or `+` lines become bullet items, `1.`/`2.` lines a numbered list, and `- [ ]`/`- [x]` lines a task list (a ballot-box glyph); a GitHub-style pipe table becomes a grid:
 
 ```wl
 #| screenshot: True
-MarkdownToNotebook["- one\n- two\n\n| x | y |\n|---|---|\n| 1 | 2 |"]
+MarkdownToNotebook["1. first\n2. second\n\n- [x] done\n- [ ] todo\n\n| x | y |\n|---|---|\n| 1 | 2 |"]
 ```
 
 ![output](images/MarkdownToNotebook-out-8.png)
+
+### Blockquotes
+
+Consecutive `>` lines become a quote, set off by a left rule and indent:
+
+```wl
+#| screenshot: True
+MarkdownToNotebook["> A quoted remark,\n> carried across two lines."]
+```
+
+![output](images/MarkdownToNotebook-out-9.png)
 
 ### Evaluated code cells
 
@@ -165,7 +176,7 @@ A fenced `wl` cell is evaluated and its output kept (then cached); a cell may ca
 MarkdownToNotebook["```wl\nRange[5]^2\n```"]
 ```
 
-![output](images/MarkdownToNotebook-out-9.png)
+![output](images/MarkdownToNotebook-out-10.png)
 
 ### Inlining a file
 
@@ -176,7 +187,7 @@ A code cell whose first line is `#| file: path` is replaced by the contents of t
 Export[FileNameJoin[{$TemporaryDirectory, "snippet.wl"}], "Range[5]^2", "Text"]; NotebookPut[MarkdownToNotebook[Export[FileNameJoin[{$TemporaryDirectory, "inc.md"}], "## Inlined\n\n```wl\n#| file: snippet.wl\n```", "Text"]]]
 ```
 
-![output](images/MarkdownToNotebook-out-10.png)
+![output](images/MarkdownToNotebook-out-11.png)
 
 ### Inlining an image
 
@@ -194,7 +205,7 @@ Omitted (or `"Notebook"`) returns the [`Notebook`]; `"Association"` returns the 
 MarkdownToNotebook["---\nName: Demo\nKeywords: [alpha, beta]\n---\n# Demo", "Association"]
 ```
 
-![output](images/MarkdownToNotebook-out-11.png)
+![output](images/MarkdownToNotebook-out-12.png)
 
 ### Writing a markdown twin
 
@@ -204,7 +215,7 @@ Targeting a markdown file writes a GitHub-renderable *twin* of the document - th
 Module[{dir = CreateDirectory[]}, MarkdownToNotebook["## Squares\n\n```wl\nRange[5]^2\n```", FileNameJoin[{dir, "twin.md"}]]; Import[FileNameJoin[{dir, "twin.md"}], "Text"]]
 ```
 
-![output](images/MarkdownToNotebook-out-12.png)
+![output](images/MarkdownToNotebook-out-13.png)
 
 ### Flagging a document or cell
 
@@ -214,7 +225,7 @@ The documentation build's *flags* - the front end's Futurize / Excise toolbar bu
 Cases[MarkdownToNotebook["---\nFlag: Future\n---\n# Demo\n\ntext"], Cell[_, style_String /; StringEndsQ[style, "Flag"], ___], Infinity]
 ```
 
-![output](images/MarkdownToNotebook-out-13.png)
+![output](images/MarkdownToNotebook-out-14.png)
 
 ## Options
 
@@ -227,7 +238,7 @@ By default every `wl` example cell is evaluated and its output kept. With the de
 MarkdownToNotebook["## Squares\n\n```wl\nRange[5]^2\n```"]
 ```
 
-![output](images/MarkdownToNotebook-out-14.png)
+![output](images/MarkdownToNotebook-out-15.png)
 
 ---
 
@@ -238,7 +249,7 @@ MarkdownToNotebook["## Squares\n\n```wl\nRange[5]^2\n```"]
 MarkdownToNotebook["## Squares\n\n```wl\nRange[5]^2\n```", "Evaluate" -> False]
 ```
 
-![output](images/MarkdownToNotebook-out-15.png)
+![output](images/MarkdownToNotebook-out-16.png)
 
 ## Applications
 
@@ -250,7 +261,7 @@ Generate a paclet's entire documentation set, the guide page, the symbol referen
 MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/AccessibleColors/main/docs/Guides/AccessibleColors.md"]
 ```
 
-![output](images/MarkdownToNotebook-out-16.png)
+![output](images/MarkdownToNotebook-out-17.png)
 
 ## Properties and Relations
 
@@ -260,7 +271,7 @@ The Wolfram Language already reads markdown into a plain notebook - [`Import`]["
 ImportString["# Title\n\nText with inline math $\\sin x$.", {"Markdown", "Notebook"}]
 ```
 
-![output](images/MarkdownToNotebook-out-17.png)
+![output](images/MarkdownToNotebook-out-18.png)
 
 `FunctionResource` then fills the same template [`CreateNotebook`]["FunctionResource"] opens (publishable with [`ResourceSubmit`]), and `Symbol`/`Guide` fill the DocumentationTools templates `DocumentationBuild` turns into reference pages.
 
@@ -272,7 +283,7 @@ A string that is neither a URL nor an existing file is treated as raw markdown, 
 MarkdownToNotebook["nonexistent.md", "Association"]["Sections"]
 ```
 
-![output](images/MarkdownToNotebook-out-18.png)
+![output](images/MarkdownToNotebook-out-19.png)
 
 ## Neat Examples
 
@@ -282,6 +293,6 @@ The neatest example is this very document: running the function on its own GitHu
 NotebookPut[MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/MarkdownToNotebook.md", "Evaluate" -> False]]
 ```
 
-![output](images/MarkdownToNotebook-out-19.png)
+![output](images/MarkdownToNotebook-out-20.png)
 
 Because this very document is itself such a literate source - its `## Definition` inlines `MarkdownToNotebook.wl` and its frontmatter is the resource metadata - running the function on it reproduces this definition notebook, so the function publishes itself.
