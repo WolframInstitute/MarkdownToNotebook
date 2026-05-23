@@ -1,4 +1,4 @@
-# Resource definition notebooks (FunctionResource / Paclet)
+# Resource definition notebooks (FunctionResource / Paclet / Example)
 
 These fill the official definition template from
 `DefinitionNotebookClient`DefinitionTemplate[...]` and keep its stylesheet and
@@ -137,6 +137,38 @@ notebook carries no unresolved template heads and `CheckDefinitionNotebook` runs
 clean - except for `PacletDirectoryMissing`, which the docked **Choose**
 toolbar button clears by scanning the directory to populate the manifest /
 `PacletFiles` panel (an interactive publish-time step, not static metadata).
+
+## Example (Wolfram Example Repository)
+
+Same mechanism with `DefinitionTemplate["Example"]`. An Example resource exposes
+named *content elements* (fetched with `ResourceData`) plus worked examples, so the
+markdown maps as:
+
+| Markdown | Example slot | Notebook |
+|---|---|---|
+| `Name` | `Name` | title |
+| `Description` | `Description` | short description |
+| `## Content` (executable cells) | `ContentElements` | `Input` cells tagged `DefaultContent` |
+| `## Examples` (prose + code) | `Examples` | `Text` + `Input`/`Output` (filled directly, no subsection wrapper) |
+| `## Hero Image` | `HeroImage` | landing image (`CellGroupData[{code, image}, {2}]`) |
+| `Categories` (`[list]`; names must match the template) | `Categories` | category checkbox grid (`ResourceType -> "Example"`) |
+| `RelatedSymbols` (`[list]`) | `RelatedSymbols` | related symbol items |
+| `RelatedResources` (`[list]`) | `Related Resource Objects` | related resource items |
+| `Sources` (`[list]`) | `Source/Reference Citation` | source / reference items |
+| `Links` (labeled `[text](url)`) | `Links` | related links |
+| `WolframVersion` | `CompatibilityWolframLanguageVersionRequired` | required version |
+| `Keywords` | `Keywords` | metadata |
+| `ContributedBy` | `ContributorInformation` | contributor |
+
+The defining cells go under `## Content`: each executable `wl` cell is the literal
+content assignment (typically
+`ResourceData[ResourceObject[EvaluationNotebook[]], "name"] = value`) and becomes an
+`Input` cell carrying the `DefaultContent` tag the scraper needs. Unlike the Function
+template's named example sections, the Example template has a single `Examples` slot,
+so a plain `## Examples` section fills it directly (intro prose as `Text`, computations
+as `Input`/`Output`). The Example resource's category labels differ from the Function
+ones (e.g. `Visualization & Graphics`, `Puzzles and Recreation`, `Machine Learning`);
+set `Categories` to one or more of them - an empty grid is a submission hint.
 
 ## Self-hosting
 

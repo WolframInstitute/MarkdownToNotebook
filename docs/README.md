@@ -36,11 +36,12 @@ mapping.
 | `TechNote` | tech note / tutorial | `TechNoteBaseTemplateExt` -> `TechNotePageStylesExt` |
 | `FunctionResource` | Function Repository definition | `DefinitionTemplate["Function"]` |
 | `Paclet` | Paclet Repository definition | `DefinitionTemplate["Paclet"]` |
+| `Example` | Example Repository definition | `DefinitionTemplate["Example"]` |
 
 - **Doc pages** (`Symbol`/`Guide`/`TechNote`) are *authoring* notebooks; the
   docked **Build** button (`DocumentationBuild`) turns them into the final
   pages (adding the anchor bar, footer, example counters, resolving links).
-- **Resource notebooks** (`FunctionResource`/`Paclet`) keep the official
+- **Resource notebooks** (`FunctionResource`/`Paclet`/`Example`) keep the official
   template's stylesheet and docked **Deploy / Submit / Check** toolbar, so the
   output `.nb` is publishable as-is.
 

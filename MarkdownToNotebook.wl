@@ -549,6 +549,18 @@ functionSlot[opts_, defCode_String] := If[ defCode === "",
     {Cell[BoxData[defCode], "Code", CellTags -> {"DefaultContent"}, InitializationCell -> True]}
 ]
 
+(* the content-defining cells of an Example Repository resource (the "ContentElements"
+   slot). An Example resource exposes named content via ResourceData, so each
+   executable cell in a "## Content" section is the literal defining assignment
+   (typically ResourceData[ResourceObject[EvaluationNotebook[]], "name"] = value) and
+   becomes an Input cell carrying the "DefaultContent" tag the scraper needs. *)
+contentSlot[opts_, sections_] := Block[{cells = sectionCells[sections, "content"]},
+    If[ cells === {},
+        slotDefault[opts],
+        Map[Cell[BoxData[inputBoxes[#["Code"]]], "Input", CellTags -> {"DefaultContent"}] &, cells]
+    ]
+]
+
 (* a Usage section is a sequence of usage statements, one per prose paragraph
    that begins with a `code` span: the code is the signature (e.g.
    `MarkdownToNotebook[source]`) and the rest is its description. The signature
@@ -608,7 +620,15 @@ heroSlot[opts_, sections_] := Block[{cells = sectionCells[sections, "hero image"
     }, {2}]]}
 ]
 
-examplesSlot[opts_, sections_] := Block[{keys},
+examplesSlot[opts_, sections_] := Block[{keys, body},
+    (* a document may put everything under a single "## Examples" section (the
+       natural shape for an Example Repository resource, whose template has one
+       Examples slot rather than the Function template's named example sections);
+       fill the slot with that section's content directly, no subsection wrapper. *)
+    If[ KeyExistsQ[sections, "examples"],
+        body = exampleContent[Lookup[sections, "examples", {}], "Text"];
+        If[body =!= {}, Return[body]]
+    ];
     keys = Select[$exampleOrder, KeyExistsQ[sections, #] &];
     If[ keys === {}, Return[slotDefault[opts]] ];
     Map[
@@ -693,11 +713,14 @@ fillSlot[name_, opts_, data_] := Block[{meta = data["meta"]},
         "Name", fillTextCells[opts, Lookup[meta, "Name", ""]],
         "Description", fillTextCells[opts, Lookup[meta, "Description", ""]],
         "Contributed By", fillTextCells[opts, Lookup[meta, "ContributedBy", ""]],
+        "ContributorInformation", fillTextCells[opts, Lookup[meta, "ContributedBy", ""]],
+        "ContentElements", contentSlot[opts, data["sections"]],
         "Keywords", fillListCells[opts, asList @ Lookup[meta, "Keywords", {}]],
         "Links", fillLinkCells[opts, asList @ Lookup[meta, "Links", {}]],
         "SourceControlURL", fillTextCells[opts, Lookup[meta, "SourceControlURL", ""]],
         "Source/Reference Citation", fillListCells[opts, asList @ Lookup[meta, "Sources", {}]],
         "Related Symbols", fillListCells[opts, asList @ Lookup[meta, "RelatedSymbols", Lookup[meta, "SeeAlso", {}]]],
+        "RelatedSymbols", fillListCells[opts, asList @ Lookup[meta, "RelatedSymbols", Lookup[meta, "SeeAlso", {}]]],
         "Related Resource Objects", fillListCells[opts, asList @ Lookup[meta, "RelatedResources", {}]],
         "Categories",
             If[ KeyExistsQ[meta, "Categories"],
@@ -1324,6 +1347,7 @@ resourceNotebook[resourceType_String, data0_] := Block[{template, data = Append[
 
 buildNotebook["FunctionResource", data_] := resourceNotebook["Function", data]
 buildNotebook["Paclet", data_] := resourceNotebook["Paclet", data]
+buildNotebook["Example", data_] := resourceNotebook["Example", data]
 buildNotebook["Symbol", data_] := symbolNotebook[data]
 buildNotebook["Guide", data_] := guideNotebook[data]
 buildNotebook["TechNote", data_] := tutorialNotebook[data]
