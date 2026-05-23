@@ -631,8 +631,10 @@ usageSlot[opts_, sections_] := Block[{pairs},
    renders "> ...". Self-styled (CellFrame / CellMargins), so it does not depend on
    a Quote cell style being present in the template's stylesheet. *)
 quoteCell[text_String] := Cell[TextData @ inlineTextData[text], "Text",
-    CellFrame -> {{3, 0}, {0, 0}}, CellFrameColor -> GrayLevel[0.7],
-    CellFrameMargins -> 8, CellMargins -> {{50, 10}, {7, 7}}]
+    FontSlant -> "Italic", FontColor -> LightDarkSwitched[GrayLevel[0.45], GrayLevel[0.65]],
+    CellFrame -> {{3, 0}, {0, 0}}, CellFrameColor -> GrayLevel[0.55], CellFrameMargins -> 10,
+    CellMargins -> {{40, 10}, {7, 7}},
+    Background -> LightDarkSwitched[GrayLevel[0.96], GrayLevel[0.2]]]
 
 (* list items as cells of the given bullet style, numbered ("ItemNumbered") when the
    block is an ordered list. *)
