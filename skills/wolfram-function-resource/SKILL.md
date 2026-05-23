@@ -39,6 +39,15 @@ EntrySymbol: MyFunction
 `Description` begins with an imperative verb and has **no** ending punctuation.
 `Name` is the function's short name. `Links` items are markdown links inside quotes.
 
+`Categories` fills a fixed checkbox group, so each entry must be one of the official
+Function Repository categories (pick the one or few that fit; do not invent names):
+Cloud & Deployment, Core Language & Structure, Data Manipulation & Analysis,
+External Interfaces & Connections, Geographic Data & Computation, Graphs & Networks,
+Knowledge Representation & Natural Language, Notebook Documents & Presentation,
+Repository Tools, Social, Cultural & Linguistic Data, Strings & Text,
+System Operation & Setup, User Interface Construction, Wolfram Physics Project.
+Always set `Categories` - an empty checkbox group is a submission hint.
+
 ## Sections (each `## Heading` fills a slot)
 
 - `## Definition` - the implementation. Inline a `.wl` file with a code cell whose

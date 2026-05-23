@@ -42,7 +42,9 @@ Links: ["[label](https://example.com)"]
 Notes that bite (see `docs/subtleties.md`): `Name`/`Paclet` include the publisher
 ID (`Publisher/PacletName`); `MainGuide` is the **relative** notebook path, not a
 bare name; `Description` must match `PacletInfo.wl`'s `"Description"` exactly; each
-`Sources` entry is one citation (commas inside it are preserved).
+`Sources` entry is one citation (commas inside it are preserved). `Categories` fills
+a fixed checkbox group, so always set it to one or more **valid Paclet Repository
+categories** (do not invent names) - an empty group is a submission hint.
 
 ## Sections
 
