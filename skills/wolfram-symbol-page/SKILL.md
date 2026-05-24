@@ -44,14 +44,17 @@ resolves this). `URI` is the page's `ref/` path.
 
 ## Sections
 
-- `## Usage` - one statement per paragraph: write the signature as prose with
-  inline-math arguments (`SymbolName[$x_1$, $x_2$]`, args via `$..._n$`), then a
-  description (which can refer back to the args with the same `$x_1$` math
-  spans). Pandoc renders this directly as math; the converter rewrites `$x_1$` to
-  the template form `x$1` and feeds it through DocumentationTools' usage
-  template-parser. A legacy backtick-wrapped signature
-  (`` `SymbolName[x~1~, x~2~]` ``) still works but does not render in pandoc /
-  GitHub (no nested formatting inside code spans).
+- `## Usage` - one statement per paragraph. Markdown forbids nested formatting
+  inside code spans, so the pandoc-friendly form is a **backticked head + math
+  args**: `` `SymbolName`[$x_1$, $x_2$] gives ... `` - the head renders in code
+  style, the brackets render as text, and each `$x_i$` renders as inline math
+  (italic *x* with subscript *i*) in pandoc / GitHub. The converter recognises
+  this hybrid form, extracts the head and the bracket group, rewrites `$x_i$` to
+  the template form `x$i`, and feeds the reconstructed signature through
+  DocumentationTools' usage template-parser. A bare-prose form
+  (`SymbolName[$x_1$, $x_2$]`) and a legacy whole-signature backtick form
+  (`` `SymbolName[x~1~, x~2~]` ``) also work for the converter; the latter does
+  not render in pandoc / GitHub.
 - `## Details & Options` - bullets become `Notes` cells; pipe tables become grids
   (use one for an options table). Link other symbols inline with `` [`Symbol`] ``.
 - `## Basic Examples` then the extended sections `## Scope`, `## Options`,

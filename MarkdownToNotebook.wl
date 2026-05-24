@@ -657,12 +657,20 @@ mathArgsToTemplate[s_String] := StringReplace[s, {
 }]
 
 usageStatement[text_String] := Block[{trimmed = StringTrim[text], m},
+    (* hybrid form (pandoc-friendly): a backticked head followed *immediately* by a
+       "[...]" bracket group whose args use inline math. Backticks render the head in
+       code style; the args render as math; both work in every markdown viewer. *)
+    m = StringCases[trimmed,
+        StartOfString ~~ "`" ~~ name : Shortest[Except["`"] ..] ~~ "`" ~~ args : ("[" ~~ Shortest[Except["\n"] ..] ~~ "]") ~~ rest___ :>
+            {name <> mathArgsToTemplate[args], StringTrim[rest]}, 1];
+    If[m =!= {}, Return[m]];
+    (* legacy form: the whole signature inside one code span ("`f[x~1~, x~2~]`"). *)
     m = StringCases[trimmed,
         StartOfString ~~ "`" ~~ c : Shortest[__] ~~ "`" ~~ rest___ :> {c, StringTrim[rest]}, 1];
     If[m =!= {}, Return[m]];
     (* prose form: an identifier head, then [ ... ] balanced once, then prose. *)
     StringCases[trimmed,
-        StartOfString ~~ name:(LetterCharacter ~~ (WordCharacter | "`") ...) ~~ args:("[" ~~ Shortest[Except["\n"]..] ~~ "]") ~~ rest___ :>
+        StartOfString ~~ name : (LetterCharacter ~~ (WordCharacter | "`") ...) ~~ args : ("[" ~~ Shortest[Except["\n"] ..] ~~ "]") ~~ rest___ :>
             {name <> mathArgsToTemplate[args], StringTrim[rest]},
         1]
 ]
@@ -1152,6 +1160,62 @@ inferURL[name_String] := Which[
     symbolInContextQ[name, $docContext], "paclet:ref/" <> name,
     symbolInContextQ[name, "System`"], "paclet:ref/" <> name,
     True, None
+]
+
+(* the public web URL a bare symbol name resolves to. Mirrors inferURL but for the
+   GitHub-renderable twin: paclet symbols point at their PacletRepository page, System
+   symbols at the Wolfram Language reference site. *)
+inferWebURL[name_String] := Which[
+    symbolInContextQ[name, $docContext] && $docPaclet =!= "",
+        "https://resources.wolframcloud.com/PacletRepository/resources/" <> $docPaclet <> "/ref/" <> name,
+    symbolInContextQ[name, "System`"],
+        "https://reference.wolfram.com/language/ref/" <> name <> ".html",
+    True, None
+]
+
+(* translate a "paclet:..." URI (the notebook's internal link target) to the public
+   web URL of the same ref/guide/tutorial. Used when serialising the markdown twin
+   so the rendered page has working links on GitHub. *)
+pacletToWebURL[uri_String] := Block[{rest = StringTrim[uri], paclet, kind, name, parts},
+    rest = StringDelete[rest, StartOfString ~~ "paclet:"];
+    parts = StringSplit[rest, "/"];
+    Which[
+        Length[parts] === 2 && MemberQ[{"ref", "guide", "tutorial"}, parts[[1]]],
+            "https://reference.wolfram.com/language/" <> parts[[1]] <> "/" <> parts[[2]] <> If[parts[[1]] === "ref", ".html", ""],
+        Length[parts] >= 3 && MemberQ[{"ref", "guide", "tutorial"}, parts[[-2]]],
+            paclet = StringRiffle[parts[[;; -3]], "/"];
+            kind = parts[[-2]]; name = parts[[-1]];
+            "https://resources.wolframcloud.com/PacletRepository/resources/" <> paclet <> "/" <> kind <> "/" <> name,
+        True, "paclet:" <> rest
+    ]
+]
+
+(* rewrite inferred and paclet-scheme links in a prose run to their public web URLs
+   for the GitHub-renderable twin. The notebook keeps the paclet: targets unchanged
+   (linkInferred / linkInline). Three forms get expanded:
+     [`Symbol`]            (bare inferred)         -> [`Symbol`](https://...)
+     [`Symbol`]()          (explicit empty)        -> [`Symbol`](https://...)
+     [label](paclet:...)   (explicit paclet URI)   -> [label](https://...)
+   Unresolvable symbols (not in $docContext or System`) and non-paclet URLs are left
+   alone, so a stray "[`SomeRandomThing`]" passes through unchanged. *)
+resolveWebRefs[text_String] := Block[{s = text},
+    (* step 1: bare [`X`] -> [`X`]() so step 2 treats both uniformly. Negative
+       lookahead via RegularExpression avoids touching [`X`](anything). *)
+    s = StringReplace[s, RegularExpression["\\[`([^`\\n]+)`\\](?!\\()"] -> "[`$1`]()"];
+    (* step 2: backticked inferred forms with parens *)
+    s = StringReplace[s,
+        "[`" ~~ sym : Shortest[Except["`" | "\n"] ..] ~~ "`](" ~~ url : Shortest[Except[")"] ...] ~~ ")" :>
+            With[{u = Which[
+                StringStartsQ[url, "paclet:"], pacletToWebURL[url],
+                url === "", With[{w = inferWebURL[sym]}, If[w === None, "", w]],
+                True, url
+            ]}, "[`" <> sym <> "`](" <> u <> ")"]
+    ];
+    (* step 3: any [label](paclet:...) still standing (non-backticked label) *)
+    StringReplace[s,
+        "[" ~~ label : Shortest[Except["]" | "\n"] ..] ~~ "](paclet:" ~~ url : Shortest[Except[")"] ..] ~~ ")" :>
+            "[" <> label <> "](" <> pacletToWebURL["paclet:" <> url] <> ")"
+    ]
 ]
 
 (* an "empty" backtick link [`Name`] (brackets, no URL) is the convenient symbol
@@ -1677,15 +1741,15 @@ markdownWithImages[blocks_, meta_, target_String] := Block[{dir, base, imgDir, n
         ]
     ];
     mdOf[b_] := Switch[b["Type"],
-        "Heading", StringRepeat["#", b["Level"]] <> " " <> b["Text"],
-        "Prose", b["Text"],
+        "Heading", StringRepeat["#", b["Level"]] <> " " <> resolveWebRefs[b["Text"]],
+        "Prose", resolveWebRefs[b["Text"]],
         "List", If[ TrueQ[b["Ordered"]],
-            StringRiffle[MapIndexed[ToString[First[#2]] <> ". " <> #1 &, b["Items"]], "\n"],
-            StringRiffle["- " <> # & /@ b["Items"], "\n"]
+            StringRiffle[MapIndexed[ToString[First[#2]] <> ". " <> resolveWebRefs[#1] &, b["Items"]], "\n"],
+            StringRiffle["- " <> resolveWebRefs[#] & /@ b["Items"], "\n"]
         ],
         "Table", serializeTableMd[b],
         "Separator", "---",
-        "Quote", "> " <> b["Text"],
+        "Quote", "> " <> resolveWebRefs[b["Text"]],
         "MathBlock", "$$ " <> b["Text"] <> " $$",
         "Image", "![" <> Lookup[b, "Alt", ""] <> "](" <> Lookup[b, "Path", ""] <> ")",
         "Code", codeMd[b],

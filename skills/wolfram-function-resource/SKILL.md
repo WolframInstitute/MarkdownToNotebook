@@ -61,14 +61,16 @@ Always set `Categories` - an empty checkbox group is a submission hint.
   first line is `#| file: path` (resolved relative to the document), so the code
   keeps full IDE/lint support. The cell carries the `"DefaultContent"` cell tag the
   scraper needs - the converter handles that.
-- `## Usage` - one statement per paragraph: write the signature as prose with
-  inline-math arguments (`MyFunction[$x$]` for a single arg, `MyFunction[$x_1$, $x_2$]`
-  for indexed ones), then the description (which can refer back to the args with the
-  same `$x_1$` math spans). Pandoc renders this directly as math; the converter
-  rewrites `$x_i$` to the template form `x$i` and feeds it through the usage
-  template parser. A legacy backtick-wrapped signature (`` `MyFunction[x]` ``) still
-  works but does not render in pandoc / GitHub (no nested formatting inside code
-  spans).
+- `## Usage` - one statement per paragraph. The pandoc-friendly form is a
+  **backticked head + math args**: `` `MyFunction`[$x$] gives ... `` for a single
+  arg, `` `MyFunction`[$x_1$, $x_2$] gives ... `` for indexed ones. The head
+  renders in code style, the brackets as text, and each `$x_i$` as inline math
+  (italic *x* with subscript *i*) in pandoc / GitHub. The converter recognises
+  this hybrid, extracts the head and bracket group, rewrites `$x_i$` to the
+  template form `x$i`, and feeds the reconstructed signature through the usage
+  template parser. A bare-prose form (`MyFunction[$x$]`) and a legacy whole-
+  signature backtick form (`` `MyFunction[x]` ``) also work for the converter;
+  the latter does not render in pandoc / GitHub.
 - `## Details & Options` - bullets, each becomes a `Notes` cell; a markdown pipe
   table becomes a `TableNotes` grid (use it for an options table).
 - Example sections, in order: `## Basic Examples` (start with the simplest use),
