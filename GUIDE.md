@@ -9,21 +9,6 @@ code readable and consistent with the IDE auto-formatter.
 
 These are non-negotiable. Strip on sight.
 
-### No `Print`
-
-Never call `Print` in a `.wl`, `.wlt`, or `.wls` file. If textual output
-is needed, define a local helper `print` that wraps either
-`WriteString[$Output, ...]` (notebook / kernel context) or
-`WriteString["stdout", ...]` (`wolframscript -c` / `-f` context) and
-call that.
-
-```wolfram
-print[args___] := WriteString["stdout", StringJoin @@ Map[ToString, {args}], "\n"]
-```
-
-`Print` also trips an IDE lint warning ("Suspicious use of session
-symbol Print") and is noisy in batch test runs.
-
 ### No em dashes (`—`, U+2014) or `--`
 
 Don't write em dashes in source files, docs, comments, or commit
