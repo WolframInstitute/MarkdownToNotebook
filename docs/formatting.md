@@ -27,6 +27,8 @@ markdown for each (most **[todo]**):
 | Bold | `StyleBox[…,FontWeight->"Bold"]` | `**bold**` or `__bold__` **[done]** |
 | Bold italic | `StyleBox[…,"TI",FontWeight->"Bold"]` | `***both***` **[done]** |
 | Strikethrough | `StyleBox[…,FontVariations->{"StrikeThrough"->True}]` | `~~struck~~` **[done]** |
+| Subscript | `SubscriptBox["",s]` in an `InlineFormula` cell | `H~2~O` (Pandoc / GFM) **[done]** |
+| Superscript | `SuperscriptBox["",s]` in an `InlineFormula` cell | `2^10^` (Pandoc / GFM) **[done]** |
 | Plain Text / Literal | `InlineFormula` literal string | `` `"literal"` `` (a string parses to itself) **[done, implicit]** |
 | Traditional Math | `FormBox[…,TraditionalForm]` | `$math$` inline, `$$math$$` centered display **[done]** |
 | Inline image | embedded graphic (or link fallback) | `![alt](src)` mid-text **[done]** |
@@ -34,6 +36,11 @@ markdown for each (most **[todo]**):
 Underscore emphasis is matched only at word boundaries, so `snake_case` in prose is
 left alone (use `*…*` if a single word ever needs emphasis). A backslash escapes the
 next punctuation character (`\*`, `` \` ``, `\_`, ...) so it renders literally.
+
+Inside a `## Usage` signature span, `~i~` also marks the argument's subscript:
+`` `f[x~1~, x~2~]` `` renders as italic *f*, *x*₁, *x*₂. The signature is parsed
+by `DocumentationTools` ``` `Private` `ParseTextTemplate`, with `~i~` rewritten to
+the template form `$i` before the parse.
 
 ## Code cells  [done]
 

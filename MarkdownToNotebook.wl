@@ -981,13 +981,19 @@ $docPaclet = ""
 $docContext = ""
 $docTemplate = ""
 
-templateBox[code_String] := Block[{boxes},
+(* In markdown source, subscripts use the Pandoc / GFM convention "x~i~" (the
+   markdown-native sub syntax) rather than Wolfram's "x$i" template form. Rewrite
+   "x~i~" -> "x$i" inside a usage signature so ParseTextTemplate's existing
+   subscript handling does the rest. *)
+mdToTemplateSubs[s_String] := StringReplace[s, "~" ~~ i:Shortest[Except["~"]..] ~~ "~" :> "$" <> i]
+
+templateBox[code_String] := Block[{boxes, prepped = mdToTemplateSubs[StringTrim[code]]},
     Needs["DocumentationTools`"];
-    boxes = Quiet @ UsingFrontEnd @ DocumentationTools`Private`ParseTextTemplate[StringTrim[code], $docName];
+    boxes = Quiet @ UsingFrontEnd @ DocumentationTools`Private`ParseTextTemplate[prepped, $docName];
     (* fall back to a plain parse if the front-end template parse is unavailable *)
     If[ FreeQ[boxes, $Failed] && (StringQ[boxes] || MatchQ[Head[boxes], RowBox | StyleBox | SubscriptBox | SuperscriptBox | FractionBox | SqrtBox]),
         boxes,
-        inputBoxes[code]
+        inputBoxes[prepped]
     ]
 ]
 
@@ -1025,6 +1031,12 @@ emBoldBox[s_String] := StyleBox[s, FontWeight -> "Bold"]
 emItalicBox[s_String] := StyleBox[s, "TI"]
 emBoldItalicBox[s_String] := StyleBox[s, "TI", FontWeight -> "Bold"]
 emStrikeBox[s_String] := StyleBox[s, FontVariations -> {"StrikeThrough" -> True}]
+
+(* Pandoc / GFM markdown subscript "x~n~" and superscript "x^n^". The script is
+   rendered as a one-character formula cell (SubscriptBox / SuperscriptBox with an
+   empty base), which sits inline at the right baseline in TextData. *)
+proseSubBox[s_String] := Cell[BoxData[SubscriptBox["", s]], "InlineFormula"]
+proseSupBox[s_String] := Cell[BoxData[SuperscriptBox["", s]], "InlineFormula"]
 
 (* underscore emphasis (_em_, __strong__), applied to a plain prose run *after* the
    main split has pulled out code / links / math. CommonMark only treats underscores
@@ -1148,6 +1160,11 @@ inlineTextData[text_String] := Replace[
             "$$" ~~ m : Shortest[Except["$"] ..] ~~ "$$" :> mathInline[m],
             "$" ~~ m : Shortest[Except["$"] ..] ~~ "$" :> mathInline[m],
             "~~" ~~ s : Shortest[__] ~~ "~~" :> emStrikeBox[s],
+            (* single-tilde subscript "H~2~O", single-caret superscript "2^10^" -
+               the Pandoc / GFM convention; listed after "~~" so strikethrough wins
+               at a doubled-tilde position. *)
+            "~" ~~ s : Shortest[Except["~"|" "] ..] ~~ "~" :> proseSubBox[s],
+            "^" ~~ s : Shortest[Except["^"|" "] ..] ~~ "^" :> proseSupBox[s],
             "***" ~~ s : Shortest[__] ~~ "***" :> emBoldItalicBox[s],
             "**" ~~ s : Shortest[__] ~~ "**" :> emBoldBox[s],
             (* *word* -> italic: the StyleBox["TI"] form usage descriptions mark
@@ -1164,11 +1181,16 @@ inlineTextData[text_String] := Replace[
 ]
 
 (* a Symbol page's "## Usage" prose, rendered as one Usage cell with its inline
-   formatting. Symbols are linked only where the author wrote an explicit
-   [`Symbol`](paclet:...) link (see linkInline); inline `code` is not auto-linked. *)
-usageCell[rawUsage_String] := Cell[
-    TextData @ Prepend[inlineTextData[StringTrim[rawUsage]], Cell["   ", "ModInfo"]],
-    "Usage"
+   formatting. Backticked spans inside a usage line are signatures and argument
+   references, so route them through templateBox (which italicises args and turns
+   "~i~" into a subscript) instead of the literal codeToInline used elsewhere. *)
+usageCell[rawUsage_String] := Block[{
+    codeToInline = Function[c, Cell[BoxData[stripLinks @ templateBox[c]], "InlineFormula"]]
+},
+    Cell[
+        TextData @ Prepend[inlineTextData[StringTrim[rawUsage]], Cell["   ", "ModInfo"]],
+        "Usage"
+    ]
 ]
 
 (* a GitHub-flavored table -> a GridBox with gridlines (the palette's Insert

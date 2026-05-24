@@ -45,7 +45,7 @@ resolves this). `URI` is the page's `ref/` path.
 ## Sections
 
 - `## Usage` - one statement per paragraph beginning with a `` `code` `` span: the
-  span is the signature (`` `SymbolName[x$1, x$2]` ``, arguments as `x$1`) and the
+  span is the signature (`` `SymbolName[x~1~, x~2~]` ``, arguments as `x~1~`) and the
   rest is the description.
 - `## Details & Options` - bullets become `Notes` cells; pipe tables become grids
   (use one for an options table). Link other symbols inline with `` [`Symbol`] ``.
