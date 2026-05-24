@@ -949,6 +949,7 @@ rawSectionText[sections_, key_] := StringRiffle[
 $docName = ""
 $docPaclet = ""
 $docContext = ""
+$docTemplate = ""
 
 templateBox[code_String] := Block[{boxes},
     Needs["DocumentationTools`"];
@@ -1148,11 +1149,16 @@ tableCellBox[text_String, opts___] := Cell[TextData @ inlineTextData[text], "Tab
 tableGridRow[cells_List, ncol_Integer, opts___] :=
     tableCellBox[#, opts] & /@ PadRight[cells, ncol, ""]
 
-(* a pipe table renders as a "TableNotes" cell - the table style the Function
-   Repository definition notebook's docked cell inserts (a Notes-derived grid with
-   left-aligned columns and horizontal row dividers, no per-column widths, so it
-   takes any number of columns). The grid options are repeated inline so the table
-   still reads correctly under stylesheets that do not define "TableNotes". *)
+(* "TableNotes" is the table style the Function Repository / Paclet / Example
+   definition-notebook docked cells insert, and exists in those stylesheets. The
+   documentation stylesheets (Symbol / Guide / TechNote) and Default.nb do not
+   define it, so a "TableNotes" cell renders unstyled / cramped there - switch to
+   "Text" for those, which exists everywhere. *)
+$tableCellStyleFor := If[MemberQ[{"FunctionResource", "Paclet", "Example"}, $docTemplate], "TableNotes", "Text"]
+
+(* a pipe table renders as a styled GridBox with horizontal row dividers, a bold
+   header row, and a bit of padding. The grid options are repeated inline so the
+   table reads correctly whichever cell style is used. *)
 tableCell[block_] := Block[{ncol = Length[block["Header"]], rows},
     rows = Join[
         {tableGridRow[block["Header"], ncol, FontWeight -> Bold]},
@@ -1160,8 +1166,9 @@ tableCell[block_] := Block[{ncol = Length[block["Header"]], rows},
     ];
     Cell[BoxData[GridBox[rows,
         GridBoxAlignment -> {"Columns" -> {{Left}}, "Rows" -> {{Baseline}}},
-        GridBoxDividers -> {"Columns" -> {{None}}, "Rows" -> {{True}}}
-    ]], "TableNotes"]
+        GridBoxDividers -> {"Columns" -> {{None}}, "Rows" -> {{True}}},
+        GridBoxSpacings -> {"Columns" -> {{1.5}}, "Rows" -> {{0.7}}}
+    ]], $tableCellStyleFor]
 ]
 
 (* an inlined markdown image (![alt](path "title")) -> an image cell. The title is
@@ -1663,6 +1670,7 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
     $docContext = Lookup[meta, "Context", ""];
     blocks = resolveIncludes[parsed["Blocks"], src["Base"]];
     tmplName = Lookup[meta, "Template", "Default"];
+    $docTemplate = tmplName;
 
     (* evaluate every executable cell in document order, threading state in a
        private context (so the document's own code can't clobber the live
