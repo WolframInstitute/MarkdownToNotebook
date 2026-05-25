@@ -432,33 +432,44 @@ messageCell[Hold[Message[MessageName[head_, tag_String], args___], _]] := Module
 ]
 messageCell[hf_] := Cell[ToString[hf, InputForm], "Message", "MSG"]
 
-accumEval[state_, b_] := Block[{code = state["code"] <> mdSep <> b["Code"], res, tmp, msgs = {}},
+(* Tags fired routinely during paclet load / private-context evaluation that are
+   package-author or kernel-bookkeeping warnings, never seen interactively. *)
+$noiseMessageTags = {"newsym", "shdw", "patv", "sntxi", "rmnsm", "remal"}
+
+(* keep only messages whose head lives in user-visible contexts and whose tag is not
+   on the noise list - drops Internal` / Developer` messages and the chatty warnings
+   we already know to ignore. Accepts the raw "Hold[Message[...], qFlag]" form the
+   message hook delivers. *)
+keepMessageQ[Hold[Message[MessageName[h_Symbol, tag_String], ___], _]] :=
+    MatchQ[Context[h], "System`" | $docContext | "Global`"] &&
+    ! MemberQ[$noiseMessageTags, tag]
+keepMessageQ[_] := False
+
+messageNameOf[Hold[Message[name_, ___], _]] := ToString[name, InputForm]
+messageNameOf[_] := ""
+
+(* WithMessageHandler [ResourceFunction] is the obvious choice and is itself a thin
+   wrapper around Internal`HandlerBlock[{"Message", Failure-wrapper}, Quiet[body]];
+   in a headless wolframscript its handler argument does not fire reliably for any
+   form other than "Function[Global`m = #]" (so it can only capture the LAST message,
+   not the full sequence). The version below is the same Internal`HandlerBlock idiom
+   inline, with state accumulated through a Block-local list which IS reliably
+   visible to the closure-bound handler. *)
+captureMessages[expr_] := Block[{msgs = {}, res},
+    Internal`HandlerBlock[
+        {"Message", Function[evt, If[keepMessageQ[evt], AppendTo[msgs, evt]]; True]},
+        res = Quiet @ expr
+    ];
+    {res, DeleteDuplicatesBy[msgs, messageNameOf]}
+]
+SetAttributes[captureMessages, HoldFirst]
+
+accumEval[state_, b_] := Block[{code = state["code"] <> mdSep <> b["Code"], res, msgs, tmp},
     (* Get a temp package so every top-level statement runs (ToExpression on a
        multi-statement string only takes the first); Get returns the last value. *)
     tmp = FileNameJoin[{$TemporaryDirectory, "mtnb-cell-" <> IntegerString[Hash[code], 36] <> ".wl"}];
     Export[tmp, b["Code"], "Text"];
-    (* capture every issued message (Hold[Message[...], qFlag]) via the message hook;
-       Quiet still suppresses console printing. Filters:
-         - keep only System` / $docContext / Global` heads (Internal` / Developer`
-           messages are noise the user never sees);
-         - drop a fixed set of package-author / kernel-bookkeeping warnings that
-           routinely fire during paclet load or private-context evaluation and have
-           nothing to do with the user's cell: General::newsym (auto-symbol creation),
-           General::shdw (context shadow), Pattern::patv (variable / fixed-length
-           pattern reuse - emitted by some library's package code), Syntax::sntxi
-           (interactive syntax warnings). *)
-    Internal`HandlerBlock[
-        {"Message", Function[evt,
-            If[MatchQ[evt, Hold[Message[MessageName[h_Symbol /;
-                        MatchQ[Context[h], "System`" | $docContext | "Global`"],
-                    tag_String /; ! MatchQ[tag,
-                        "newsym" | "shdw" | "patv" | "sntxi" | "rmnsm" | "remal"]],
-                    ___], _]],
-                AppendTo[msgs, evt]];
-            True]},
-        res = Quiet @ Get[tmp]
-    ];
-    msgs = DeleteDuplicatesBy[msgs, Replace[#, Hold[Message[name_, ___], _] :> ToString[name, InputForm]] &];
+    {res, msgs} = captureMessages @ Get[tmp];
     <|"code" -> code,
       "out" -> Append[state["out"], Hash[code] -> <|"out" -> outputBoxes[res, b["Options"]], "msgs" -> msgs|>]|>
 ]
