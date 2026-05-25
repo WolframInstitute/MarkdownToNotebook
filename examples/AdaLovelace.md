@@ -32,7 +32,8 @@ Stay in character. Frame each reply as if you were writing in a letter, a footno
 ## Chat Examples
 
 ```wl
-ChatEvaluate[ChatObject["", LLMEvaluator -> LLMConfiguration[<|"Prompts" -> LLMPrompt[ResourceObject[EvaluationNotebook[]]]|>]], "What is a function?"]
+#| eval: false
+ChatEvaluate[ChatObject["", LLMEvaluator -> LLMConfiguration[<|"Prompts" -> LLMPrompt["AdaLovelace"]|>]], "What is a function?"]
 ```
 
 ## Basic Examples
@@ -40,7 +41,8 @@ ChatEvaluate[ChatObject["", LLMEvaluator -> LLMConfiguration[<|"Prompts" -> LLMP
 A direct invocation through [LLMSynthesize]() gives one self-contained reply in her voice:
 
 ```wl
-LLMSynthesize[{LLMPrompt[ResourceObject[EvaluationNotebook[]]], "Explain the Analytical Engine to a modern programmer."}]
+#| eval: false
+LLMSynthesize[{LLMPrompt["AdaLovelace"], "Explain the Analytical Engine to a modern programmer."}]
 ```
 
 ## Scope
@@ -48,7 +50,8 @@ LLMSynthesize[{LLMPrompt[ResourceObject[EvaluationNotebook[]]], "Explain the Ana
 She answers any topic in character, mapping modern computing terms back to her era. Here she translates a list operation:
 
 ```wl
-LLMSynthesize[{LLMPrompt[ResourceObject[EvaluationNotebook[]]], "What is a map of a function over a list?"}]
+#| eval: false
+LLMSynthesize[{LLMPrompt["AdaLovelace"], "What is a map of a function over a list?"}]
 ```
 
 ## Applications
@@ -56,7 +59,8 @@ LLMSynthesize[{LLMPrompt[ResourceObject[EvaluationNotebook[]]], "What is a map o
 Wrap the persona as a one-call function so a worksheet of questions reads as a letter exchange:
 
 ```wl
-askAda = LLMResourceFunction[ResourceObject[EvaluationNotebook[]]];
+#| eval: false
+askAda = LLMResourceFunction["AdaLovelace"];
 askAda /@ {"What is recursion?", "What are imaginary numbers good for?"}
 ```
 
@@ -65,9 +69,10 @@ askAda /@ {"What is recursion?", "What are imaginary numbers good for?"}
 The persona is a thin layer over [LLMConfiguration](): it sets the system prompt to the body above and leaves model, temperature, and tools to the caller's [LLMConfiguration](). Pair it with a `WolframAlpha` [`LLMTool`]() and she will use the Engine in earnest:
 
 ```wl
+#| eval: false
 ChatEvaluate[ChatObject["",
     LLMEvaluator -> LLMConfiguration[<|
-        "Prompts" -> LLMPrompt[ResourceObject[EvaluationNotebook[]]],
+        "Prompts" -> LLMPrompt["AdaLovelace"],
         "Tools" -> {LLMTool["WolframAlpha"]}
     |>]],
     "Compute the first ten Bernoulli numbers for me."
@@ -79,7 +84,8 @@ ChatEvaluate[ChatObject["",
 A request that has no historical analogue (REST APIs, JavaScript frameworks) draws a polite admission of ignorance rather than a hallucinated answer, since the persona is anchored to 1843:
 
 ```wl
-LLMSynthesize[{LLMPrompt[ResourceObject[EvaluationNotebook[]]], "Explain how a JavaScript event loop works."}]
+#| eval: false
+LLMSynthesize[{LLMPrompt["AdaLovelace"], "Explain how a JavaScript event loop works."}]
 ```
 
 ## Neat Examples
@@ -87,8 +93,9 @@ LLMSynthesize[{LLMPrompt[ResourceObject[EvaluationNotebook[]]], "Explain how a J
 Use her as a *narrator* over a Wolfram Language computation - the cell evaluates a real result, the persona narrates what the result means in her voice:
 
 ```wl
+#| eval: false
 With[{value = First @ N[BernoulliB[2 Range[5]]]},
-    LLMSynthesize[{LLMPrompt[ResourceObject[EvaluationNotebook[]]],
+    LLMSynthesize[{LLMPrompt["AdaLovelace"],
         "I have just computed B_2 and obtained the value " <> ToString[value] <>
         ". Please remark on what this number signifies."}]
 ]

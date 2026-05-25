@@ -74,8 +74,9 @@ Links: ["[label](https://example.com)"]
   part of the resource; the [Prompt Repository style guidelines](https://resources.wolframcloud.com/PromptRepository/style-guidelines)
   go into detail on writing it well.
 - `## Chat Examples` - one or more `wl` cells using the chat-style invocation
-  (`ChatEvaluate[..., LLMPrompt[ResourceObject[EvaluationNotebook[]]] ...]`) that
-  exercise the persona in a Chat Notebook context.
+  (`ChatEvaluate[..., LLMPrompt["MyPromptName"] ...]`) that exercise the
+  persona in a Chat Notebook context. Mark these cells `#| eval: false`
+  unless a deployed prompt + LLM connection is available at build time.
 - `## Basic Examples` (and any of the usual `Scope`, `Applications`, `Properties and Relations`,
   `Possible Issues`, `Neat Examples` subsections) - programmatic examples that show
   the prompt working through [`LLMSynthesize`]() / [`LLMResourceFunction`]() rather
@@ -120,11 +121,14 @@ clickable link, and the `<code>` wrapper applies code styling. The converter
 routes the empty-URL link through `linkInferred` to a `paclet:` ref; the `-out.md`
 twin further rewrites it to the public web URL.
 
-Examples that load the *deployed* resource (`LLMPrompt["MyPrompt"]`) cannot
-evaluate before the resource exists, so write them against
-`LLMPrompt[ResourceObject[EvaluationNotebook[]]]` - the resource as it stands in
-the editing session - and the cell will work locally before publication, and
-keep working after the deploy.
+Examples that load the *deployed* resource (`LLMPrompt["MyPromptName"]`)
+cannot evaluate before the resource exists, and `LLMSynthesize` / `ChatEvaluate`
+need an active LLM connection at evaluation time. Mark these cells
+`#| eval: false` so the build does not error; once the prompt is published
+and the LLM is configured, the cells run as written. (Do not use the
+`LLMPrompt[ResourceObject[EvaluationNotebook[]]]` form - `EvaluationNotebook[]`
+is the *user's* notebook at call time, not the deployed resource, so the
+lookup fails both headlessly and at runtime in a chat session.)
 
 ## Build & deploy
 

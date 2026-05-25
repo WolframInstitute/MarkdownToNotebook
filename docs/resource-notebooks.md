@@ -214,11 +214,14 @@ slots and leave Output Interpreter empty; Function prompts do the opposite;
 Modifier prompts usually leave both empty and only fill the `## Prompt` body and
 the example sections.
 
-Examples that load the deployed resource (`LLMPrompt["MyPrompt"]`) cannot
-evaluate before publication, so write them against
-`LLMPrompt[ResourceObject[EvaluationNotebook[]]]` - the resource as it stands in
-the editing session - and the cell will work locally before deploy and keep
-working after.
+Examples that load the deployed resource (`LLMPrompt["MyPromptName"]`) cannot
+evaluate before publication, and `LLMSynthesize` / `ChatEvaluate` need an
+active LLM connection at evaluation time, so mark these cells `#| eval: false`
+so the build does not error; once the prompt is published and the LLM is
+configured, the cells run as written. (Do not write them against
+`LLMPrompt[ResourceObject[EvaluationNotebook[]]]` - `EvaluationNotebook[]` is
+the *user's* notebook at call time, not the deployed resource, so the lookup
+fails both headlessly and at runtime in a chat session.)
 
 ## Demonstration (Wolfram Demonstrations Project)
 
