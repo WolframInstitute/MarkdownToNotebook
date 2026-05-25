@@ -1257,16 +1257,20 @@ inlineTextData[text_String] := Replace[
                emphasis); listed first so the escape wins before the marker rules. *)
             "\\" ~~ c : PunctuationCharacter :> c,
             (* "<code>...</code>" - an inline-HTML wrapper whose inside is parsed
-               markdown (so the inferred link + italic / math args render in pandoc
-               and GitHub) but the whole span is code-styled. The notebook gets a
-               templated InlineFormula cell: sanitise the inside back to a plain WL
-               expression and let templateBox render it the way a backticked signature
-               would. *)
-            "<code>" ~~ inner : Shortest[__] ~~ "</code>" :>
-                Cell[BoxData[stripLinks @ templateBox[mathArgsToTemplate @ unwrapMarkdownSig @ inner]], "InlineFormula"],
+               markdown. Pandoc / GitHub use it to apply code styling to the whole
+               span (which is the only way to render a `[link]()` or italic inside
+               an inline-code region in markdown); our notebook output does not need
+               the extra styling because the inner elements (linkInferred / templated
+               math) are already InlineFormula cells, so just strip the wrapper and
+               recurse on the inside. Usage signatures get the special templating in
+               usageStatement before this rule ever fires. *)
+            "<code>" ~~ inner : Shortest[__] ~~ "</code>" :> Sequence @@ inlineTextData[inner],
             (* an inline image is a link with a leading "!"; match it before the link *)
             "![" ~~ a : Shortest[Except["]"] ...] ~~ "](" ~~ u : Shortest[Except[")"] ..] ~~ ")" :> inlineImage[a, u],
-            "[" ~~ t : Shortest[Except["]"] ..] ~~ "](" ~~ u : Shortest[Except[")"] ..] ~~ ")" :> linkInline[t, u],
+            (* allow an empty URL "[`Symbol`]()" - that is the pandoc / GitHub-renderable
+               inferred form (an empty link is at least a recognisable link element in
+               markdown viewers); linkInline routes it to linkInferred. *)
+            "[" ~~ t : Shortest[Except["]"] ..] ~~ "](" ~~ u : Shortest[Except[")"] ...] ~~ ")" :> linkInline[t, u],
             "[`" ~~ t : Shortest[Except["`"] ..] ~~ "`]" :> linkInferred[t],
             "``" ~~ c : Shortest[__] ~~ "``" :> literalCodeInline[c],
             "`" ~~ c : Shortest[__] ~~ "`" :> codeToInline[c],

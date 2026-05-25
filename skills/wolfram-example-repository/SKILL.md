@@ -79,8 +79,12 @@ convention), one `key: value` per line: `eval: false` (show code without running
 `file: path` (replace the body with a local file or URL), `screenshot: true`
 (rasterize a produced `Notebook`), `tear: h` (torn-paper screenshot capped to `h`
 points), `flag: future|excised|...`. Record an example's expected result in an
-`<!-- => ... -->` comment after the cell. Inline math is `$...$`; `` [`Symbol`] ``
-(backticked, empty target) infers a documentation link.
+`<!-- => ... -->` comment after the cell. Inline math is `$...$`. To link a
+documented symbol inline, wrap an inferred ref in `<code>`:
+`<code>[`Symbol`]()</code>` - the empty parens make markdown viewers render it as a
+clickable link, and the `<code>` wrapper applies code styling. The converter routes
+the empty-URL link through `linkInferred` to a `paclet:` ref; the twin rewrites it
+to the public web URL.
 
 Examples that fetch the *deployed* resource (`ResourceData[ResourceObject["Name"], ...]`)
 cannot evaluate before the resource exists, so either compute the same expression

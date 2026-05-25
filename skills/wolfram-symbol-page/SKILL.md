@@ -58,7 +58,14 @@ resolves this). `URI` is the page's `ref/` path.
   `x$i` before handing the reconstructed signature to DocumentationTools' usage
   template-parser. Bare backtick / prose / hybrid forms still work as fallbacks.
 - `## Details & Options` - bullets become `Notes` cells; pipe tables become grids
-  (use one for an options table). Link other symbols inline with `` [`Symbol`] ``.
+  (use one for an options table). Link other symbols inline with
+  `<code>[`Symbol`]()</code>`. Two things matter here: the empty parens (without
+  them markdown viewers do not render the `[…]` as a link element), and the
+  `<code>` wrapper (markdown forbids nested formatting inside backticked code
+  spans, but processes markdown *inside* an inline HTML element - so the
+  `[link]()` inside `<code>` renders as a clickable link with code styling). The
+  converter strips the wrapper, routes the empty-URL link to a `paclet:` ref in
+  the notebook, and the twin rewrites it to the public web URL.
 - `## Basic Examples` then the extended sections `## Scope`, `## Options`,
   `## Applications`, `## Properties and Relations`, `## Possible Issues`,
   `## Neat Examples`. Each example is one computation; separate siblings in a

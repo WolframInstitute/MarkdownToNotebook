@@ -113,6 +113,14 @@ to list, `DeleteObject` to clear).
   `resources.wolframcloud.com/PacletRepository/resources/Pub/Name/ref/Symbol` for
   paclet ones), so GitHub renders them as clickable links. Unresolvable names and
   non-paclet URLs are left untouched. **[done]**
+- The pandoc / GitHub-friendly form for an inferred ref is to wrap it in `<code>`:
+  `<code>[`Symbol`]()</code>`. The empty parens are essential (without them
+  markdown viewers do not render `[…]` as a link element), and the `<code>`
+  wrapper applies code styling around it (markdown forbids nested formatting
+  inside backticked code spans, but processes markdown *inside* an inline HTML
+  element). The converter's inline `<code>` rule strips the wrapper and recurses
+  on the inside, so the resulting notebook output is the same as a bare
+  `[`Symbol`]()` would produce. **[done]**
 
 ## Structure  [done / partial]
 

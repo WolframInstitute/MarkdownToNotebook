@@ -52,8 +52,11 @@ it directly to documentation cell styles:
 
 Structure the note as a narrative: lead with the problem, show the simplest
 approach, then build up. Use concrete, runnable examples throughout. Inline math is
-`$...$`, inline code is `` `code` ``, and `` [`Symbol`] `` infers a documentation
-link to a symbol's reference page.
+`$...$`, inline code is `` `code` ``, and `<code>[`Symbol`]()</code>` infers a
+documentation link to a symbol's reference page. The `<code>` wrapper applies code
+styling around the inferred-link (markdown viewers process markdown inside an
+inline HTML element but not inside backticked code spans), and the empty parens
+make pandoc / GitHub render the `[...]()` as a link element.
 
 ## Build
 

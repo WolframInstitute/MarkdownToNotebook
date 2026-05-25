@@ -97,7 +97,13 @@ convention), one `key: value` per line:
 
 To show a produced notebook as a thumbnail, return a `NotebookObject`
 (`NotebookPut[MarkdownToNotebook[...]]`); the converter rasterizes it. Inline math
-is `$...$`; `` [`Symbol`] `` (backticked, empty target) infers a documentation link.
+is `$...$`. To link a documented symbol inline, wrap an inferred ref in `<code>`:
+`<code>[`Symbol`]()</code>` - the empty parens make markdown viewers (pandoc, GitHub)
+render it as a clickable link, and the `<code>` wrapper applies code styling around
+that link (markdown forbids nested formatting inside backticked code spans, but
+processes markdown *inside* an inline HTML element). The converter routes the
+empty-URL link through `linkInferred` to a `paclet:` ref in the notebook; the
+`-out.md` twin further rewrites it to the public web URL.
 
 ## Convert and deploy
 
