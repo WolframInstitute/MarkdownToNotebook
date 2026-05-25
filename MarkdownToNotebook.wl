@@ -1256,6 +1256,14 @@ inlineTextData[text_String] := Replace[
             (* a backslashed ASCII punctuation is that literal char (so \* is not
                emphasis); listed first so the escape wins before the marker rules. *)
             "\\" ~~ c : PunctuationCharacter :> c,
+            (* "<code>...</code>" - an inline-HTML wrapper whose inside is parsed
+               markdown (so the inferred link + italic / math args render in pandoc
+               and GitHub) but the whole span is code-styled. The notebook gets a
+               templated InlineFormula cell: sanitise the inside back to a plain WL
+               expression and let templateBox render it the way a backticked signature
+               would. *)
+            "<code>" ~~ inner : Shortest[__] ~~ "</code>" :>
+                Cell[BoxData[stripLinks @ templateBox[mathArgsToTemplate @ unwrapMarkdownSig @ inner]], "InlineFormula"],
             (* an inline image is a link with a leading "!"; match it before the link *)
             "![" ~~ a : Shortest[Except["]"] ...] ~~ "](" ~~ u : Shortest[Except[")"] ..] ~~ ")" :> inlineImage[a, u],
             "[" ~~ t : Shortest[Except["]"] ..] ~~ "](" ~~ u : Shortest[Except[")"] ..] ~~ ")" :> linkInline[t, u],
