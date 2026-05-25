@@ -1241,9 +1241,20 @@ linkButton[text_String, url_String] := If[
 
 backtickedQ[text_String] := StringMatchQ[text, "`" ~~ ___ ~~ "`"]
 
+(* a bare label is treated as a symbol name when it looks like one - a leading
+   letter or "$" followed by letters / digits / context marks. Only used for the
+   empty-target inferred form [Name](), so non-symbol prose hyperlinks like
+   "[click here]()" still go through unchanged. *)
+symbolLikeQ[text_String] := StringMatchQ[text, (LetterCharacter | "$") ~~ (WordCharacter | "$" | "`") ...]
+
 linkInline[text_String, url_String] := Which[
-    (* an empty target - [`Symbol`]() - infers the reference, like [`Symbol`] *)
-    url === "", If[backtickedQ[text], linkInferred[StringTake[text, {2, -2}]], text],
+    (* an empty target - [Symbol]() (canonical) or the legacy [`Symbol`]() form -
+       infers the reference. The backtick wrapping is purely decorative here, so
+       both render identically; bare prose labels with an empty target are left
+       as literal text. *)
+    url === "" && backtickedQ[text], linkInferred[StringTake[text, {2, -2}]],
+    url === "" && symbolLikeQ[text], linkInferred[text],
+    url === "", text,
     (* a `code`-wrapped label is a code-styled reference link *)
     backtickedQ[text], Cell[BoxData @ linkButton[StringTake[text, {2, -2}], url], "InlineFormula"],
     (* a plain label is an ordinary prose hyperlink *)
@@ -1296,24 +1307,26 @@ pacletToWebURL[uri_String] := Block[{rest = StringTrim[uri], paclet, kind, name,
      [label](paclet:...)   (explicit paclet URI)   -> [label](https://...)
    Unresolvable symbols (not in $docContext or System`) and non-paclet URLs are left
    alone, so a stray "[`SomeRandomThing`]" passes through unchanged. *)
-resolveWebRefs[text_String] := Block[{s = text},
-    (* step 1: bare [`X`] -> [`X`]() so step 2 treats both uniformly. Negative
-       lookahead via RegularExpression avoids touching [`X`](anything). *)
+resolveWebRefs[text_String] := Block[{s = text, resolveLink},
+    (* step 1: normalise the legacy [`X`] without parens to [`X`]() so the inferred
+       URL resolves uniformly with the canonical [`X`]() / [X]() forms. *)
     s = StringReplace[s, RegularExpression["\\[`([^`\\n]+)`\\](?!\\()"] -> "[`$1`]()"];
-    (* step 2: backticked inferred forms with parens *)
-    s = StringReplace[s,
-        "[`" ~~ sym : Shortest[Except["`" | "\n"] ..] ~~ "`](" ~~ url : Shortest[Except[")"] ...] ~~ ")" :>
-            With[{u = Which[
-                StringStartsQ[url, "paclet:"], pacletToWebURL[url],
-                url === "", With[{w = inferWebURL[sym]}, If[w === None, "", w]],
-                True, url
-            ]}, "[`" <> sym <> "`](" <> u <> ")"]
+    (* step 2: rewrite every inferred link [label](url) where label is either bare
+       (the canonical form) or backtick-wrapped (the legacy form). For an empty url
+       look up the web URL from the bare symbol name; for "paclet:..." translate to
+       the public web URL. *)
+    resolveLink[sym_, url_] := Which[
+        StringStartsQ[url, "paclet:"], pacletToWebURL[url],
+        url === "", With[{w = inferWebURL[sym]}, If[w === None, "", w]],
+        True, url
     ];
-    (* step 3: any [label](paclet:...) still standing (non-backticked label) *)
-    StringReplace[s,
-        "[" ~~ label : Shortest[Except["]" | "\n"] ..] ~~ "](paclet:" ~~ url : Shortest[Except[")"] ..] ~~ ")" :>
-            "[" <> label <> "](" <> pacletToWebURL["paclet:" <> url] <> ")"
-    ]
+    s = StringReplace[s, {
+        "[`" ~~ sym : Shortest[Except["`" | "\n"] ..] ~~ "`](" ~~ url : Shortest[Except[")"] ...] ~~ ")" :>
+            "[`" <> sym <> "`](" <> resolveLink[sym, url] <> ")",
+        "[" ~~ sym : Shortest[Except["]" | "`" | "\n"] ..] ~~ "](" ~~ url : Shortest[Except[")"] ...] ~~ ")" :>
+            "[" <> sym <> "](" <> resolveLink[sym, url] <> ")"
+    }];
+    s
 ]
 
 (* an "empty" backtick link [`Name`] (brackets, no URL) is the convenient symbol
@@ -1794,8 +1807,15 @@ withCreateCellID[other_] := other
 (* === markdown-out: a rendered markdown twin ===
    MarkdownToNotebook[source, "out.md"] re-serializes the document to markdown but
    follows each evaluated wl cell with an image of its output, saved under images/
-   beside the target. The prose, headings, lists, tables and frontmatter are written
-   back; only the outputs are added (as images a plain markdown viewer can show). *)
+   beside the target. The twin is the rendered, viewer-ready version: prose,
+   headings, lists, tables, frontmatter, and every evaluated output - and nothing
+   else. Notebook-side cell options ("#| file: ...", "#| screenshot: true",
+   "#| tear: 200", "#| eval: false", "#| flag: ...") are stripped, since they
+   carry processing directives the rendered view has no use for (the file include
+   is already expanded, the screenshot is already there, etc.). Inferred [Symbol]()
+   links are resolved to public web URLs (paclet:Wolfram/AccessibleColors/ref/X ->
+   https://resources.wolframcloud.com/PacletRepository/... ; bare System symbols ->
+   their reference.wolfram.com page) so every link clicks through on GitHub. *)
 (* quote a YAML value when it would otherwise break parsing: brackets / braces /
    commas open a flow collection, ": " or " #" end a scalar, and a leading
    indicator char reads as a node tag. A markdown link "[label](url)" in a [list]
@@ -1839,10 +1859,11 @@ markdownWithImages[blocks_, meta_, target_String] := Block[{dir, base, imgDir, n
     imgDir = FileNameJoin[{dir, "images"}];
     Quiet @ CreateDirectory[imgDir, CreateIntermediateDirectories -> True];
     codeMd[b_] := Block[{fence, imgFile, img},
-        fence = "```" <> b["Lang"] <> "\n" <> If[
-            KeyExistsQ[b["Options"], "file"], "#| file: " <> b["Options"]["file"] <> "\n",
-            StringJoin["#| " <> # <> ": " <> ToString[b["Options"][#]] <> "\n" & /@ Keys[b["Options"]]] <> b["Code"] <> "\n"
-        ] <> "```";
+        (* twin keeps no "#| key: value" cell options - those are notebook-side
+           evaluation directives (file, screenshot, tear, eval, flag) that have
+           no rendered meaning. The file include is already expanded into
+           b["Code"] by resolveIncludes, so the twin shows the actual code. *)
+        fence = "```" <> b["Lang"] <> "\n" <> b["Code"] <> "\n```";
         If[ executableQ[b] && ! MissingQ[b["OutputBoxes"]] && b["OutputBoxes"] =!= Null,
             n += 1; imgFile = base <> "-" <> ToString[n] <> ".png";
             img = UsingFrontEnd @ Rasterize[
