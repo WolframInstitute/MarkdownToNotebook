@@ -8,6 +8,10 @@ when in doubt - they are the authority:
 - Function Repository - <https://resources.wolframcloud.com/FunctionRepository/style-guidelines>
 - Paclet Repository, creating paclets - <https://resources.wolframcloud.com/PacletRepository/creating-paclets>
 - Paclet Repository, guidelines - <https://resources.wolframcloud.com/PacletRepository/guidelines>
+- Example Repository - <https://resources.wolframcloud.com/ExampleRepository/guidelines>, <https://resources.wolframcloud.com/ExampleRepository/style-guidelines>
+- Data Repository - <https://resources.wolframcloud.com/DataRepository/guidelines>, <https://resources.wolframcloud.com/DataRepository/style-guidelines>
+- Prompt Repository - <https://resources.wolframcloud.com/PromptRepository/guidelines>, <https://resources.wolframcloud.com/PromptRepository/style-guidelines>
+- Demonstrations Project - <https://demonstrations.wolfram.com/guidelines.html>, <https://demonstrations.wolfram.com/topics.html>
 
 ## Shared conventions (all resource types)
 
@@ -104,6 +108,71 @@ when in doubt - they are the authority:
 ### Versioning
 
 - Semantic `XX.YY.ZZ`: `XX` major/incompatible, `YY` minor, `ZZ` patch.
+
+## Prompt Repository
+
+A Prompt resource is one of three **types** - **Persona**, **Function**, or
+**Modifier** - and the rules differ by type:
+
+- **Name** - per-type grammar enforced by review: Persona = CamelCase noun
+  (`Yoda`, `AdaLovelace`); Function = CamelCase verb (`Summarize`); Modifier =
+  CamelCase past-tense verb (`HaikuStyled`). -> `Name` + `PromptType` frontmatter.
+- **The prompt body** - the most important part. For Function prompts, named
+  template slots are written as `` `{argName}` `` and become `TemplateSlot`s that
+  `LLMResourceFunction` fills at call time. -> `## Prompt` section, plain prose.
+- **Categories** - per-type checkbox sets, see the
+  [style guide](https://resources.wolframcloud.com/PromptRepository/style-guidelines).
+  Personas pick from "Fictional Characters / Roles / Writers / ...", Functions
+  from "Text Analysis / Content Derived from Text / ...", Modifiers from
+  "Output Formatting / Computable Output / Personalization / ...". -> `Categories`
+  frontmatter.
+- **Chat + Programmatic examples** - both required. Chat examples use the
+  `` `Name `` chat magic inside `ChatEvaluate`; programmatic examples use
+  `LLMSynthesize` / `LLMResourceFunction`. -> `## Chat Examples` and
+  `## Basic Examples` (plus the usual Scope / Applications / ... sections).
+- **Optional Persona slots** - icon, cell-processing function, cell-post-evaluation
+  function, all single `wl` cells. -> `## Persona Icon`, `## Cell Processing Function`,
+  `## Cell Post Evaluation Function`.
+- **Optional Function slot** - an output interpreter that coerces the model's
+  reply into a computable expression. -> `## Output Interpreter`.
+- **Independence** - each prompt must work on its own, even if part of a related
+  group, and must not "substantially replicate" an existing one. -> author's
+  responsibility.
+
+## Demonstrations Project
+
+A Demonstration is built around **exactly one** `Manipulate[...]`. The
+authoring rules below come straight from the
+[guidelines](https://demonstrations.wolfram.com/guidelines.html):
+
+- **Title** - Title Case, all major words capitalized, specific (`"Density Map
+  for the 3n+1 Problem"`, not `"3n+1 Problem"`), ASCII only - the URL slug is
+  derived from it. -> `Name` frontmatter.
+- **Caption** - one short paragraph, 3-5 sentences, text only (no code, no
+  graphics), shown under the thumbnail. -> `## Caption` section.
+- **Manipulate** - exactly one, top level, not nested, not returned from a
+  function. **No `InputField`** and **no `Appearance -> "Open"`** controls.
+  Lower-case descriptive labels on every control. Fixed image size; the panel
+  must not resize as controls move (`ImageSize -> {w, h}`, `PlotRange -> All`,
+  `Pane`, `Spacers`, `SphericalRegion -> True` for 3D). -> `## Manipulate`
+  section, one `wl` cell.
+- **Initialization** - all helper definitions live here (not inside the
+  Manipulate cell). Pair non-empty initialization with `SaveDefinitions -> True`
+  on the Manipulate. -> `## Initialization` section, one `wl` cell.
+- **Snapshots** - at least three, each a distinct Manipulate panel. -> `## Snapshots`
+  section, 3+ `wl` cells.
+- **Details / References** - prose only. References are numbered `[1]`, `[2]`,
+  ... in numerical order of appearance, one per cell. -> `## Details` and
+  `## References` sections.
+- **Authoring info** - `Contributed by: <Name>` first; optional follow-ups
+  `Based on a program by:`, `Suggested by:`, `After work by:`,
+  `With additional contributions by:`. -> `AuthorNames` (or `ContributedBy`)
+  frontmatter.
+- **Performance** - `SynchronousUpdating -> False` for slow updates;
+  `ContinuousAction -> False` for stuttering sliders; `AutorunSequencing` to
+  cap heavy autorun.
+- **Localize** every variable with `Module` / `DynamicModule` (unlocalized
+  variables cause panel cross-talk).
 
 ## How `MarkdownToNotebook` maps these
 

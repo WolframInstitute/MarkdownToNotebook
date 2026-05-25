@@ -17,6 +17,12 @@
 
 Needs["GeneralUtilities`"]
 
+(* Pull in the shared TaggingRules stash protocol from the sibling
+   MarkdownTools.wl. Quiet'd so a deployed resource notebook (which inlines
+   MarkdownTools.wl as a separate "## Definition" cell that runs first) does
+   not fire Get::noopen when there is no file on disk to load. *)
+Quiet @ Get[FileNameJoin[{Directory[], "MarkdownTools.wl"}]]
+
 mdSep = "\n(*--cell--*)\n"
 
 (* === frontmatter === *)
@@ -148,9 +154,16 @@ taskCheckbox[t_String] := Which[
 orderedItemQ[line_String] := StringMatchQ[StringTrim[line], DigitCharacter .. ~~ ("." | ")") ~~ " " ~~ ___]
 orderedText[line_String] := StringTrim @ StringReplace[StringTrim[line], StartOfString ~~ DigitCharacter .. ~~ ("." | ")") ~~ " " -> ""]
 orderedSplit[{}, collected_] := {Reverse[collected], {}}
-orderedSplit[lines_List, collected_] := If[ orderedItemQ[First[lines]],
-    orderedSplit[Rest[lines], Prepend[collected, orderedText[First[lines]]]],
-    {Reverse[collected], lines}
+orderedSplit[lines_List, collected_] := With[{line = First[lines]},
+    Which[
+        orderedItemQ[line],
+            orderedSplit[Rest[lines], Prepend[collected, orderedText[line]]],
+        collected =!= {} && listContinuationQ[line],
+            orderedSplit[Rest[lines],
+                Prepend[Rest[collected], First[collected] <> " " <> StringTrim[line]]],
+        True,
+            {Reverse[collected], lines}
+    ]
 ]
 
 (* a "$$ ... $$" line (or a "$$"-fenced block across multiple lines) is display math.
@@ -196,10 +209,33 @@ separatorQ[line_String] := Block[{chars = Characters[StringTrim[line]]},
     Length[chars] >= 3 && MemberQ[{"-", "_", "*"}, First[chars, ""]] && Length[DeleteDuplicates[chars]] === 1
 ]
 
+(* a continuation line under a list item: any non-empty, non-marker-starting
+   line that does not itself open a new block. Standard markdown indents the
+   continuation under the bullet's text column (2-4 spaces); we accept any
+   leading whitespace and fall back to a plain non-list line, so wrapped
+   prose under a bullet folds into the same item instead of breaking the list
+   into "one item + a paragraph + another item + a paragraph + ..." (which is
+   what the user sees as "6 bullets instead of 3"). *)
+listContinuationQ[line_String] := StringLength[line] > 0 &&
+    StringStartsQ[line, " " | "\t"] && StringTrim[line] =!= "" &&
+    ! listItemQ[line] && ! orderedItemQ[line] && ! headingQ[line] &&
+    ! fenceQ[line] && ! blockquoteQ[line] && ! mathBlockOpenQ[line]
+
+(* collect a markdown list, folding indented continuation lines into the
+   current item (joined with a single space, the way a CommonMark renderer
+   would). `collected` is built in reverse - the first element is the current
+   item being extended, so prepending a new item makes that the new "current". *)
 listSplit[{}, collected_] := {Reverse[collected], {}}
-listSplit[lines_List, collected_] := If[ listItemQ[First[lines]],
-    listSplit[Rest[lines], Prepend[collected, listText[First[lines]]]],
-    {Reverse[collected], lines}
+listSplit[lines_List, collected_] := With[{line = First[lines]},
+    Which[
+        listItemQ[line],
+            listSplit[Rest[lines], Prepend[collected, listText[line]]],
+        collected =!= {} && listContinuationQ[line],
+            listSplit[Rest[lines],
+                Prepend[Rest[collected], First[collected] <> " " <> StringTrim[line]]],
+        True,
+            {Reverse[collected], lines}
+    ]
 ]
 
 (* GitHub-flavored tables: a "| a | b |" row whose next line is a "|---|---|"
@@ -374,8 +410,14 @@ If[! ValueQ[$lightDark], $lightDark = "Light"]
 If[! ValueQ[$convertDepth], $convertDepth = 0]
 
 (* the notebook a result stands for (a Notebook expression, or the open notebook of
-   a NotebookObject), pinned to the current mode. *)
-resultNotebook[res_] := Append[If[Head[res] === NotebookObject, NotebookGet[res], res], LightDark -> $lightDark]
+   a NotebookObject), pinned to the current mode. The Resource templates
+   (FunctionResource / Example / Data) come from DefinitionNotebookClient with
+   LightDark -> "Light" already baked in; appending a second LightDark would
+   leave both in the option sequence and the front end would honour the first
+   (Light) one, so strip any existing LightDark before setting ours. *)
+resultNotebook[res_] := Block[{nb = If[Head[res] === NotebookObject, NotebookGet[res], res]},
+    nb /. Notebook[c_, o___] :> Notebook[c, Sequence @@ DeleteCases[{o}, LightDark -> _], LightDark -> $lightDark]
+]
 
 (* output for an evaluated cell. A whole notebook has no faithful inline form -
    inlining its cells breaks the surrounding layout (a Title/Section renders
@@ -400,61 +442,43 @@ outputBoxes[res_, opts_] := Which[
     True, ToBoxes[res]
 ]
 
-(* a captured message -> a notebook "Message" cell. Internal`HandlerBlock["Message"]
-   passes "Hold[Message[head::tag, args], qFlag]" to the handler; we store it as-is
-   (the Hold keeps args unevaluated). The text is "head::tag: <StringForm template>";
-   notebook-syntax math escapes are stripped so the cell reads as plain text rather
-   than raw "\!\(...\)" glyphs. *)
-(* Render a captured message as the exact "MessageTemplate" TemplateBox the front end
-   produces interactively: TemplateBox[{<formatted-text-boxes>, "head", "tag",
-   Hold[args]}, "MessageTemplate"]. The template lives in Messages[head] as a rule
-   "HoldPattern[MessageName[head, tag]] :> template"; Replace pulls it out, StringForm
-   substitutes the args (`1, `2, ...) preserved as HoldForm so the typeset boxes show
-   the original "1/0" rather than the post-evaluation ComplexInfinity, and ToBoxes
-   converts the StringForm to the InterpretationBox the FE expects. Falls back to a
-   plain "head::tag" text cell if the template is not yet registered. *)
-messageCell[Hold[Message[MessageName[head_, tag_String], args___], _]] := Module[
-    {tmpl, cleanedArgs, formattedBoxes},
-    tmpl = Replace[MessageName[head, tag], Messages[head]];
-    If[ ! StringQ[tmpl],
-        Return @ Cell[SymbolName[head] <> "::" <> tag, "Message", "MSG"]
-    ];
-    cleanedArgs = {args} /. HoldCompleteForm[x_] :> HoldForm[x];
-    (* ToBoxes[StringForm[...]] wraps in InterpretationBox; strip that to expose the
-       raw rendered string with its inline "\!\(...\)" typeset markup, which is the
-       form the front end parses to render math (FractionBox, etc.) in the message
-       cell exactly the way the kernel prints it interactively. *)
-    formattedBoxes = ToBoxes[StringForm[tmpl, Sequence @@ cleanedArgs]] /. InterpretationBox[b_, ___] :> b;
-    Cell[BoxData @ TemplateBox[
-        {formattedBoxes, SymbolName[head], tag, Hold[args]},
-        "MessageTemplate"
-    ], "Message", "MSG"]
-]
+(* a captured message string -> a notebook "Message" cell. captureMessages
+   redirects $Messages to a write stream and we read the printed text back
+   verbatim, so the cell text is exactly the line the kernel itself printed -
+   no template lookup, no arg substitution to redo. *)
+messageCell[s_String] := Cell[s, "Message", "MSG"]
 messageCell[hf_] := Cell[ToString[hf, InputForm], "Message", "MSG"]
 
-(* Keep only messages whose head lives in user-visible contexts. Internal` /
-   Developer` chatter never reaches an interactive user, so it should never reach
-   our message cells either. *)
-keepMessageQ[Hold[Message[MessageName[h_Symbol, _String], ___], _]] :=
-    MatchQ[Context[h], "System`" | $docContext | "Global`"]
-keepMessageQ[_] := False
+(* Plain-text rendering of a captured message for the markdown twin: just a
+   blockquote with each line prefixed. The message text is whatever the kernel
+   itself would print to $Messages, so what shows up is exactly what an
+   interactive user would see fire for that cell. *)
+messageMd[s_String] := "> " <> StringReplace[StringTrim[s], "\n" -> "\n> "]
+messageMd[_] := ""
 
-messageNameOf[Hold[Message[name_, ___], _]] := ToString[name, InputForm]
-messageNameOf[_] := ""
-
-(* WithMessageHandler [ResourceFunction] is the obvious choice and is itself a thin
-   wrapper around Internal`HandlerBlock[{"Message", Failure-wrapper}, Quiet[body]];
-   in a headless wolframscript its handler argument does not fire reliably for any
-   form other than "Function[Global`m = #]" (so it can only capture the LAST message,
-   not the full sequence). The version below is the same Internal`HandlerBlock idiom
-   inline, with state accumulated through a Block-local list which IS reliably
-   visible to the closure-bound handler. *)
-captureMessages[expr_] := Block[{msgs = {}, res},
-    Internal`HandlerBlock[
-        {"Message", Function[evt, If[keepMessageQ[evt], AppendTo[msgs, evt]]; True]},
-        res = Quiet @ expr
-    ];
-    {res, DeleteDuplicatesBy[msgs, messageNameOf]}
+(* Capture the messages the kernel would *print* during evaluation, by
+   redirecting $Messages to a private write stream. This is the proper fix
+   for the "ton of garbage in the twin" problem - Internal`HandlerBlock
+   captures every fired message, including the 50k OptionValue::optnf and
+   General::newsym Wolfram's own framework fires per Plot and which the
+   kernel's normal message printer silently swallows (most of them have
+   $Off-style suppression, are inside an Internal`InheritedBlock[{$Off}, ...]
+   in Charting, or hit General::stop). Redirecting the print stream is the
+   *one* mechanism that respects all of those: whatever the kernel decides
+   to actually print, we capture verbatim. *)
+captureMessages[expr_] := Module[{tmp, stream, res, txt, msgs},
+    tmp = FileNameJoin[{$TemporaryDirectory,
+        "mtnb-msg-" <> IntegerString[$KernelID, 36] <> "-" <>
+        IntegerString[RandomInteger[10^9], 36] <> ".txt"}];
+    stream = OpenWrite[tmp];
+    res = Block[{$Messages = {stream}}, expr];
+    Close[stream];
+    txt = If[FileExistsQ[tmp], Quiet @ Import[tmp, "Text"], ""];
+    Quiet @ DeleteFile[tmp];
+    msgs = If[StringQ[txt] && StringTrim[txt] =!= "",
+        DeleteCases[Map[StringTrim, StringSplit[txt, "\n\n"]], ""],
+        {}];
+    {res, msgs}
 ]
 SetAttributes[captureMessages, HoldFirst]
 
@@ -719,6 +743,78 @@ contentSlot[opts_, sections_] := Block[{cells = Cases[Lookup[sections, "content"
     ]
 ]
 
+(* === single-cell-from-section helpers, used by Prompt and Demonstration ===
+   Each fills a TemplateSlot with one cell built from the FIRST code block (or
+   prose block) of a given markdown section. They mirror contentSlot's pattern
+   but for slots that take a single value rather than a list, and tag the cell
+   with "DefaultContent" so the resource scraper picks it up. *)
+
+(* Pull the first executable WL block from a section, or Missing[] if none. *)
+firstCodeOf[sections_, key_] := FirstCase[Lookup[sections, key, {}], b_ /; codeBlockQ[b], Missing[]]
+
+(* All executable WL blocks in a section, in order. *)
+allCodeOf[sections_, key_] := Cases[Lookup[sections, key, {}], b_ /; codeBlockQ[b]]
+
+(* All prose / list / quote / table blocks of a section, in order, as ordinary
+   Text cells - the format the Demonstration template's Caption / Details /
+   References slots expect. *)
+proseBlockCells[blocks_, style_String : "Text"] := Catenate @ Map[
+    b |-> Switch[b["Type"],
+        "Prose", {Cell[TextData @ inlineTextData[b["Text"]], style]},
+        "List",  listItemCells[b, style],
+        "Table", {tableCell[b]},
+        "Quote", {quoteCell[b["Text"]]},
+        "MathBlock", {mathBlockCell[b["Text"]]},
+        _, {}
+    ],
+    blocks
+]
+
+(* Fill a slot with a single Input cell built from the first code block of the
+   named section; falls back to the template default if the section is empty.
+   The cell carries "DefaultContent" so the official scraper finds it. *)
+codeSlot[opts_, sections_, key_String] := Block[{b = firstCodeOf[sections, key]},
+    If[ MissingQ[b],
+        slotDefault[opts],
+        {Cell[BoxData[inputBoxes[b["Code"]]], "Input", CellTags -> {"DefaultContent"}]}
+    ]
+]
+
+(* Fill a slot with one Input cell per code block of the named section. Used for
+   Snapshot groups (>= 3 panel-producing inputs) and similar list-of-cells slots. *)
+multiCodeSlot[opts_, sections_, key_String] := Block[{cells = allCodeOf[sections, key]},
+    If[ cells === {},
+        slotDefault[opts],
+        Map[Cell[BoxData[inputBoxes[#["Code"]]], "Input", CellTags -> {"DefaultContent"}] &, cells]
+    ]
+]
+
+(* Fill a slot with one Text (or other styled) cell per prose / list / quote
+   block of the named section. Used for CaptionCells / DetailCells /
+   ReferenceCells in the Demonstration template, and PromptTemplate in the
+   Prompt template (whose body is plain prose). *)
+proseSectionSlot[opts_, sections_, key_String, style_String : "Text"] := Block[{cells},
+    cells = proseBlockCells[Lookup[sections, key, {}], style];
+    If[cells === {}, slotDefault[opts], cells]
+]
+
+(* A Manipulate slot needs the Input cell AND its evaluated Manipulate output
+   (the live panel), grouped so the published demo shows the panel. The cached
+   OutputBoxes from the example-evaluation pass provide the output; without it
+   we leave the Input alone and let the front end produce the output on open. *)
+manipulateSlot[opts_, sections_] := Block[{b = firstCodeOf[sections, "manipulate"]},
+    If[ MissingQ[b], Return[slotDefault[opts]] ];
+    Block[{out = Lookup[b, "OutputBoxes", Missing[]]},
+        If[ MissingQ[out] || out === Null,
+            {Cell[BoxData[inputBoxes[b["Code"]]], "Input", CellTags -> {"DefaultContent"}]},
+            {Cell[CellGroupData[{
+                Cell[BoxData[inputBoxes[b["Code"]]], "Input", CellTags -> {"DefaultContent"}],
+                Cell[BoxData[out], "Output"]
+            }, Open]]}
+        ]
+    ]
+]
+
 (* a Usage section is a sequence of usage statements, one per prose paragraph
    that begins with a `code` span: the code is the signature (e.g.
    `MarkdownToNotebook[source]`) and the rest is its description. The signature
@@ -738,12 +834,16 @@ mathArgsToTemplate[s_String] := StringReplace[s, {
 
 (* Sanitize the markdown styling out of a usage signature, leaving the plain WL
    signature string that templateBox / ParseTextTemplate can render. Strips
-   inferred-link wrappers ("[`Name`](url)" -> "Name") and "*italic*" markers; the
+   inferred-link wrappers in both forms - the canonical bare "[Name](url)" and
+   the legacy backtick-wrapped "[`Name`](url)" - and "*italic*" markers. The
    "$x_i$" math and "<sub>i</sub>" / "~i~" subscript forms pass through to
-   mathArgsToTemplate / mdToTemplateSubs which already know how to template them. *)
+   mathArgsToTemplate / mdToTemplateSubs which already know how to template
+   them. The backticked rule runs first so a "[`X`](url)" does not part-match
+   the bare rule and leak its surrounding backticks. *)
 unwrapMarkdownSig[s_String] := StringReplace[s, {
-    "[`" ~~ n:Shortest[Except["`"]..] ~~ "`](" ~~ Shortest[Except[")"]...] ~~ ")" :> n,
-    "*" ~~ w:Shortest[Except["*"|" "]..] ~~ "*" :> w
+    "[`" ~~ n : Shortest[Except["`"] ..] ~~ "`](" ~~ Shortest[Except[")"] ...] ~~ ")" :> n,
+    "[" ~~ n : Shortest[Except["]" | "`" | "\n"] ..] ~~ "](" ~~ Shortest[Except[")"] ...] ~~ ")" :> n,
+    "*" ~~ w : Shortest[Except["*" | " "] ..] ~~ "*" :> w
 }]
 
 usageStatement[text_String] := Block[{trimmed = StringTrim[text], m},
@@ -839,6 +939,24 @@ heroSlot[opts_, sections_] := Block[{cells = sectionCells[sections, "hero image"
         Cell[BoxData[inputBoxes[code]], "Input"],
         Cell[BoxData[out], "Output"]
     }, {2}]]}
+]
+
+(* The FunctionResource template's VerificationTests slot accepts both Input /
+   Output cell pairs and symbolic VerificationTest expressions. We always emit
+   the explicit VerificationTest form: each wl code block in a "## Tests"
+   section is expected to be a `VerificationTest[code, expected, TestID -> "..."]`
+   expression (the docked Run Tests button evaluates these directly), so the
+   slot just wraps each code block as a single Input cell tagged
+   DefaultContent. Authors write the assertion explicitly - what is tested
+   and what is expected - rather than relying on an Input/Output pair the
+   scraper would otherwise infer the assertion from. *)
+testsSlot[opts_, sections_] := Block[
+    {cells = Cases[Lookup[sections, "tests", {}], b_ /; codeBlockQ[b]]},
+    If[ cells === {}, Return[slotDefault[opts]] ];
+    Map[
+        Cell[BoxData[inputBoxes[#["Code"]]], "Input", CellTags -> {"DefaultContent"}] &,
+        cells
+    ]
 ]
 
 examplesSlot[opts_, sections_] := Block[{keys, body},
@@ -979,6 +1097,7 @@ fillSlot[name_, opts_, data_] := Block[{meta = data["meta"]},
         "PrimaryContext", fillTextCells[opts, Lookup[meta, "Context", ""]],
         "Examples", examplesSlot[opts, data["sections"]],
         "ExampleNotebook", exampleNotebookSlot[opts, data["sections"]],
+        "VerificationTests", testsSlot[opts, data["sections"]],
         "Author Notes",
             With[{an = sectionText[data["sections"], "author notes"]},
                 If[an === "", slotDefault[opts], {cleanCell @ ReplacePart[First[slotDefault[opts]], 1 -> an]}]
@@ -1010,6 +1129,44 @@ fillSlot[name_, opts_, data_] := Block[{meta = data["meta"]},
         "SubmissionNotes",
             With[{sn = Lookup[meta, "SubmissionNotes", ""]},
                 If[sn === "", slotDefault[opts], fillTextCells[opts, sn]]
+            ],
+        (* === Prompt Repository slots ===
+           PromptTemplate is the prompt body (a "## Prompt" section of plain prose).
+           The optional WL slots (PersonaIcon, CellProcessingFunction, ...) pull
+           the first code block of the matching section into the template's input
+           cell. SampleChat / Examples / Notes / Usage reuse the existing helpers. *)
+        "PromptTemplate", proseSectionSlot[opts, data["sections"], "prompt", "Text"],
+        "PersonaIcon", codeSlot[opts, data["sections"], "persona icon"],
+        "CellProcessingFunction", codeSlot[opts, data["sections"], "cell processing function"],
+        "CellPostEvaluationFunction", codeSlot[opts, data["sections"], "cell post evaluation function"],
+        "PromptInterpreter", codeSlot[opts, data["sections"], "output interpreter"],
+        "Tools", codeSlot[opts, data["sections"], "llm tools"],
+        "LLMConfigurationExtra", codeSlot[opts, data["sections"], "llm configuration"],
+        "SampleChat", multiCodeSlot[opts, data["sections"], "chat examples"],
+        "Topics", fillListCells[opts, asList @ Lookup[meta, "Topics", {}]],
+        (* === Demonstration slots ===
+           A Demonstration's content is split across named sections rather than the
+           Function template's TemplateSlots: Caption / Initialization / Manipulate /
+           Snapshots / Details / References each map to one slot. AuthorNames takes
+           a frontmatter list (one cell per author item, falling back to ContributedBy
+           for the common single-author case). RelatedDemonstrations is the
+           "see also" of other Demos. *)
+        "CaptionCells", proseSectionSlot[opts, data["sections"], "caption", "Text"],
+        "InitializationCode", codeSlot[opts, data["sections"], "initialization"],
+        "ManipulateGroup", manipulateSlot[opts, data["sections"]],
+        "SnapshotGroup", multiCodeSlot[opts, data["sections"], "snapshots"],
+        "AuthorNames",
+            With[{vs = asList @ Lookup[meta, "AuthorNames", Lookup[meta, "ContributedBy", ""]]},
+                fillListCells[opts, DeleteCases[vs, ""]]
+            ],
+        "DetailCells", proseSectionSlot[opts, data["sections"], "details", "Text"],
+        "ReferenceCells", proseSectionSlot[opts, data["sections"], "references", "Text"],
+        "RelatedDemonstrations", fillListCells[opts, asList @ Lookup[meta, "RelatedDemonstrations", {}]],
+        "ExternalLinks", fillLinkCells[opts, asList @ Lookup[meta, "Links", {}]],
+        "CompatibilityARSupport",
+            If[ KeyExistsQ[meta, "ARSupport"],
+                fillCheckbox["CompatibilityARSupport", If[TrueQ @ meta["ARSupport"], {True}, {}]],
+                slotDefault[opts]
             ],
         _, slotDefault[opts]
     ]
@@ -1124,6 +1281,31 @@ templateBox[code_String] := Block[{boxes, prepped = mdToTemplateSubs[StringTrim[
         boxes,
         inputBoxes[prepped]
     ]
+]
+
+(* A "<code>...</code>" span: strip the markdown link / italic wrappers in the
+   inner signature, run it through the same templateBox pipeline a Usage
+   signature uses (italic args via ParseTextTemplate), and wrap the result in
+   a single InlineFormula cell so the code styling covers the whole span -
+   brackets included - and not just the linked head. The leading head is
+   wrapped in a paclet-link ButtonBox via inferURL when the name resolves
+   (in $docContext or System`); ParseTextTemplate by itself does not link a
+   page's own symbol, but a "<code>[Self]()</code>" reference should still
+   render as a tappable link to the symbol's own ref page. *)
+codeInlineCell[inner_String] := Block[{sig, head, url, boxes},
+    sig = mathArgsToTemplate @ unwrapMarkdownSig @ inner;
+    head = First[StringCases[sig,
+        StartOfString ~~ h : ((LetterCharacter | "$") ~~ (WordCharacter | "$" | "`") ...) :> h, 1], ""];
+    url = If[head =!= "", inferURL[head], None];
+    boxes = templateBox[sig];
+    If[ url =!= None,
+        boxes = Replace[boxes, {
+            s_String /; s === head :> ButtonBox[s, BaseStyle -> "Link", ButtonData -> url],
+            RowBox[{s_String /; s === head, rest___}] :>
+                RowBox[{ButtonBox[s, BaseStyle -> "Link", ButtonData -> url], rest}]
+        }]
+    ];
+    Cell[BoxData @ boxes, "InlineFormula"]
 ]
 
 symbolInContextQ[name_String, ctx_String] := ctx =!= "" &&
@@ -1349,15 +1531,17 @@ inlineTextData[text_String] := Replace[
             (* a backslashed ASCII punctuation is that literal char (so \* is not
                emphasis); listed first so the escape wins before the marker rules. *)
             "\\" ~~ c : PunctuationCharacter :> c,
-            (* "<code>...</code>" - an inline-HTML wrapper whose inside is parsed
-               markdown. Pandoc / GitHub use it to apply code styling to the whole
-               span (which is the only way to render a `[link]()` or italic inside
-               an inline-code region in markdown); our notebook output does not need
-               the extra styling because the inner elements (linkInferred / templated
-               math) are already InlineFormula cells, so just strip the wrapper and
-               recurse on the inside. Usage signatures get the special templating in
-               usageStatement before this rule ever fires. *)
-            "<code>" ~~ inner : Shortest[__] ~~ "</code>" :> Sequence @@ inlineTextData[inner],
+            (* "<code>...</code>" - the canonical inline-HTML wrapper for a code-styled
+               span that may contain a markdown link and italic args inside. Pandoc /
+               GitHub use it because markdown forbids nested formatting inside a
+               backticked code span. The whole inner span is rendered as a single
+               InlineFormula cell so the code styling wraps everything - the linked
+               head AND the surrounding brackets AND the italic args - not just the
+               linked head; the previous strip-and-recurse left the brackets and
+               args as plain text in the surrounding TextData. The signature is fed
+               through templateBox (the same pipeline usageStatement uses), so a
+               head in $docContext or System` gets its paclet link automatically. *)
+            "<code>" ~~ inner : Shortest[__] ~~ "</code>" :> codeInlineCell[inner],
             (* an inline image is a link with a leading "!"; match it before the link *)
             "![" ~~ a : Shortest[Except["]"] ...] ~~ "](" ~~ u : Shortest[Except[")"] ..] ~~ ")" :> inlineImage[a, u],
             (* allow an empty URL "[`Symbol`]()" - that is the pandoc / GitHub-renderable
@@ -1422,7 +1606,7 @@ tableGridRow[cells_List, ncol_Integer, opts___] :=
    documentation stylesheets (Symbol / Guide / TechNote) and Default.nb do not
    define it, so a "TableNotes" cell renders unstyled / cramped there - switch to
    "Text" for those, which exists everywhere. *)
-$tableCellStyleFor := If[MemberQ[{"FunctionResource", "Paclet", "Example", "Data"}, $docTemplate], "TableNotes", "Text"]
+$tableCellStyleFor := If[MemberQ[{"FunctionResource", "Paclet", "Example", "Data", "Prompt", "Demonstration"}, $docTemplate], "TableNotes", "Text"]
 
 (* a pipe table renders as a styled GridBox with horizontal row dividers, a bold
    header row, and a bit of padding. The grid options are repeated inline so the
@@ -1788,6 +1972,8 @@ buildNotebook["FunctionResource", data_] := resourceNotebook["Function", data]
 buildNotebook["Paclet", data_] := resourceNotebook["Paclet", data]
 buildNotebook["Example", data_] := resourceNotebook["Example", data]
 buildNotebook["Data", data_] := resourceNotebook["Data", data]
+buildNotebook["Prompt", data_] := resourceNotebook["Prompt", data]
+buildNotebook["Demonstration", data_] := resourceNotebook["Demonstration", data]
 buildNotebook["Symbol", data_] := symbolNotebook[data]
 buildNotebook["Guide", data_] := guideNotebook[data]
 buildNotebook["TechNote", data_] := tutorialNotebook[data]
@@ -1858,20 +2044,28 @@ markdownWithImages[blocks_, meta_, target_String] := Block[{dir, base, imgDir, n
     dir = DirectoryName[target]; base = FileBaseName[target];
     imgDir = FileNameJoin[{dir, "images"}];
     Quiet @ CreateDirectory[imgDir, CreateIntermediateDirectories -> True];
-    codeMd[b_] := Block[{fence, imgFile, img},
+    codeMd[b_] := Block[{fence, imgFile, img, msgs, msgBlock, hasOutput},
         (* twin keeps no "#| key: value" cell options - those are notebook-side
            evaluation directives (file, screenshot, tear, eval, flag) that have
            no rendered meaning. The file include is already expanded into
            b["Code"] by resolveIncludes, so the twin shows the actual code. *)
         fence = "```" <> b["Lang"] <> "\n" <> b["Code"] <> "\n```";
-        If[ executableQ[b] && ! MissingQ[b["OutputBoxes"]] && b["OutputBoxes"] =!= Null,
+        (* captured kernel messages render as plain markdown blockquote admonitions
+           (one per message) so a stray Power::infy or Part::partw shows up in the
+           viewer right next to the cell that fired it - the twin had been silent
+           about them, hiding real errors behind a tidy-looking output image. *)
+        msgs = If[KeyExistsQ[b, "Messages"], b["Messages"], {}];
+        msgBlock = If[msgs === {} || MissingQ[msgs], "",
+            "\n\n" <> StringRiffle[DeleteCases[messageMd /@ msgs, ""], "\n\n"]];
+        hasOutput = executableQ[b] && ! MissingQ[b["OutputBoxes"]] && b["OutputBoxes"] =!= Null;
+        If[ hasOutput,
             n += 1; imgFile = base <> "-" <> ToString[n] <> ".png";
             img = UsingFrontEnd @ Rasterize[
                 Notebook[{Cell[BoxData[b["OutputBoxes"]], "Output", Sequence @@ extraOutputOpts[b]]}, LightDark -> $lightDark, StyleDefinitions -> "Default.nb"],
                 ImageResolution -> 96];
             writeImageIfChanged[FileNameJoin[{imgDir, imgFile}], img];
-            fence <> "\n\n![output](images/" <> imgFile <> ")",
-            fence
+            fence <> msgBlock <> "\n\n![output](images/" <> imgFile <> ")",
+            fence <> msgBlock
         ]
     ];
     mdOf[b_] := Switch[b["Type"],
@@ -1915,7 +2109,7 @@ exampleCacheSet[h_Integer, v_] := (PersistentSymbol[exampleCacheName[h], $cacheL
      MarkdownToNotebook[source, file]          -> write the notebook to file, return it
    ("Notebook"/"Association" are reserved; a ".md" target writes markdown; any other
    string is a notebook file path.) The layout comes from the Template frontmatter. *)
-Options[MarkdownToNotebook] = {"Evaluate" -> True}
+Options[MarkdownToNotebook] = {"Evaluate" -> True, "PreserveSource" -> False}
 
 (* spec is an *optional* second argument (default Automatic). Do not split this
    into a separate 1-argument form that forwards to the 3-argument one: an empty
@@ -1935,6 +2129,7 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
        Block initializer mis-binds (it reads "func" as the option name and errors
        OptionValue::optnf, leaving evalExamples False so nothing is ever evaluated). *)
     evalExamples = TrueQ[Lookup[Flatten[{opts}], "Evaluate", True]],
+    preserveSource = TrueQ[Lookup[Flatten[{opts}], "PreserveSource", False]],
     src, text, parsed, meta, blocks, sections, tmplName, defCode, ctx, ctxPath,
     orderedCode, hashes, cached, allHit, outputs, data, filled
 },
@@ -1979,6 +2174,13 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
     defCode = StringRiffle[#["Code"] & /@ sectionCells[sections, "definition"], "\n\n"];
     data = <|"meta" -> meta, "blocks" -> blocks, "sections" -> sections, "defCode" -> defCode|>;
     filled = withCreateCellID @ applyDocFlag[buildNotebook[tmplName, data], Lookup[meta, "Flag", ""]];
+    (* "PreserveSource" -> True (default): stash the source markdown in
+       TaggingRules so NotebookToMarkdown can recover the original verbatim -
+       the notebook becomes self-contained (the rendered view + the source it
+       came from in one file), and the inverse uses the stash for perfect
+       round-trip on every MTN-built notebook. Pass "PreserveSource" -> False
+       to suppress the stash for a stricter, source-less artifact. *)
+    If[preserveSource, filled = withMarkdownSource[filled, text, tmplName]];
 
     Which[
         spec === Automatic || spec === "Notebook", filled,

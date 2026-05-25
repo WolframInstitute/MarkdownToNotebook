@@ -20,10 +20,17 @@ definition notebook, so it publishes itself.
 
 ## Definition
 
-The implementation lives in a separate `.wl` file so it has full IDE and lint
-support. The cell below inlines it at conversion time via the `file` option, a
-general mechanism: any code cell with `#| file: path` is replaced by the
-contents of that local file or URL, resolved relative to this document.
+The implementation lives across three plain `.wl` files - a tiny shared module
+that defines the stash protocol used by both this function and its inverse
+([NotebookToMarkdown](https://github.com/sw1sh/MarkdownToNotebook/blob/main/NotebookToMarkdown.md)),
+and the main forward converter. Each cell below inlines one file at conversion
+time via the `file` option, a general mechanism: any code cell with `#| file: path`
+is replaced by the contents of that local file or URL, resolved relative to
+this document. The deployed resource therefore carries both files inline.
+
+```wl
+#| file: MarkdownTools.wl
+```
 
 ```wl
 #| file: MarkdownToNotebook.wl
@@ -36,11 +43,12 @@ contents of that local file or URL, resolved relative to this document.
 - `FunctionResource` fills the official `FunctionResourceDefinition.nb` template (keeping its docked Deploy/Submit toolbar); `Symbol` and `Guide` fill the DocumentationTools authoring templates; `Default` maps headings and code to standard notebook styles.
 - The *frontmatter* is a YAML-style `key: value` header fenced by `---` lines at the very top of the document - the [front matter](https://jekyllrb.com/docs/front-matter/) convention static-site generators use - carrying the resource metadata. Its keys mirror the chosen template's slots (`Name`, `Description`, `Keywords`, `Categories`, `ContributedBy`, `SeeAlso`, `Links`, ...), so the author fills metadata, never cell styles.
 - The optional second argument selects the result: omitted (or `"Notebook"`) returns the [Notebook](), `"Association"` returns the parsed structure, a `.nb` file name writes the notebook, and a `.md` file name writes a *markdown twin* - the same document with every evaluated output rasterized to an image beside it.
-- The function takes one option:
+- The function takes two options:
 
 | Option | Default | |
 |---|---|---|
 | `"Evaluate"` | `True` | evaluate the example cells and keep their output; `False` leaves them as input only, which a self-referential document passes to convert its own source without re-running its own examples |
+| `"PreserveSource"` | `False` | with `True`, stash the original markdown source in `TaggingRules` so [NotebookToMarkdown]() recovers it verbatim (the notebook becomes self-contained: rendered view + source it came from); default is `False` so the notebook is a strictly-rendered artifact and the inverse falls back to its cell walker |
 
 - A `Flag` frontmatter key flags the whole document and a code cell's `#| flag:` option flags that cell, with one of the documentation build's flags - `Future`, `Excised`, `Obsolete`, `Temporary`, `Preview`, or `Internal` - the front end's Futurize / Excise toolbar buttons, written as the build's banner cell.
 - Evaluated example outputs are cached as a [PersistentSymbol]() per cell at the `"Local"` [PersistenceLocation](), keyed by a cumulative hash of the preceding cells, so re-runs reuse them across sessions.
@@ -78,11 +86,11 @@ MarkdownToNotebook["# Title\n\nA paragraph.\n\n## Section\n\nMore text."]
 
 ---
 
-A whole notebook has no faithful inline form, so to show the produced notebook rendered in the documentation, add `#| screenshot: true` to the example cell - it rasterizes the notebook to an image (pair with `#| tear: true` for a torn-paper screenshot):
+A whole notebook has no faithful inline form, so to show the produced notebook rendered in the documentation, the cell whose output is the notebook carries the `#| screenshot: true` option - which rasterizes the notebook to an image - and pairs it with `#| tear: N` to crop the image to the top `N` points with a torn-paper edge. Here both options sit *inside the markdown source* on a cell whose output is a literal [Notebook]() expression, so the syntax is visible alongside the rendered effect:
 
 ```wl
 #| screenshot: true
-MarkdownToNotebook["# Title\n\nA paragraph.\n\n## Section\n\nMore text."]
+MarkdownToNotebook["## Headline\n\n```wl\n#| screenshot: true\n#| tear: 100\nNotebook[{Cell[\"Hi\", \"Title\"], Cell[\"A paragraph.\", \"Text\"]}]\n```"]
 ```
 
 ---
@@ -168,11 +176,11 @@ MarkdownToNotebook["> A quoted remark,\n> carried across two lines."]
 
 ### Evaluated code cells
 
-A fenced `wl` cell is evaluated and its output kept (then cached); a cell may carry options such as `#| eval: false` to show code without running it:
+A fenced `wl` cell is evaluated and its output kept (then cached); a cell may carry options as `#| key: value` comment lines at the top - `#| eval: false` shows the code without running it, `#| screenshot: true` rasterizes a produced `Notebook` to an inline image, `#| tear: h` adds the torn-paper screenshot edge, `#| flag: ...` marks the cell with a build flag, `#| file: path` replaces the body with the contents of a local file or URL. Two cells - one evaluated, one held - put the option syntax visibly in the markdown source:
 
 ```wl
 #| screenshot: true
-MarkdownToNotebook["```wl\nRange[5]^2\n```"]
+MarkdownToNotebook["## Evaluated\n\n```wl\nRange[5]^2\n```\n\n## Held\n\n```wl\n#| eval: false\nRange[5]^2\n```"]
 ```
 
 ### Inlining a file
@@ -210,10 +218,23 @@ Module[{dir = CreateDirectory[]}, MarkdownToNotebook["## Squares\n\n```wl\nRange
 
 ### Flagging a document or cell
 
-The documentation build's *flags* - the front end's Futurize / Excise toolbar buttons - mark a page or cell as `Future`, `Excised`, `Obsolete`, `Temporary`, `Preview`, or `Internal`. A `Flag` frontmatter key flags the whole document; a code cell's `#| flag:` option flags that one cell. Each becomes the build's banner cell, here pulled back out of a flagged document:
+The documentation build's *flags* - the front end's Futurize / Excise toolbar buttons - mark a page or cell as `Future`, `Excised`, `Obsolete`, `Temporary`, `Preview`, or `Internal`. A `Flag` frontmatter key flags the whole document; a code cell's `#| flag:` option flags that one cell. Each becomes the build's banner cell at the top of the page. Here the same `#| flag:` option syntax used by the converter is visible inside the markdown source, applied to one cell of a tiny demo:
 
 ```wl
-Cases[MarkdownToNotebook["---\nFlag: Future\n---\n# Demo\n\ntext"], Cell[_, style_String /; StringEndsQ[style, "Flag"], ___], Infinity]
+MarkdownToNotebook["## Demo\n\n```wl\n#| flag: future\nRange[5]^2\n```", "Association"]["Notebook"]
+```
+
+---
+
+A paclet Symbol page with `Flag: Future` added to its frontmatter renders with the giant pink "FUTURE" banner the front end shows for unreleased pages:
+
+```wl
+#| screenshot: true
+#| tear: 200
+MarkdownToNotebook[StringReplace[
+    Import["https://raw.githubusercontent.com/sw1sh/AccessibleColors/main/docs/Symbols/WCAGContrastRatio.md", "Text"],
+    "---\nTemplate: Symbol" -> "---\nFlag: Future\nTemplate: Symbol"
+]]
 ```
 
 ## Options
@@ -234,6 +255,22 @@ MarkdownToNotebook["## Squares\n\n```wl\nRange[5]^2\n```"]
 ```wl
 #| screenshot: true
 MarkdownToNotebook["## Squares\n\n```wl\nRange[5]^2\n```", "Evaluate" -> False]
+```
+
+### PreserveSource
+
+By default the produced notebook is a strictly-rendered artifact - the `TaggingRules` it carries hold only the resource template's own metadata. The inverse, [NotebookToMarkdown](), falls back to its cell walker to reconstruct markdown from the rendered cells:
+
+```wl
+FreeQ[MarkdownToNotebook["## Demo\n\nA paragraph."], "MarkdownToNotebook" -> _]
+```
+
+---
+
+Pass `"PreserveSource" -> True` to stash the original markdown source under `TaggingRules -> {..., "MarkdownToNotebook" -> <|"Source" -> ..., "Template" -> ...|>}`. The notebook then becomes self-contained (rendered view + the source it came from in one file), and the inverse recovers the source verbatim for an exact round trip:
+
+```wl
+First[Cases[MarkdownToNotebook["## Demo\n\nA paragraph.", "PreserveSource" -> True], ("MarkdownToNotebook" -> v_) :> v, Infinity], <||>]
 ```
 
 ## Applications
@@ -270,6 +307,16 @@ The `Example` template fills the [Example Repository](https://resources.wolframc
 MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/PrimeSpiralPoints.md"]
 ```
 
+---
+
+The [Discrete-Time Quantum Walk](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/QuantumWalk.md) sample is a longer Example doc: it derives the Hadamard-coin walk, plots the two-horned interference distribution against the classical Gaussian, and bundles the simulator as a `"Step"` content function; deployed [here](https://www.wolframcloud.com/obj/nikm/DeployedResources/Example/Discrete-TimeQuantumWalkonaLine):
+
+```wl
+#| screenshot: true
+#| tear: 200
+MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/QuantumWalk.md"]
+```
+
 ### Data
 
 The `Data` template fills the [Data Repository](https://resources.wolframcloud.com/DataRepository/) definition notebook. The [Seventeen Wallpaper Groups](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/WallpaperGroups.md) sample bundles the classification table, the point-group and lattice columns, and a worked Euler-characteristic check; deployed [here](https://www.wolframcloud.com/obj/nikm/DeployedResources/Data/SeventeenWallpaperGroups):
@@ -278,6 +325,26 @@ The `Data` template fills the [Data Repository](https://resources.wolframcloud.c
 #| screenshot: true
 #| tear: 200
 MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/WallpaperGroups.md"]
+```
+
+### Prompt
+
+The `Prompt` template fills the [Prompt Repository](https://resources.wolframcloud.com/PromptRepository/) definition notebook for one of three resource types - `Persona`, `Function`, or `Modifier`. The [`AdaLovelace`](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/AdaLovelace.md) sample is a Persona prompt whose `## Prompt` section is the system message and whose `## Chat Examples` and `## Basic Examples` invoke the persona through [LLMSynthesize]() and [ChatEvaluate](); deployed [here](https://www.wolframcloud.com/obj/nikm/DeployedResources/Prompt/AdaLovelace):
+
+```wl
+#| screenshot: true
+#| tear: 200
+MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/AdaLovelace.md"]
+```
+
+### Demonstration
+
+The `Demonstration` template fills the [Demonstrations Project](https://demonstrations.wolfram.com/) authoring notebook, complete with its docked HELP / SAVE / UPDATE THUMBNAIL AND SNAPSHOTS / TEST IMAGE SIZE / UPLOAD toolbar. The [Bloch Sphere with a Quantum Gate Sequence](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/BlochSphereGates.md) sample uses one `## Caption` paragraph, the `## Initialization` definitions (the gate matrices and the Bloch projection), a single `## Manipulate` cell, and three `## Snapshots` panels - the structure the Demonstrations review requires:
+
+```wl
+#| screenshot: true
+#| tear: 200
+MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/BlochSphereGates.md"]
 ```
 
 ## Properties and Relations
@@ -300,10 +367,80 @@ MarkdownToNotebook["nonexistent.md", "Association"]["Sections"]
 
 ## Neat Examples
 
-Convert the [`ReverseAddSequence`](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/ReverseAddSequence.md) sample - a one-line Function Repository submission whose entire definition, usage, examples, and metadata sit in a 90-line markdown file - and open the produced notebook to see the docked Deploy / Submit toolbar a hand-authored definition notebook would have, ready to publish without further editing:
+The neatest example is this very document: running the function on its own GitHub source produces the notebook itself, the one you are reading (its `## Definition` even inlines `MarkdownToNotebook.wl` from the same GitHub directory, so the one URL is self-contained). The example converts its own source, so it passes `"Evaluate" -> False` to leave that copy's example cells unevaluated rather than re-run this very example without end:
 
 ```wl
-NotebookPut[MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/ReverseAddSequence.md"]]
+NotebookPut[MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/MarkdownToNotebook.md", "Evaluate" -> False]]
 ```
 
-This very document is itself such a literate source - its `## Definition` inlines `MarkdownToNotebook.wl` and its frontmatter is the resource metadata - so the function also publishes itself end to end.
+Because this very document is itself such a literate source - its `## Definition` inlines `MarkdownToNotebook.wl` and its frontmatter is the resource metadata - running the function on it reproduces this definition notebook, so the function publishes itself.
+
+## Tests
+
+Each `wl` cell in this section is an explicit `VerificationTest[code, expected, TestID -> ...]` expression that becomes one Input cell in the resource's `VerificationTests` slot (the docked *Run Tests* button evaluates them). These are the regressions the converter has hit; `tests.wls` in the repo runs the same cells out-of-band by parsing this section, so the in-notebook button and the CI script run the same assertions from a single source.
+
+Basic conversion returns a `Notebook` expression:
+
+```wl
+VerificationTest[
+    Head @ MarkdownToNotebook["# Hi\n\nA paragraph."],
+    Notebook,
+    TestID -> "basic conversion returns a Notebook"
+]
+```
+
+A `<code>[Symbol]()</code>` reference in a Usage signature carries a paclet link on the head (regression: the link silently disappeared when the `<code>` rule was rewritten to wrap the whole span in one `InlineFormula` instead of recursing on the inside):
+
+```wl
+VerificationTest[
+    ! FreeQ[
+        MarkdownToNotebook["---\nTemplate: Symbol\nName: Range\nContext: System`\nPaclet: System\nURI: System/ref/Range\n---\n\n## Usage\n\n<code>[Range]()[$n$]</code> gives a list."],
+        ButtonBox["Range", BaseStyle -> "Link", ___]
+    ],
+    True,
+    TestID -> "<code>[Symbol]()...</code> in Usage carries a paclet link on the head"
+]
+```
+
+A bullet list with indented continuation lines folds each continuation into the preceding item, so a three-bullet list with two-line continuations is three items, not six (regression: the list parser used to break at the continuation, producing alternating one-item lists and stray paragraphs):
+
+```wl
+VerificationTest[
+    Length @ Cases[
+        MarkdownToNotebook["## Demo\n\n- First bullet\n  that wraps.\n- Second bullet\n  also wraps.\n- Third bullet."],
+        Cell[_, "Notes" | "Item" | "Bullet", ___],
+        Infinity
+    ],
+    3,
+    TestID -> "multi-line bullets fold into single items (3, not 6)"
+]
+```
+
+The `"PreserveSource"` option defaults to `False`, so a notebook the converter writes does *not* carry the source in its `TaggingRules`:
+
+```wl
+VerificationTest[
+    FreeQ[MarkdownToNotebook["# Hi"], "MarkdownToNotebook" -> _],
+    True,
+    TestID -> "\"PreserveSource\" defaults to False - no stash in TaggingRules"
+]
+```
+
+With `"PreserveSource" -> True`, the source is stashed under the `"MarkdownToNotebook"` tagging key and the inverse round-trips it byte-exactly:
+
+```wl
+VerificationTest[
+    With[{src = "## Demo\n\nA paragraph.\n"},
+        First[
+            Cases[
+                MarkdownToNotebook[src, "PreserveSource" -> True],
+                ("MarkdownToNotebook" -> v_) :> v,
+                Infinity
+            ],
+            <||>
+        ]["Source"] === src
+    ],
+    True,
+    TestID -> "\"PreserveSource\" -> True stashes the source under \"MarkdownToNotebook\""
+]
+```

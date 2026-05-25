@@ -174,6 +174,82 @@ as `Input`/`Output`). The Example resource's category labels differ from the Fun
 ones (e.g. `Visualization & Graphics`, `Puzzles and Recreation`, `Machine Learning`);
 set `Categories` to one or more of them - an empty grid is a submission hint.
 
+## Prompt (Wolfram Prompt Repository)
+
+Same mechanism with `DefinitionTemplate["Prompt"]`. A Prompt resource is one of
+three types (`Persona`, `Function`, `Modifier`); the layout below is the same
+for all three, with each type using a different subset of the optional slots.
+
+| Markdown | Prompt slot | Notebook |
+|---|---|---|
+| `Name` | `Name` | title (noun for Persona, verb for Function, past-tense verb for Modifier) |
+| `Description` | `Description` | one-line description |
+| `PromptType` (`Persona` / `Function` / `Modifier`) | drives Categories list | one of the type-specific category sets |
+| `## Prompt` (plain prose) | `PromptTemplate` | the actual prompt body; `` `{arg}` `` becomes a `TemplateSlot` for Function prompts |
+| `## Persona Icon` (one `wl` cell) | `PersonaIcon` | avatar shown in Chat Notebooks |
+| `## Cell Processing Function` (one `wl` cell) | `CellProcessingFunction` | applied to each user input cell before the model sees it |
+| `## Cell Post Evaluation Function` (one `wl` cell) | `CellPostEvaluationFunction` | applied to each model output cell |
+| `## Output Interpreter` (one `wl` cell) | `PromptInterpreter` | function applied to the model's reply (Function prompts only) |
+| `## Usage` (prose paragraphs) | `Usage` | usage statements |
+| `## Details & Options` (notes) | `Notes` | details and options |
+| `## LLM Tools` (one `wl` cell) | `Tools` | `LLMTool[...]` list |
+| `## LLM Configuration` (one `wl` cell) | `LLMConfigurationExtra` | extra `LLMConfiguration` options |
+| `## Chat Examples` (multiple `wl` cells) | `SampleChat` | chat-style example invocations |
+| `## Basic Examples`, `## Scope`, ... | `Examples` | the standard example sections |
+| `Categories` (`[list]`; type-specific names) | `Categories` | category checkbox grid (`ResourceType -> "Prompt"`) |
+| `Keywords` | `Keywords` | metadata |
+| `Topics` (`[list]`) | `Topics` | topic items |
+| `RelatedSymbols` (`[list]`) | `Related Symbols` | related symbol items |
+| `RelatedResources` (`[list]`) | `Related Resource Objects` | related prompt items |
+| `Sources` (`[list]`) | `Source/Reference Citation` | source / reference items |
+| `Links` (labeled `[text](url)`) | `Links` | related links |
+| `ContributedBy` | `ContributorInformation` | contributor |
+
+The optional Chat-Related Features (Persona Icon, Cell Processing Function, Cell
+Post Evaluation Function) and Programmatic Features (Output Interpreter) are
+sections from which only the *first* code block is pulled into the corresponding
+slot; the rest of the section is ignored, so a section without a code block
+leaves the slot at its default. Persona prompts typically fill the Chat-Related
+slots and leave Output Interpreter empty; Function prompts do the opposite;
+Modifier prompts usually leave both empty and only fill the `## Prompt` body and
+the example sections.
+
+Examples that load the deployed resource (`LLMPrompt["MyPrompt"]`) cannot
+evaluate before publication, so write them against
+`LLMPrompt[ResourceObject[EvaluationNotebook[]]]` - the resource as it stands in
+the editing session - and the cell will work locally before deploy and keep
+working after.
+
+## Demonstration (Wolfram Demonstrations Project)
+
+Same mechanism with `DefinitionTemplate["Demonstration"]`. A Demonstration is
+built around exactly one `Manipulate[...]`; the markdown maps as:
+
+| Markdown | Demonstration slot | Notebook |
+|---|---|---|
+| `Name` | `Name` | Title Case title; URL slug is derived from it |
+| `## Caption` (3-5 sentence prose) | `CaptionCells` | the page caption shown under the thumbnail |
+| `## Initialization` (one `wl` cell) | `InitializationCode` | helper definitions; pair with `SaveDefinitions -> True` on the Manipulate |
+| `## Manipulate` (one `wl` cell) | `ManipulateGroup` | the Manipulate Input cell + its evaluated panel Output |
+| `## Snapshots` (3+ `wl` cells) | `SnapshotGroup` | the required snapshots (one per cell) |
+| `## Details` (prose) | `DetailCells` | extended description, formulas, snapshot captions |
+| `## References` (prose, numbered items) | `ReferenceCells` | numbered references |
+| `AuthorNames` (or `ContributedBy`) | `AuthorNames` | contributor line |
+| `Keywords` | `Keywords` | metadata |
+| `Categories` (`[list]`; Topics taxonomy) | `Categories` | category checkbox grid (`ResourceType -> "Demonstration"`) |
+| `RelatedDemonstrations` (`[list]`) | `RelatedDemonstrations` | linked related Demos |
+| `Links` (labeled `[text](url)`) | `ExternalLinks` | related links |
+| `SubmissionNotes` | `SubmissionNotes` | private note for the reviewer |
+| `ARSupport` (true/false) | `CompatibilityARSupport` | AR support checkbox |
+
+The `## Manipulate` slot uniquely needs the **evaluated** output of the
+Manipulate (the live panel) below its Input cell, so the conversion uses the
+same example-evaluation pass the other templates do and inlines the cached
+output as the cell's Output. The `## Snapshots` slot is filled by one Input cell
+per `wl` block in the section; the Demonstrations Project rules require at least
+three. Both `## Initialization` and `## Manipulate` should be a single `wl` cell
+each (only the first is used).
+
 ## Self-hosting
 
 A document whose frontmatter is `Template: FunctionResource`, whose `## Definition`

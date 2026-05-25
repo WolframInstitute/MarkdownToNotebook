@@ -1,0 +1,119 @@
+(* NotebookToMarkdown - the inverse of MarkdownToNotebook. Given a notebook
+   (expression / NotebookObject / .nb file path), recover the markdown source
+   that produced it.
+
+   Two paths:
+     1. Stash path - any notebook MarkdownToNotebook itself wrote carries the
+        original markdown source in TaggingRules under "MarkdownToNotebook";
+        we read it back verbatim. Round-trip is exact for every MTN-built
+        notebook (verified against every literate sample in the repo).
+     2. Walker path - for arbitrary notebooks (no stash), walk the cells and
+        emit markdown best-effort, recognising the standard cell styles
+        MarkdownToNotebook itself emits (Title / Section / .../ Text / Notes /
+        Item / Input / Code / etc.) plus their inline TextData formatting.
+
+   Deliberately plain top-level definitions (no BeginPackage), the same shape
+   as the forward converter, so a resource notebook can inline this file with a
+   "#| file: NotebookToMarkdown.wl" cell and have it work on Get. *)
+
+(* Pull the stash protocol in. Quiet'd so a deployed resource notebook (which
+   inlines MarkdownTools.wl as a separate "## Definition" cell that runs first)
+   does not fire Get::noopen when there is no file on disk to load. *)
+Quiet @ Get[FileNameJoin[{Directory[], "MarkdownTools.wl"}]]
+
+(* === inline TextData -> markdown text ===
+   Patterns mirror the forward parser's inlineTextData output so a round trip
+   preserves formatting choices. *)
+inlineMd[s_String] := s
+inlineMd[StyleBox[s_String, opts___]] := With[{styles = {opts}},
+    Which[
+        MemberQ[styles, "TI"] || MemberQ[styles, FontSlant -> "Italic"], "*" <> s <> "*",
+        MemberQ[styles, "TB"] || MemberQ[styles, FontWeight -> "Bold"], "**" <> s <> "**",
+        True, s
+    ]
+]
+(* paclet-link button -> [Name]() (the inferred form the forward parser knows). *)
+inlineMd[ButtonBox[name_String, BaseStyle -> "Link", ButtonData -> uri_String, ___]] :=
+    "[" <> name <> "](" <> If[StringStartsQ[uri, "paclet:"], "", uri] <> ")"
+(* hyperlink button -> [text](url). *)
+inlineMd[ButtonBox[name_String, BaseStyle -> "Hyperlink", ButtonData -> {URL[u_String], ___}, ___]] :=
+    "[" <> name <> "](" <> u <> ")"
+inlineMd[Cell[BoxData[b_], "InlineFormula", ___]] := With[{md = inlineMd[b]},
+    Which[
+        StringMatchQ[md, "[" ~~ ___ ~~ "](" ~~ ___ ~~ ")"], "<code>" <> md <> "</code>",
+        True, "`" <> md <> "`"
+    ]
+]
+inlineMd[FractionBox[a_, b_]] := "$" <> inlineMd[a] <> "/" <> inlineMd[b] <> "$"
+inlineMd[SubscriptBox[a_, b_]] := "$" <> inlineMd[a] <> "_" <> inlineMd[b] <> "$"
+inlineMd[SuperscriptBox[a_, b_]] := "$" <> inlineMd[a] <> "^" <> inlineMd[b] <> "$"
+inlineMd[RowBox[xs_List]] := StringJoin[inlineMd /@ xs]
+inlineMd[TextData[xs_List]] := StringJoin[inlineMd /@ xs]
+inlineMd[TextData[x_]] := inlineMd[x]
+inlineMd[other_] := ToString[other, InputForm]
+
+(* TextData / String / Cell content -> a plain text string (recovers prose). *)
+cellText[Cell[content_, ___]] := cellText[content]
+cellText[s_String] := s
+cellText[TextData[xs_]] := If[ListQ[xs], StringJoin[inlineMd /@ xs], inlineMd[xs]]
+cellText[BoxData[b_]] := boxToCode[b]
+cellText[other_] := ToString[other, InputForm]
+
+(* Box-form WL code -> source string. ToString[..., InputForm] does the right
+   thing for almost every code cell, and the rare InterpretationBox wraps just
+   need to be stripped to the original surface form. *)
+boxToCode[b_] := Block[{cleaned = b /. InterpretationBox[a_, ___] :> a},
+    Replace[cleaned, {
+        s_String :> s,
+        _ :> StringTrim[ToString[ToExpression[ToBoxes[cleaned], StandardForm, HoldForm], InputForm] /. HoldForm[x_] :> ToString[Unevaluated[x], InputForm]]
+    }]
+]
+
+(* a single Cell -> one markdown block (or "" if it should be skipped). *)
+cellMd[Cell[_, "Output", ___]] := ""
+cellMd[Cell[_, "Message", ___]] := ""
+cellMd[Cell[_, "MSG", ___]] := ""
+cellMd[Cell[_, "ExampleInitialization", ___]] := ""
+cellMd[Cell[content_, style_String, opts___]] := Block[{txt = cellText[Cell[content, style, opts]]},
+    Switch[style,
+        "Title",        "# " <> txt,
+        "Section",      "## " <> txt,
+        "Subsection",   "### " <> txt,
+        "Subsubsection","#### " <> txt,
+        "Text" | "Notes" | "Caption" | "Quote",  txt,
+        "ItemNumbered" | "ItemNumbered1", "1. " <> txt,
+        "Item" | "Item1" | "Item2" | "Notes" | "Bullet",  "- " <> txt,
+        "Code" | "Input" | "ExampleInput", "```wl\n" <> txt <> "\n```",
+        "InlineFormula", "`" <> txt <> "`",
+        _, txt
+    ]
+]
+cellMd[Cell[CellGroupData[cells_List, ___]]] := StringRiffle[DeleteCases[cellMd /@ cells, ""], "\n\n"]
+cellMd[other_] := ""
+
+(* === public entry === *)
+
+NotebookToMarkdown[Notebook[cells_List, opts___]] := Block[{stash, body},
+    (* stash-first: a notebook MarkdownToNotebook produced carries the source
+       it came from in its TaggingRules; return it verbatim - the round-trip
+       is then exact, both metadata and body. *)
+    stash = markdownSourceOf[Notebook[cells, opts]];
+    If[ AssociationQ[stash] && KeyExistsQ[stash, "Source"],
+        Return[stash["Source"]]
+    ];
+    (* fallback: walk the cells and emit markdown best-effort. Works on the
+       standard cell styles MTN itself produces. The result re-parses through
+       the forward path to a similar, but not necessarily byte-identical,
+       notebook (no frontmatter is recovered, no resource template restoration). *)
+    body = StringRiffle[DeleteCases[cellMd /@ cells, ""], "\n\n"];
+    body <> "\n"
+]
+NotebookToMarkdown[nbo_NotebookObject] := NotebookToMarkdown[NotebookGet[nbo]]
+NotebookToMarkdown[file_String /; FileExistsQ[file] && StringEndsQ[ToLowerCase[file], ".nb"]] :=
+    NotebookToMarkdown[Get[file]]
+NotebookToMarkdown[source_, "String"] := NotebookToMarkdown[source]
+NotebookToMarkdown[source_, target_String /; StringEndsQ[ToLowerCase[target], ".md"]] := Block[
+    {md = NotebookToMarkdown[source]},
+    Export[target, md, "Text"];
+    target
+]
