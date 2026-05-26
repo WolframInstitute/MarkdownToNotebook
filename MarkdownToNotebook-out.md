@@ -412,8 +412,13 @@ sectionCells[sections_, key_] := Cases[Lookup[sections, key, {}], b_ /; executab
 
 sectionCode[sections_, key_] := StringRiffle[#["Code"] & /@ sectionCells[sections, key], "\n\n"]
 
+(* Concatenate the prose paragraphs of a section, preserving any inline
+   markdown (backticks / bold / italic / links / math) - downstream renderers
+   route the result through inlineTextData so they handle the markup; the
+   legacy backtick-stripping done here used to defend a plain-string cell
+   path that no longer exists. *)
 sectionText[sections_, key_] := StringRiffle[
-    Cases[Lookup[sections, key, {}], b_ /; b["Type"] === "Prose" :> StringReplace[b["Text"], "`" -> ""]],
+    Cases[Lookup[sections, key, {}], b_ /; b["Type"] === "Prose" :> b["Text"]],
     " "
 ]
 
@@ -1340,9 +1345,16 @@ $docResourceDir := FileNameJoin[{$InstallationDirectory, "AddOns", "Applications
 
 docTemplate[file_String] := Get[FileNameJoin[{$docResourceDir, file}]]
 
+(* Doc-page placeholder cells (ObjectName / GuideTitle / GuideAbstract / Title)
+   hold prose that can carry the same inline markup other prose does -
+   backticks, bold / italic / strike, math, links. headingText runs the value
+   through inlineTextData and wraps the result as TextData (or keeps the bare
+   string when nothing matched), so a "## Abstract" paragraph with
+   "[Accessibility](paclet:guide/Accessibility)" or "`ColorConvert`" renders
+   the link / code span instead of dumping the literal markdown into the cell. *)
 fillDocString[nb_, style_String, value_String] := If[ value === "",
     nb,
-    nb /. Cell["XXXX", style, o___] :> Cell[value, style, o]
+    nb /. Cell["XXXX", style, o___] :> Cell[headingText[value], style, o]
 ]
 
 (* replace the placeholder cells of a style with one cell per item (first match
@@ -1495,14 +1507,22 @@ symbolInContextQ[name_String, ctx_String] := ctx =!= "" &&
    ResourceFunction["..."]. We strip those so a usage signature reads as code. *)
 stripLinks[boxes_] := boxes //. ButtonBox[content_, ___] :> content
 
-(* prose inline `code`: parse it literally (inputBoxes preserves strings and adds
-   no template italics or links) - never auto-linked. Symbols are linked only when
-   the author asks, via an explicit markdown link with a `code`-wrapped label,
-   e.g. [`WCAGContrastRatio`](paclet:Wolfram/AccessibleColors/ref/WCAGContrastRatio)
-   (handled in linkInline). ParseTextTemplate is reserved for Usage signatures
-   (usagePair), where italic argument styling is wanted; on full code it would
-   even italicize tokens inside string literals ("doc.md" -> "...StyleBox[doc]..."). *)
-codeToInline[code_String] := Cell[BoxData[inputBoxes[code]], "InlineFormula"]
+(* prose inline `code`: if the body is a single known symbol (in $docContext
+   or System`), auto-link it to its ref page - so authors can write `Range` or
+   `WCAGContrastRatio` and get the same clickable code-styled link the
+   explicit "[`Name`](paclet:Pub/Pkg/ref/Name)" form produces, no need to
+   spell the URI by hand. Multi-token bodies ("Range[5]"), names the kernel
+   does not know (a paragraph-locale variable like `x`), and anything that
+   does not look like an identifier pass through as plain InlineFormula -
+   the bare-string fallback inputBoxes builds. *)
+codeToInline[code_String] := Block[{trimmed = StringTrim[code], url},
+    url = If[symbolLikeQ[trimmed] && ! StringContainsQ[trimmed, "`" | "[" | " "],
+        inferURL[trimmed], None];
+    If[ url =!= None,
+        Cell[BoxData[ButtonBox[trimmed, BaseStyle -> "Link", ButtonData -> url]], "InlineFormula"],
+        Cell[BoxData[inputBoxes[code]], "InlineFormula"]
+    ]
+]
 
 (* double-backtick ``code`` -> the palette's "Code (Inline)": a literal,
    non-linkified monospace span (InlineCode), unlike Template Input. *)
