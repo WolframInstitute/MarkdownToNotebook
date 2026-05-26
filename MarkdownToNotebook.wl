@@ -1585,10 +1585,45 @@ matrixDelims[tex_String] := Module[{matches},
     ]
 ]
 
+(* Wrap a GridBox with delimiters that the typesetter auto-stretches to the
+   matrix's full height. The pattern is TagBox[RowBox[{open, \[NoBreak], gb,
+   \[NoBreak], close}], MatrixForm-fn]: this is exactly what MatrixForm[mat] //
+   ToBoxes produces, and the typesetter recognises it and stretches the
+   delimiters in both inline and display contexts.
+
+   The TeX importer's GridBox carries each entry as Cell[TextData[{" ", Cell[v,
+   "InlineFormula"], " "}]] (nested-cell padding); the typesetter only applies
+   the matrix-stretch heuristic when grid cells are bare boxes. unwrapGridCell
+   strips the outer TextData wrappers so each entry is a plain RowBox or
+   atom, and the same GridBoxAlignment / GridBoxSpacings options MatrixForm
+   sets are added so the grid signature matches. *)
+unwrapGridCell[Cell[TextData[parts_List], ___]] :=
+    With[{stripped = DeleteCases[parts, " " | "\[InvisibleSpace]"]},
+        Replace[stripped, {
+            {Cell[c_, "InlineFormula", ___]} :> c,
+            {one_} :> one,
+            many_List :> RowBox[many]
+        }]
+    ]
+unwrapGridCell[Cell[c_, "InlineFormula", ___]] := c
+unwrapGridCell[other_] := other
+
+$matrixGridOpts = Sequence[
+    GridBoxAlignment -> {"Columns" -> {{Center}}, "Rows" -> {{Baseline}}},
+    GridBoxSpacings -> {"Columns" -> {Offset[0.28], {Offset[0.7]}, Offset[0.28]},
+                        "Rows"    -> {Offset[0.2],  {Offset[0.4]}, Offset[0.2]}}
+]
+
+normalizeMatrixGrid[GridBox[rows_List, opts___]] :=
+    GridBox[Map[unwrapGridCell, rows, {2}], $matrixGridOpts]
+
 wrapGridBoxes[boxes_, delims_List] := Module[{i = 0},
     boxes /. gb : GridBox[_, ___] :> With[{n = ++i},
         If[ n <= Length[delims] && delims[[n, 1]] =!= "",
-            RowBox[{delims[[n, 1]], gb, delims[[n, 2]]}],
+            TagBox[
+                RowBox[{delims[[n, 1]], "\[NoBreak]", normalizeMatrixGrid[gb], "\[NoBreak]", delims[[n, 2]]}],
+                Function[BoxForm`e$, MatrixForm[BoxForm`e$]]
+            ],
             gb
         ]
     ]
