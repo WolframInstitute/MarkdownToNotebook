@@ -446,3 +446,16 @@ VerificationTest[
 ]
 ```
 
+A backslash-escaped punctuation character inside `<code>...</code>` is a *markdown* source escape and unescapes before the cell is built - so `<code>\*</code>` lands in the notebook as a literal `*`, not as `\*` (regression: the `<code>` wrapper let markdown formatting through but skipped the backslash-unescape step, leaving the literal backslash in the cell content):
+
+```wl
+VerificationTest[
+    FreeQ[
+        MarkdownToNotebook["A <code>\\*</code> reference."],
+        "\\*"
+    ],
+    True,
+    TestID -> "`<code>\\*</code>` unescapes the markdown `\\*` to a literal `*` in the cell"
+]
+```
+

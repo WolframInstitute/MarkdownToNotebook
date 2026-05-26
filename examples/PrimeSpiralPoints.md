@@ -17,6 +17,7 @@ $(p_n \cos n, p_n \sin n)$ for the first 200 primes $p_n$, fetched with
 [ResourceData]():
 
 ```wl
+#| eval: false
 ResourceData[ResourceObject[EvaluationNotebook[]], "Points"] = Table[{Prime[n] Cos[n], Prime[n] Sin[n]}, {n, 200}];
 ```
 

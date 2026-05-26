@@ -496,6 +496,7 @@ messageMd[_] := ""
    in Charting, or hit General::stop). Redirecting the print stream is the
    *one* mechanism that respects all of those: whatever the kernel decides
    to actually print, we capture verbatim. *)
+
 captureMessages[expr_] := Module[{tmp, stream, res, txt, msgs},
     tmp = FileNameJoin[{$TemporaryDirectory,
         "mtnb-msg-" <> IntegerString[$KernelID, 36] <> "-" <>
@@ -522,17 +523,37 @@ accumEval[state_, b_] := Block[{code = state["code"] <> mdSep <> b["Code"], res,
       "out" -> Append[state["out"], Hash[code] -> <|"out" -> outputBoxes[res, b["Options"]], "msgs" -> msgs|>]|>
 ]
 
-(* Pre-load the paclets on the context path so their auto-load chatter
-   (General::newsym for each interned symbol, ::shdw for cross-context shadowing,
-   Pattern::patv from package-private code) fires here, OUTSIDE the per-cell
-   capture scope. Without this, the first cell that references a paclet symbol
-   ends up "owning" hundreds of bookkeeping messages that have nothing to do
-   with what the user wrote - the FE never shows them either, since by the time
-   the user clicks Run the paclet is already loaded. Silence anything that
-   leaks during the load itself via Quiet - if the paclet genuinely fails to
-   load, the first cell that uses it will surface a real error. *)
-preloadContextPath[ctxPath_List] :=
-    Quiet @ Scan[Quiet @ Check[Needs[#], Null] &, Select[ctxPath, # =!= "System`" &]]
+(* Pre-load every package whose first use during evaluation would otherwise
+   fire setup-time chatter (General::newsym for each interned symbol, ::shdw
+   for cross-context shadowing, Pattern::patv from package-private code) -
+   that chatter then fires HERE, outside the per-cell capture scope, where
+   Quiet swallows it. Without preloading, the first cell that touches such a
+   package "owns" hundreds of bookkeeping messages that have nothing to do
+   with what the cell's author wrote, and the FE doesn't show them either
+   (by the time the user clicks Run the package is already loaded).
+
+   The list spans:
+     - $framePackages: the resource framework Wolfram lazy-loads on first
+       use of ResourceObject[EvaluationNotebook[]] /
+       DefinitionNotebookClient`Check... / DocumentationBuild. The pair
+       ResourceSystemClient`DefinitionNotebook` and DefinitionNotebookClient`
+       defines dozens of overlapping symbol names and triggers a flood of
+       ::shdw warnings unless both are loaded together up front.
+     - the document's own context path (so a resource that depends on a
+       paclet has the paclet ready when an example calls it).
+
+   A genuine load failure for any of these is benign here - we just don't
+   pre-load it, and the first cell that actually uses it surfaces the real
+   error in context. *)
+$framePackages = {
+    "ResourceSystemClient`",
+    "DefinitionNotebookClient`",
+    "DocumentationTools`"
+}
+preloadContextPath[ctxPath_List] := Quiet @ Scan[
+    Quiet @ Check[Needs[#], Null] &,
+    DeleteDuplicates @ Select[Join[$framePackages, ctxPath], # =!= "System`" &]
+]
 
 (* a front end is active for the whole pass so an example may open the notebook it
    produces (NotebookPut) and have its thumbnail captured (see outputBoxes). *)
@@ -1363,8 +1384,17 @@ templateBox[code_String] := Block[{boxes, prepped = mdToTemplateSubs[StringTrim[
    (in $docContext or System`); ParseTextTemplate by itself does not link a
    page's own symbol, but a "<code>[Self]()</code>" reference should still
    render as a tappable link to the symbol's own ref page. *)
-codeInlineCell[inner_String] := Block[{sig, head, url, boxes},
-    sig = mathArgsToTemplate @ unwrapMarkdownSig @ inner;
+codeInlineCell[inner_String] := Block[{sig, head, url, boxes, unescaped},
+    (* "<code>...</code>" content lets markdown formatting through (links,
+       italics, math), so backslash-punctuation escapes inside it are markdown
+       source escapes and unescape before any further processing - same rule
+       inlineTextData applies to prose. Without this, an authored "\*" inside
+       <code> would land in the .nb as literal "\*" instead of "*", which a
+       markdown viewer renders as just "*" but the notebook would show the
+       backslash. Backticked spans skip this because backticks freeze content
+       by design - "\*" in `` `code` `` is meant to be literal. *)
+    unescaped = StringReplace[inner, "\\" ~~ c : PunctuationCharacter :> c];
+    sig = mathArgsToTemplate @ unwrapMarkdownSig @ unescaped;
     head = First[StringCases[sig,
         StartOfString ~~ h : ((LetterCharacter | "$") ~~ (WordCharacter | "$" | "`") ...) :> h, 1], ""];
     url = If[head =!= "", inferURL[head], None];
@@ -2018,9 +2048,21 @@ essayHeaderCells[meta_] := Block[{title, author, date, abstract, cells = {}},
    the docked Notebook Analysis pod, etc.) and its TaggingRules. We use the
    template as the *shell* for the essay: cache the empty template once per
    session, then build our notebook with the template's StyleDefinitions
-   so the body cells render in the right styles when opened in the FE. *)
+   so the body cells render in the right styles when opened in the FE.
+
+   Pull any pending repository update first - the kernel routinely fires
+   ResourceObject::updavb ("an update is available") when the locally
+   cached resource is older than what's on the server, and that notice
+   bypasses Quiet (it is printed via the resource-system print path, not
+   the normal message system). ResourceUpdate refreshes the local cache so
+   the subsequent call finds a current resource and the message is silent.
+   Wrapped in Quiet/Check so a network failure here is benign - the older
+   cached template still works. *)
 $essayTemplate := $essayTemplate = Replace[
-    Quiet @ UsingFrontEnd @ With[{nbo = ResourceFunction["ComputationalEssayTemplate"][]},
+    Quiet @ UsingFrontEnd @ With[{nbo = (
+        Quiet @ Check[ResourceUpdate["ComputationalEssayTemplate"], Null];
+        ResourceFunction["ComputationalEssayTemplate"][]
+    )},
         With[{nb = NotebookGet[nbo]}, NotebookClose[nbo]; nb]
     ],
     Except[_Notebook] -> Notebook[{}, StyleDefinitions -> "Default.nb"]
@@ -2670,12 +2712,6 @@ The `ComputationalEssay` template fills the Wolfram [Computational Essay](https:
 MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/PiIsMostlyRandom.md"]
 ```
 
-> ResourceObject::updav: 
->    RawBoxes[TemplateBox[{1ad13696-0526-4828-9806-a479375ec767, 
->        "ComputationalEssayTemplate", 
->        TemplateBox[{StyleBox[<<26>>e", <<2>>], <<99>>7/}, <<10>>RL], 
->        Wolfram Function Repository}, <<18>>l]]
-
 ![output](images/MarkdownToNotebook-out-26.png)
 
 ## Properties and Relations
@@ -2806,3 +2842,18 @@ VerificationTest[
 ```
 
 ![output](images/MarkdownToNotebook-out-35.png)
+
+A backslash-escaped punctuation character inside `<code>...</code>` is a *markdown* source escape and unescapes before the cell is built - so `<code>\*</code>` lands in the notebook as a literal `*`, not as `\*` (regression: the `<code>` wrapper let markdown formatting through but skipped the backslash-unescape step, leaving the literal backslash in the cell content):
+
+```wl
+VerificationTest[
+    FreeQ[
+        MarkdownToNotebook["A <code>\\*</code> reference."],
+        "\\*"
+    ],
+    True,
+    TestID -> "`<code>\\*</code>` unescapes the markdown `\\*` to a literal `*` in the cell"
+]
+```
+
+![output](images/MarkdownToNotebook-out-36.png)

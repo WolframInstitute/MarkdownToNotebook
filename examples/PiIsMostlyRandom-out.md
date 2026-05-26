@@ -2,7 +2,7 @@
 Template: ComputationalEssay
 ResourceType: ComputationalEssay
 Name: How Random Is Pi?
-Author: MarkdownToNotebook
+Author: Claude
 Date: 2026
 Description: "A short computational essay that probes the digits of pi for the kinds of patterns a \"normal\" number ought not have"
 Abstract: "Pi is conjectured to be a *normal* number, meaning every finite digit sequence appears with the expected frequency in its decimal expansion. The conjecture has never been proven, but the first few million digits behave well enough that they are routinely used as a source of pseudorandomness. This essay computes the first 10000 digits, looks at the digit frequencies, walks a 2D random walk driven by them, and runs a quick chi-square test - building the intuition for why \"normality\" is a remarkably strong claim about a single, perfectly determined number."
