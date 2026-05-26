@@ -3,11 +3,11 @@ Template: Data
 ResourceType: Data
 Name: Seventeen Wallpaper Groups
 Description: The complete classification of the seventeen plane symmetry groups, with IUC and orbifold notation, lattice type, point group, and rotation / mirror / glide counts
-ContributedBy: MarkdownToNotebook
+ContributedBy: Claude
 Keywords: [symmetry, wallpaper group, plane group, crystallography, tiling, group theory]
 Categories: [Mathematics]
 ContentTypes: [Numerical Data, Entity Store]
-Author: MarkdownToNotebook
+Author: Claude
 Date: 2026
 Publisher: MarkdownToNotebook
 GeographicCoverage: Global

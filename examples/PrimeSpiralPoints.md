@@ -3,7 +3,7 @@ Template: Example
 ResourceType: Example
 Name: Prime Spiral Points
 Description: Planar coordinates that place the first primes on a polar spiral
-ContributedBy: MarkdownToNotebook
+ContributedBy: Claude
 Keywords: [primes, spiral, polar coordinates, visualization]
 Categories: [Visualization & Graphics, Puzzles and Recreation]
 RelatedSymbols: [Prime, ListPlot]

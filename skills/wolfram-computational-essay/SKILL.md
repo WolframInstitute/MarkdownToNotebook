@@ -25,8 +25,18 @@ Read first - the canonical guidelines:
 
 - *What Is a Computational Essay?* (Stephen Wolfram, 2017): https://writings.stephenwolfram.com/2017/11/what-is-a-computational-essay/
 - *Steps to Writing a Computational Essay* (official guidelines): https://www.wolframcloud.com/obj/Expositions/Published/ComputationalEssayGuidelines
+- The canonical template-opener `ResourceFunction["ComputationalEssayTemplate"]`: https://resources.wolframcloud.com/FunctionRepository/resources/ComputationalEssayTemplate
 - *Computational Essays* collection on the Notebook Archive: https://www.notebookarchive.org/collection-pod?collection=computational-essays
 - Wolfram Language code style: https://github.com/sw1sh/MarkdownToNotebook/blob/main/GUIDE.md
+
+`ResourceFunction["ComputationalEssayTemplate"][]` is the "button" the
+official guidelines refer to: evaluating it in a notebook opens an empty
+essay with the canonical stylesheet (the `CodeText`, `Abstract`, `Author`,
+`ExampleDelimiter` styles), the "Notebook Analysis" docked pod, and slot
+placeholders for Title / Author / Abstract / Sections. The
+`ComputationalEssay` template here uses *that same template's
+StyleDefinitions and TaggingRules* as its shell, so the produced `.nb`
+opens with the right styles applied to the cells the markdown defines.
 
 ## Frontmatter
 

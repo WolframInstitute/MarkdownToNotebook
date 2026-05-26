@@ -2,8 +2,8 @@
 Template: Demonstration
 ResourceType: Demonstration
 Name: Bloch Sphere with a Quantum Gate Sequence
-ContributedBy: MarkdownToNotebook
-AuthorNames: MarkdownToNotebook
+ContributedBy: Claude
+AuthorNames: Claude
 Keywords: [quantum computing, Bloch sphere, qubit, quantum gate, Hadamard, Pauli matrices, state vector]
 Categories: [Physical Sciences, Quantum Mechanics, Computation]
 RelatedDemonstrations: []

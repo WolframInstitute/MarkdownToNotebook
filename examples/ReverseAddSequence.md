@@ -4,7 +4,7 @@ ResourceType: Function
 Name: ReverseAddSequence
 ShortName: ReverseAddSequence
 Description: The reverse-and-add iteration applied to an integer until it becomes a palindrome
-ContributedBy: MarkdownToNotebook
+ContributedBy: Claude
 Keywords: [palindrome, Lychrel, reverse-and-add, integer iteration, recreational mathematics]
 Categories: [Number Theory, Recreational Computation]
 RelatedSymbols: [IntegerReverse, PalindromeQ, NestWhileList]

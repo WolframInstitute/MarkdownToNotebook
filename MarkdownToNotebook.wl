@@ -1947,14 +1947,16 @@ essayHeaderCells[meta_] := Block[{title, author, date, abstract, cells = {}},
     date = Lookup[meta, "Date", ""];
     abstract = Lookup[meta, "Abstract", Lookup[meta, "Description", ""]];
     If[title =!= "", AppendTo[cells, Cell[title, "Title"]]];
+    (* the official template's "Author" style takes one author cell; if a Date
+       is given, append it after a bullet in the same cell. *)
     If[author =!= "" || date =!= "",
         AppendTo[cells, Cell[
-            TextData @ {
-                If[author =!= "", StyleBox["by " <> author, "Subtitle"], Nothing],
-                If[author =!= "" && date =!= "", StyleBox[" \[Bullet] ", "Subtitle"], Nothing],
-                If[date =!= "", StyleBox[date, "Subtitle"], Nothing]
-            },
-            "Subtitle"
+            Which[
+                author =!= "" && date =!= "", author <> " \[Bullet] " <> date,
+                author =!= "", author,
+                True, date
+            ],
+            "Author"
         ]]
     ];
     If[abstract =!= "",
@@ -1963,14 +1965,30 @@ essayHeaderCells[meta_] := Block[{title, author, date, abstract, cells = {}},
     cells
 ]
 
-essayNotebook[data_] := Block[{meta = data["meta"], counter = 0, header, body, prevWasCaption = False},
+(* The official Computational Essay template - the same notebook
+   File > New > Computational Essay opens, or that
+   ResourceFunction["ComputationalEssayTemplate"][] returns - carries the
+   essay's custom stylesheet (CodeText, Abstract, Author, ExampleDelimiter,
+   the docked Notebook Analysis pod, etc.) and its TaggingRules. We use the
+   template as the *shell* for the essay: cache the empty template once per
+   session, then build our notebook with the template's StyleDefinitions
+   so the body cells render in the right styles when opened in the FE. *)
+$essayTemplate := $essayTemplate = Replace[
+    Quiet @ UsingFrontEnd @ With[{nbo = ResourceFunction["ComputationalEssayTemplate"][]},
+        With[{nb = NotebookGet[nbo]}, NotebookClose[nbo]; nb]
+    ],
+    Except[_Notebook] -> Notebook[{}, StyleDefinitions -> "Default.nb"]
+]
+
+essayNotebook[data_] := Block[{meta = data["meta"], counter = 0, header, body,
+    templateOpts = If[Head[$essayTemplate] === Notebook, Rest[List @@ $essayTemplate],
+        {StyleDefinitions -> "Default.nb"}]},
     header = essayHeaderCells[meta];
     body = Catenate @ MapIndexed[
         Function[{block, ix},
             Block[{type = block["Type"], text, captionStyle},
                 Switch[type,
-                    "Heading", prevWasCaption = False;
-                        {Cell[block["Text"], Lookup[$headingStyleMap, block["Level"], "Subsubsection"]]},
+                    "Heading", {Cell[block["Text"], Lookup[$headingStyleMap, block["Level"], "Subsubsection"]]},
                     "Prose", text = block["Text"];
                         (* a one-line prose paragraph that ends in ":" right before a
                            code cell is the essay's code-caption style ("CodeText");
@@ -1979,14 +1997,13 @@ essayNotebook[data_] := Block[{meta = data["meta"], counter = 0, header, body, p
                             ! StringContainsQ[text, "\n"] &&
                             ix[[1]] < Length[data["blocks"]] &&
                             Lookup[data["blocks"][[ix[[1]] + 1]], "Type", ""] === "Code";
-                        prevWasCaption = captionStyle;
                         {Cell[TextData @ inlineTextData[text], If[captionStyle, "CodeText", "Text"]]},
-                    "List", prevWasCaption = False; listItemCells[block, "Item"],
-                    "Table", prevWasCaption = False; {tableCell[block]},
-                    "Quote", prevWasCaption = False; {quoteCell[block["Text"]]},
-                    "MathBlock", prevWasCaption = False; {mathBlockCell[block["Text"]]},
-                    "Image", prevWasCaption = False; {imageCell[block]},
-                    "Code", prevWasCaption = False;
+                    "List", listItemCells[block, "Item"],
+                    "Table", {tableCell[block]},
+                    "Quote", {quoteCell[block["Text"]]},
+                    "MathBlock", {mathBlockCell[block["Text"]]},
+                    "Image", {imageCell[block]},
+                    "Code",
                         If[ executableQ[block],
                             counter += 1; exampleIOFor[block, counter],
                             withCellFlag[block, {Cell[block["Code"], "Program"]}]
@@ -1997,7 +2014,7 @@ essayNotebook[data_] := Block[{meta = data["meta"], counter = 0, header, body, p
         ],
         data["blocks"]
     ];
-    Notebook[Join[header, body], StyleDefinitions -> "Default.nb"]
+    Notebook[Join[header, body], Sequence @@ templateOpts]
 ]
 
 (* === template registry === *)

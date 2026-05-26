@@ -3,7 +3,7 @@ Template: Example
 ResourceType: Example
 Name: Discrete-Time Quantum Walk on a Line
 Description: Probability distributions of a Hadamard-coin quantum walk and its ballistic spreading
-ContributedBy: MarkdownToNotebook
+ContributedBy: Claude
 Keywords: [quantum walk, Hadamard coin, ballistic transport, random walk, interference]
 Categories: [Quantum Computation, Visualization & Graphics]
 RelatedSymbols: [NestList, ArrayPlot, RandomWalkProcess, ListStepPlot]
