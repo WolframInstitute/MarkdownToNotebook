@@ -2,8 +2,8 @@
 Template: Demonstration
 ResourceType: Demonstration
 Name: Bloch Sphere with a Quantum Gate Sequence
-ContributedBy: MarkdownToNotebook
-AuthorNames: MarkdownToNotebook
+ContributedBy: Claude
+AuthorNames: Claude
 Keywords: [quantum computing, Bloch sphere, qubit, quantum gate, Hadamard, Pauli matrices, state vector]
 Categories: [Physical Sciences, Quantum Mechanics, Computation]
 RelatedDemonstrations: []
@@ -17,7 +17,7 @@ Watch a single qubit move on the Bloch sphere as a sequence of quantum gates is 
 
 ## Initialization
 
-The eight single-qubit gates are stored as an [Association](https://reference.wolfram.com/language/ref/Association.html) of $2 \times 2$ unitary matrices; `blochVector` projects a pure state $|\psi\rangle = a|0\rangle + b|1\rangle$ onto the unit sphere by computing the Bloch coordinates $(2\Re(a^* b),\ 2\Im(a^* b),\ |a|^2 - |b|^2)$; `trajectory` folds the gates over the initial state and returns every intermediate vector.
+The eight single-qubit gates are stored as an [Association](https://reference.wolfram.com/language/ref/Association.html) of $2 \times 2$ unitary matrices; `blochVector` projects a pure state $|\psi\rangle = a|0\rangle + b|1\rangle$ onto the unit sphere by computing the Bloch coordinates $(2\Re(a^* b),\ 2\Im(a^* b),\ |a|^2 - |b|^2)$; `trajectory` folds the gates over the initial state and returns every intermediate vector; `blochDemo` packages the whole `Manipulate` so a snapshot can re-run it at a fixed parameter state.
 
 ```wl
 gates = <|
@@ -33,51 +33,47 @@ blochVector[{a_, b_}] := {2 Re[Conjugate[a] b], 2 Im[Conjugate[a] b], Abs[a]^2 -
 initialState[\[Theta]_, \[CurlyPhi]_] := {Cos[\[Theta]/2], Exp[I \[CurlyPhi]] Sin[\[Theta]/2]};
 trajectory[\[Theta]_, \[CurlyPhi]_, gateNames_List] :=
     FoldList[gates[#2] . #1 &, initialState[\[Theta], \[CurlyPhi]], gateNames];
+blochDemo[\[Theta]0_ : Pi/3, \[CurlyPhi]0_ : Pi/6, g10_ : "H", g20_ : "X", g30_ : "Z"] :=
+    Manipulate[
+        Module[{points = blochVector /@ trajectory[\[Theta], \[CurlyPhi], {g1, g2, g3}]},
+            Show[
+                Graphics3D[{Opacity[0.15], Sphere[]}],
+                Graphics3D[{Gray, Line[{{-1.1, 0, 0}, {1.1, 0, 0}}],
+                                  Line[{{0, -1.1, 0}, {0, 1.1, 0}}],
+                                  Line[{{0, 0, -1.1}, {0, 0, 1.1}}]}],
+                Graphics3D[{Black, Text[Style["|0>", 14], {0, 0, 1.2}],
+                                   Text[Style["|1>", 14], {0, 0, -1.2}]}],
+                Graphics3D[{Red, Thickness[0.006], Line[points],
+                            PointSize[0.025], Point /@ points,
+                            Black, Arrowheads[0.04], Arrow[{{0, 0, 0}, Last[points]}]}],
+                ImageSize -> 380, SphericalRegion -> True, Boxed -> False,
+                ViewPoint -> {2, 2, 1.4}
+            ]
+        ],
+        {{\[Theta], \[Theta]0, "polar angle \[Theta]"}, 0, Pi, Appearance -> "Labeled"},
+        {{\[CurlyPhi], \[CurlyPhi]0, "azimuthal angle \[CurlyPhi]"}, 0, 2 Pi, Appearance -> "Labeled"},
+        Delimiter,
+        {{g1, g10, "gate 1"}, Keys[gates], ControlType -> PopupMenu},
+        {{g2, g20, "gate 2"}, Keys[gates], ControlType -> PopupMenu},
+        {{g3, g30, "gate 3"}, Keys[gates], ControlType -> PopupMenu},
+        SaveDefinitions -> True
+    ];
 ```
 
 ## Manipulate
 
 ```wl
-Manipulate[
-    Module[{points = blochVector /@ trajectory[\[Theta], \[CurlyPhi], {g1, g2, g3}]},
-        Show[
-            Graphics3D[{Opacity[0.15], Sphere[]}],
-            Graphics3D[{Gray, Line[{{-1.1, 0, 0}, {1.1, 0, 0}}],
-                              Line[{{0, -1.1, 0}, {0, 1.1, 0}}],
-                              Line[{{0, 0, -1.1}, {0, 0, 1.1}}]}],
-            Graphics3D[{Black, Text[Style["|0>", 14], {0, 0, 1.2}],
-                               Text[Style["|1>", 14], {0, 0, -1.2}]}],
-            Graphics3D[{Red, Thickness[0.006], Line[points],
-                        PointSize[0.025], Point /@ points,
-                        Black, Arrowheads[0.04], Arrow[{{0, 0, 0}, Last[points]}]}],
-            ImageSize -> 380, SphericalRegion -> True, Boxed -> False,
-            ViewPoint -> {2, 2, 1.4}
-        ]
-    ],
-    {{\[Theta], Pi/3, "polar angle \[Theta]"}, 0, Pi, Appearance -> "Labeled"},
-    {{\[CurlyPhi], Pi/6, "azimuthal angle \[CurlyPhi]"}, 0, 2 Pi, Appearance -> "Labeled"},
-    Delimiter,
-    {{g1, "H", "gate 1"}, Keys[gates], ControlType -> PopupMenu},
-    {{g2, "X", "gate 2"}, Keys[gates], ControlType -> PopupMenu},
-    {{g3, "Z", "gate 3"}, Keys[gates], ControlType -> PopupMenu},
-    SaveDefinitions -> True
-]
+blochDemo[]
 ```
 
 ![output](images/BlochSphereGates-out-1.png)
 
 ## Snapshots
 
-Apply $H$, then $X$, then $Z$ to a state pointing along the polar axis; the trajectory walks around the equator:
+Start at the north pole ($|0\rangle$) and apply $H$, then $X$, then $Z$; the trajectory walks around the equator:
 
 ```wl
-Show[
-    Graphics3D[{Opacity[0.15], Sphere[]}],
-    Graphics3D[{Red, Thickness[0.006],
-        Line[blochVector /@ trajectory[0, 0, {"H", "X", "Z"}]],
-        PointSize[0.025], Point /@ (blochVector /@ trajectory[0, 0, {"H", "X", "Z"}])}],
-    ImageSize -> 320, SphericalRegion -> True, Boxed -> False, ViewPoint -> {2, 2, 1.4}
-]
+blochDemo[0, 0, "H", "X", "Z"]
 ```
 
 ![output](images/BlochSphereGates-out-2.png)
@@ -87,13 +83,7 @@ Show[
 The $T$ gate rotates by $\pi/4$ around $\hat z$; three of them in a row reach the same point a single $S$ would (since $T^2 = S$):
 
 ```wl
-Show[
-    Graphics3D[{Opacity[0.15], Sphere[]}],
-    Graphics3D[{Red, Thickness[0.006],
-        Line[blochVector /@ trajectory[Pi/2, 0, {"T", "T", "T"}]],
-        PointSize[0.025], Point /@ (blochVector /@ trajectory[Pi/2, 0, {"T", "T", "T"}])}],
-    ImageSize -> 320, SphericalRegion -> True, Boxed -> False, ViewPoint -> {2, 2, 1.4}
-]
+blochDemo[Pi/2, 0, "T", "T", "T"]
 ```
 
 ![output](images/BlochSphereGates-out-3.png)
@@ -103,13 +93,7 @@ Show[
 $Y$ flips a state across the $\hat x$ axis; applied to $|+\rangle = \frac{1}{\sqrt 2}(|0\rangle + |1\rangle)$ it lands on $-|+\rangle$ (same Bloch point with a global phase):
 
 ```wl
-Show[
-    Graphics3D[{Opacity[0.15], Sphere[]}],
-    Graphics3D[{Red, Thickness[0.006],
-        Line[blochVector /@ trajectory[Pi/2, 0, {"Y"}]],
-        PointSize[0.04], Point /@ (blochVector /@ trajectory[Pi/2, 0, {"Y"}])}],
-    ImageSize -> 320, SphericalRegion -> True, Boxed -> False, ViewPoint -> {2, 2, 1.4}
-]
+blochDemo[Pi/2, 0, "Y", "I", "I"]
 ```
 
 ![output](images/BlochSphereGates-out-4.png)

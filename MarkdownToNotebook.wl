@@ -685,15 +685,28 @@ extraOutputOpts[block_] := If[
     {}
 ]
 
-exampleIO[code_String, outBoxes_, n_Integer, outOpts_List : {}, msgs_List : {}] := Block[{
+(* hideInput drops the Input cell entirely and emits only the captured Output
+   (plus any messages). The use case is a Demonstration Snapshot: the cell's
+   code recreates the Manipulate at a specific control state via a parameterised
+   helper from the Initialization section ("demo[p1, p2]"), but only the
+   resulting panel image is wanted in the published notebook - showing the
+   call would clutter the snapshot section. Toggled per-cell with
+   "#| input: false". *)
+exampleIO[code_String, outBoxes_, n_Integer, outOpts_List : {}, msgs_List : {}, hideInput : (True | False) : False] := Block[{
     inCell = Cell[BoxData[inputBoxes[code]], "Input", CellLabel -> "In[" <> ToString[n] <> "]:= "],
     msgCells = messageCell /@ msgs,
     outCell
 },
-    If[ MissingQ[outBoxes] || outBoxes === Null,
-        Join[{inCell}, msgCells],
-        outCell = Cell[BoxData[outBoxes], "Output", CellLabel -> "Out[" <> ToString[n] <> "]= ", Sequence @@ outOpts];
-        {Cell[CellGroupData[Flatten[{inCell, msgCells, outCell}], Open]]}
+    Which[
+        MissingQ[outBoxes] || outBoxes === Null,
+            If[hideInput, msgCells, Join[{inCell}, msgCells]],
+        hideInput,
+            (* output-only: no Input cell, no In/Out label, no group bracket *)
+            outCell = Cell[BoxData[outBoxes], "Output", Sequence @@ outOpts];
+            Flatten[{msgCells, outCell}],
+        True,
+            outCell = Cell[BoxData[outBoxes], "Output", CellLabel -> "Out[" <> ToString[n] <> "]= ", Sequence @@ outOpts];
+            {Cell[CellGroupData[Flatten[{inCell, msgCells, outCell}], Open]]}
     ]
 ]
 
@@ -727,9 +740,15 @@ flagCell[_] := Nothing
 withCellFlag[block_, cells_List] := With[{f = flagCell[Lookup[block["Options"], "flag", ""]]},
     If[f === Nothing, cells, Prepend[cells, f]]]
 
-(* an example's cells (Input / Output), prefixed with its per-cell flag banner *)
+(* an example's cells (Input / Output), prefixed with its per-cell flag banner.
+   "#| input: false" drops the Input cell - the example renders as just its
+   captured Output (the Demonstration-snapshot use case). *)
 exampleIOFor[block_, n_Integer] :=
-    withCellFlag[block, exampleIO[block["Code"], block["OutputBoxes"], n, extraOutputOpts[block], Lookup[block, "Messages", {}]]]
+    withCellFlag[block, exampleIO[
+        block["Code"], block["OutputBoxes"], n,
+        extraOutputOpts[block], Lookup[block, "Messages", {}],
+        Lookup[block["Options"], "input", True] === False
+    ]]
 
 (* a document-level flag banner ("Flag" frontmatter) prepended to the notebook *)
 applyDocFlag[nb_, ""] := nb
@@ -797,11 +816,24 @@ codeSlot[opts_, sections_, key_String] := Block[{b = firstCodeOf[sections, key]}
 ]
 
 (* Fill a slot with one Input cell per code block of the named section. Used for
-   Snapshot groups (>= 3 panel-producing inputs) and similar list-of-cells slots. *)
+   Snapshot groups (>= 3 panel-producing inputs) and similar list-of-cells
+   slots. A cell flagged "#| input: false" emits only its captured Output (no
+   Input cell, no In[]/Out[] label) - the Demonstration snapshot convention:
+   the snapshot is the *rendered Manipulate panel* at a parameter state,
+   produced by calling a helper from the Initialization section, with only
+   the panel visible. *)
 multiCodeSlot[opts_, sections_, key_String] := Block[{cells = allCodeOf[sections, key]},
-    If[ cells === {},
-        slotDefault[opts],
-        Map[Cell[BoxData[inputBoxes[#["Code"]]], "Input", CellTags -> {"DefaultContent"}] &, cells]
+    If[ cells === {}, Return[slotDefault[opts]] ];
+    Catenate @ MapIndexed[
+        Function[{b, ix},
+            If[ Lookup[b["Options"], "input", True] === False,
+                Block[{out = Lookup[b, "OutputBoxes", Missing[]]},
+                    If[MissingQ[out] || out === Null, {}, {Cell[BoxData[out], "Output", CellTags -> {"DefaultContent"}]}]
+                ],
+                {Cell[BoxData[inputBoxes[b["Code"]]], "Input", CellTags -> {"DefaultContent"}]}
+            ]
+        ],
+        cells
     ]
 ]
 

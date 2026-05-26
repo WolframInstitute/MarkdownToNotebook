@@ -65,6 +65,7 @@ Individual code cells carry their own options as `#|` comment lines at the top o
 | `screenshot` | rasterize a produced notebook to an inline image |
 | `tear` | render the output as a torn-paper screenshot; a number sets the visible height in points |
 | `flag` | mark the cell with a build flag - `Future`, `Excised`, `Obsolete`, `Temporary`, `Preview`, or `Internal` |
+| `input` | `input: false` drops the Input cell and keeps only the captured output - the Demonstration snapshot convention, where the snapshot is the *rendered Manipulate panel* at a fixed parameter state |
 
 ## Usage
 
@@ -339,7 +340,7 @@ MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/r
 
 ### Demonstration
 
-The `Demonstration` template fills the [Demonstrations Project](https://demonstrations.wolfram.com/) authoring notebook, complete with its docked HELP / SAVE / UPDATE THUMBNAIL AND SNAPSHOTS / TEST IMAGE SIZE / UPLOAD toolbar. The [Bloch Sphere with a Quantum Gate Sequence](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/BlochSphereGates.md) sample uses one `## Caption` paragraph, the `## Initialization` definitions (the gate matrices and the Bloch projection), a single `## Manipulate` cell, and three `## Snapshots` panels - the structure the Demonstrations review requires:
+The `Demonstration` template fills the [Demonstrations Project](https://demonstrations.wolfram.com/) authoring notebook, complete with its docked HELP / SAVE / UPDATE THUMBNAIL AND SNAPSHOTS / TEST IMAGE SIZE / UPLOAD toolbar. The [Bloch Sphere with a Quantum Gate Sequence](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/BlochSphereGates.md) sample uses one `## Caption` paragraph, the `## Initialization` definitions (the gate matrices and the Bloch projection), a single `## Manipulate` cell, and three `## Snapshots` panels - the structure the Demonstrations review requires. A snapshot is *the same `Manipulate` rendered at a specific control state*, not a different graphic, so the idiomatic pattern factors the `Manipulate` into a named helper `demo[p1_:..., p2_:..., ...]` in `## Initialization` and each `## Snapshots` cell is a call like `demo[v1, v2, ...]` with `#| input: false` so only the rendered panel appears (no code, no `In[]`/`Out[]` label):
 
 ```wl
 #| screenshot: true

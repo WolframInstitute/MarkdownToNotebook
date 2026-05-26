@@ -759,15 +759,28 @@ extraOutputOpts[block_] := If[
     {}
 ]
 
-exampleIO[code_String, outBoxes_, n_Integer, outOpts_List : {}, msgs_List : {}] := Block[{
+(* hideInput drops the Input cell entirely and emits only the captured Output
+   (plus any messages). The use case is a Demonstration Snapshot: the cell's
+   code recreates the Manipulate at a specific control state via a parameterised
+   helper from the Initialization section ("demo[p1, p2]"), but only the
+   resulting panel image is wanted in the published notebook - showing the
+   call would clutter the snapshot section. Toggled per-cell with
+   "#| input: false". *)
+exampleIO[code_String, outBoxes_, n_Integer, outOpts_List : {}, msgs_List : {}, hideInput : (True | False) : False] := Block[{
     inCell = Cell[BoxData[inputBoxes[code]], "Input", CellLabel -> "In[" <> ToString[n] <> "]:= "],
     msgCells = messageCell /@ msgs,
     outCell
 },
-    If[ MissingQ[outBoxes] || outBoxes === Null,
-        Join[{inCell}, msgCells],
-        outCell = Cell[BoxData[outBoxes], "Output", CellLabel -> "Out[" <> ToString[n] <> "]= ", Sequence @@ outOpts];
-        {Cell[CellGroupData[Flatten[{inCell, msgCells, outCell}], Open]]}
+    Which[
+        MissingQ[outBoxes] || outBoxes === Null,
+            If[hideInput, msgCells, Join[{inCell}, msgCells]],
+        hideInput,
+            (* output-only: no Input cell, no In/Out label, no group bracket *)
+            outCell = Cell[BoxData[outBoxes], "Output", Sequence @@ outOpts];
+            Flatten[{msgCells, outCell}],
+        True,
+            outCell = Cell[BoxData[outBoxes], "Output", CellLabel -> "Out[" <> ToString[n] <> "]= ", Sequence @@ outOpts];
+            {Cell[CellGroupData[Flatten[{inCell, msgCells, outCell}], Open]]}
     ]
 ]
 
@@ -801,9 +814,15 @@ flagCell[_] := Nothing
 withCellFlag[block_, cells_List] := With[{f = flagCell[Lookup[block["Options"], "flag", ""]]},
     If[f === Nothing, cells, Prepend[cells, f]]]
 
-(* an example's cells (Input / Output), prefixed with its per-cell flag banner *)
+(* an example's cells (Input / Output), prefixed with its per-cell flag banner.
+   "#| input: false" drops the Input cell - the example renders as just its
+   captured Output (the Demonstration-snapshot use case). *)
 exampleIOFor[block_, n_Integer] :=
-    withCellFlag[block, exampleIO[block["Code"], block["OutputBoxes"], n, extraOutputOpts[block], Lookup[block, "Messages", {}]]]
+    withCellFlag[block, exampleIO[
+        block["Code"], block["OutputBoxes"], n,
+        extraOutputOpts[block], Lookup[block, "Messages", {}],
+        Lookup[block["Options"], "input", True] === False
+    ]]
 
 (* a document-level flag banner ("Flag" frontmatter) prepended to the notebook *)
 applyDocFlag[nb_, ""] := nb
@@ -871,11 +890,24 @@ codeSlot[opts_, sections_, key_String] := Block[{b = firstCodeOf[sections, key]}
 ]
 
 (* Fill a slot with one Input cell per code block of the named section. Used for
-   Snapshot groups (>= 3 panel-producing inputs) and similar list-of-cells slots. *)
+   Snapshot groups (>= 3 panel-producing inputs) and similar list-of-cells
+   slots. A cell flagged "#| input: false" emits only its captured Output (no
+   Input cell, no In[]/Out[] label) - the Demonstration snapshot convention:
+   the snapshot is the *rendered Manipulate panel* at a parameter state,
+   produced by calling a helper from the Initialization section, with only
+   the panel visible. *)
 multiCodeSlot[opts_, sections_, key_String] := Block[{cells = allCodeOf[sections, key]},
-    If[ cells === {},
-        slotDefault[opts],
-        Map[Cell[BoxData[inputBoxes[#["Code"]]], "Input", CellTags -> {"DefaultContent"}] &, cells]
+    If[ cells === {}, Return[slotDefault[opts]] ];
+    Catenate @ MapIndexed[
+        Function[{b, ix},
+            If[ Lookup[b["Options"], "input", True] === False,
+                Block[{out = Lookup[b, "OutputBoxes", Missing[]]},
+                    If[MissingQ[out] || out === Null, {}, {Cell[BoxData[out], "Output", CellTags -> {"DefaultContent"}]}]
+                ],
+                {Cell[BoxData[inputBoxes[b["Code"]]], "Input", CellTags -> {"DefaultContent"}]}
+            ]
+        ],
+        cells
     ]
 ]
 
@@ -2021,14 +2053,16 @@ essayHeaderCells[meta_] := Block[{title, author, date, abstract, cells = {}},
     date = Lookup[meta, "Date", ""];
     abstract = Lookup[meta, "Abstract", Lookup[meta, "Description", ""]];
     If[title =!= "", AppendTo[cells, Cell[title, "Title"]]];
+    (* the official template's "Author" style takes one author cell; if a Date
+       is given, append it after a bullet in the same cell. *)
     If[author =!= "" || date =!= "",
         AppendTo[cells, Cell[
-            TextData @ {
-                If[author =!= "", StyleBox["by " <> author, "Subtitle"], Nothing],
-                If[author =!= "" && date =!= "", StyleBox[" \[Bullet] ", "Subtitle"], Nothing],
-                If[date =!= "", StyleBox[date, "Subtitle"], Nothing]
-            },
-            "Subtitle"
+            Which[
+                author =!= "" && date =!= "", author <> " \[Bullet] " <> date,
+                author =!= "", author,
+                True, date
+            ],
+            "Author"
         ]]
     ];
     If[abstract =!= "",
@@ -2037,14 +2071,30 @@ essayHeaderCells[meta_] := Block[{title, author, date, abstract, cells = {}},
     cells
 ]
 
-essayNotebook[data_] := Block[{meta = data["meta"], counter = 0, header, body, prevWasCaption = False},
+(* The official Computational Essay template - the same notebook
+   File > New > Computational Essay opens, or that
+   ResourceFunction["ComputationalEssayTemplate"][] returns - carries the
+   essay's custom stylesheet (CodeText, Abstract, Author, ExampleDelimiter,
+   the docked Notebook Analysis pod, etc.) and its TaggingRules. We use the
+   template as the *shell* for the essay: cache the empty template once per
+   session, then build our notebook with the template's StyleDefinitions
+   so the body cells render in the right styles when opened in the FE. *)
+$essayTemplate := $essayTemplate = Replace[
+    Quiet @ UsingFrontEnd @ With[{nbo = ResourceFunction["ComputationalEssayTemplate"][]},
+        With[{nb = NotebookGet[nbo]}, NotebookClose[nbo]; nb]
+    ],
+    Except[_Notebook] -> Notebook[{}, StyleDefinitions -> "Default.nb"]
+]
+
+essayNotebook[data_] := Block[{meta = data["meta"], counter = 0, header, body,
+    templateOpts = If[Head[$essayTemplate] === Notebook, Rest[List @@ $essayTemplate],
+        {StyleDefinitions -> "Default.nb"}]},
     header = essayHeaderCells[meta];
     body = Catenate @ MapIndexed[
         Function[{block, ix},
             Block[{type = block["Type"], text, captionStyle},
                 Switch[type,
-                    "Heading", prevWasCaption = False;
-                        {Cell[block["Text"], Lookup[$headingStyleMap, block["Level"], "Subsubsection"]]},
+                    "Heading", {Cell[block["Text"], Lookup[$headingStyleMap, block["Level"], "Subsubsection"]]},
                     "Prose", text = block["Text"];
                         (* a one-line prose paragraph that ends in ":" right before a
                            code cell is the essay's code-caption style ("CodeText");
@@ -2053,14 +2103,13 @@ essayNotebook[data_] := Block[{meta = data["meta"], counter = 0, header, body, p
                             ! StringContainsQ[text, "\n"] &&
                             ix[[1]] < Length[data["blocks"]] &&
                             Lookup[data["blocks"][[ix[[1]] + 1]], "Type", ""] === "Code";
-                        prevWasCaption = captionStyle;
                         {Cell[TextData @ inlineTextData[text], If[captionStyle, "CodeText", "Text"]]},
-                    "List", prevWasCaption = False; listItemCells[block, "Item"],
-                    "Table", prevWasCaption = False; {tableCell[block]},
-                    "Quote", prevWasCaption = False; {quoteCell[block["Text"]]},
-                    "MathBlock", prevWasCaption = False; {mathBlockCell[block["Text"]]},
-                    "Image", prevWasCaption = False; {imageCell[block]},
-                    "Code", prevWasCaption = False;
+                    "List", listItemCells[block, "Item"],
+                    "Table", {tableCell[block]},
+                    "Quote", {quoteCell[block["Text"]]},
+                    "MathBlock", {mathBlockCell[block["Text"]]},
+                    "Image", {imageCell[block]},
+                    "Code",
                         If[ executableQ[block],
                             counter += 1; exampleIOFor[block, counter],
                             withCellFlag[block, {Cell[block["Code"], "Program"]}]
@@ -2071,7 +2120,7 @@ essayNotebook[data_] := Block[{meta = data["meta"], counter = 0, header, body, p
         ],
         data["blocks"]
     ];
-    Notebook[Join[header, body], StyleDefinitions -> "Default.nb"]
+    Notebook[Join[header, body], Sequence @@ templateOpts]
 ]
 
 (* === template registry === *)
@@ -2393,6 +2442,7 @@ Individual code cells carry their own options as `#|` comment lines at the top o
 | `screenshot` | rasterize a produced notebook to an inline image |
 | `tear` | render the output as a torn-paper screenshot; a number sets the visible height in points |
 | `flag` | mark the cell with a build flag - `Future`, `Excised`, `Obsolete`, `Temporary`, `Preview`, or `Internal` |
+| `input` | `input: false` drops the Input cell and keeps only the captured output - the Demonstration snapshot convention, where the snapshot is the *rendered Manipulate panel* at a fixed parameter state |
 
 ## Usage
 
@@ -2693,7 +2743,7 @@ MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/r
 
 ### Demonstration
 
-The `Demonstration` template fills the [Demonstrations Project](https://demonstrations.wolfram.com/) authoring notebook, complete with its docked HELP / SAVE / UPDATE THUMBNAIL AND SNAPSHOTS / TEST IMAGE SIZE / UPLOAD toolbar. The [Bloch Sphere with a Quantum Gate Sequence](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/BlochSphereGates.md) sample uses one `## Caption` paragraph, the `## Initialization` definitions (the gate matrices and the Bloch projection), a single `## Manipulate` cell, and three `## Snapshots` panels - the structure the Demonstrations review requires:
+The `Demonstration` template fills the [Demonstrations Project](https://demonstrations.wolfram.com/) authoring notebook, complete with its docked HELP / SAVE / UPDATE THUMBNAIL AND SNAPSHOTS / TEST IMAGE SIZE / UPLOAD toolbar. The [Bloch Sphere with a Quantum Gate Sequence](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/BlochSphereGates.md) sample uses one `## Caption` paragraph, the `## Initialization` definitions (the gate matrices and the Bloch projection), a single `## Manipulate` cell, and three `## Snapshots` panels - the structure the Demonstrations review requires. A snapshot is *the same `Manipulate` rendered at a specific control state*, not a different graphic, so the idiomatic pattern factors the `Manipulate` into a named helper `demo[p1_:..., p2_:..., ...]` in `## Initialization` and each `## Snapshots` cell is a call like `demo[v1, v2, ...]` with `#| input: false` so only the rendered panel appears (no code, no `In[]`/`Out[]` label):
 
 ```wl
 MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/BlochSphereGates.md"]
@@ -2708,6 +2758,12 @@ The `ComputationalEssay` template fills the Wolfram [Computational Essay](https:
 ```wl
 MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/PiIsMostlyRandom.md"]
 ```
+
+> ResourceObject::updav: 
+>    RawBoxes[TemplateBox[{1ad13696-0526-4828-9806-a479375ec767, 
+>        "ComputationalEssayTemplate", 
+>        TemplateBox[{StyleBox[<<26>>e", <<2>>], <<99>>7/}, <<10>>RL], 
+>        Wolfram Function Repository}, <<18>>l]]
 
 ![output](images/MarkdownToNotebook-out-28.png)
 
