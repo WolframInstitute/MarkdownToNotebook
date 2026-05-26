@@ -1495,10 +1495,42 @@ literalCodeInline[code_String] := Cell[BoxData[StyleBox[StringTrim[code], "Inlin
    FontVariation; italic keeps the "TI" (text-italic) style usage descriptions
    already mark arguments with. The styled content is a plain string (not re-parsed),
    so a single emphasis level is supported, which covers ordinary prose. *)
-emBoldBox[s_String] := StyleBox[s, FontWeight -> "Bold"]
-emItalicBox[s_String] := StyleBox[s, "TI"]
-emBoldItalicBox[s_String] := StyleBox[s, "TI", FontWeight -> "Bold"]
-emStrikeBox[s_String] := StyleBox[s, FontVariations -> {"StrikeThrough" -> True}]
+(* Wrap a single inlineTextData element (a string, StyleBox, InlineFormula
+   Cell, ButtonBox, ...) with one more layer of styling, merging into any
+   existing StyleBox / Cell options so a nested "**$x$**" produces an
+   InlineFormula whose own option list carries the bold attribute rather
+   than a hopeless StyleBox-of-Cell. Hyperlinks pass through unchanged -
+   inheriting a parent bold would clobber the link's own styling. *)
+wrapStyle[s_String, opts_List] := StyleBox[s, Sequence @@ opts]
+wrapStyle[StyleBox[c_, existing___], opts_List] := StyleBox[c, existing, Sequence @@ opts]
+wrapStyle[Cell[content_, style_String, cellOpts___], opts_List] :=
+    Cell[content, style, cellOpts, Sequence @@ opts]
+wrapStyle[ButtonBox[args___], _] := ButtonBox[args]
+wrapStyle[other_, _] := other
+
+(* Bold / italic / strike runs that may carry other inline markup ("**$x$**",
+   "***`code`***", "~~bold $y$~~", ...) recursively re-enter inlineTextData
+   on the inner text so any math / code / link spans are processed first;
+   the formatting is then distributed across each resulting element via
+   wrapStyle. Returning a Sequence keeps the surrounding StringSplit's
+   result list flat. *)
+emWith[s_String, opts_List] := Sequence @@ Map[wrapStyle[#, opts] &, inlineTextData[s]]
+
+emBoldBox[s_String] := emWith[s, {FontWeight -> "Bold"}]
+emItalicBox[s_String] := emWith[s, {"TI"}]
+emBoldItalicBox[s_String] := emWith[s, {"TI", FontWeight -> "Bold"}]
+emStrikeBox[s_String] := emWith[s, {FontVariations -> {"StrikeThrough" -> True}}]
+
+(* A heading's text can carry the same inline markup prose does - backticks,
+   bold, italic, math, links. Run it through inlineTextData and wrap the
+   result as TextData so a "## A `foo` heading" or "## Bold **$x$**" renders
+   the code span / bold math correctly. If the result is a single plain
+   string, keep it bare - the simple "## Plain heading" stays Cell["Plain
+   heading", "Section"] and Symbol-page tooling expecting a string content
+   keeps working. *)
+headingText[text_String] := Block[{td = inlineTextData[text]},
+    If[Length[td] == 1 && StringQ[td[[1]]], td[[1]], TextData[td]]
+]
 
 (* Pandoc / GFM markdown subscript "x~n~" and superscript "x^n^". The script is
    rendered as a one-character formula cell (SubscriptBox / SuperscriptBox with an
@@ -1996,7 +2028,7 @@ $tutorialHeadingStyle = <|2 -> "Section", 3 -> "Subsection", 4 -> "Subsubsection
 tutorialBody[blocks_] := Block[{counter = 0},
     Catenate @ Map[
         block |-> Switch[block["Type"],
-            "Heading", If[block["Level"] <= 1, {}, {Cell[block["Text"], Lookup[$tutorialHeadingStyle, block["Level"], "Subsubsection"]]}],
+            "Heading", If[block["Level"] <= 1, {}, {Cell[headingText[block["Text"]], Lookup[$tutorialHeadingStyle, block["Level"], "Subsubsection"]]}],
             "Prose", {Cell[TextData @ inlineTextData[block["Text"]], "Text"]},
             "List", listItemCells[block, "Item"],
             "Table", {tableCell[block]},
@@ -2070,13 +2102,15 @@ $tocStyleMap = <|
 |>
 tocStyleFor[level_Integer] := Lookup[$tocStyleMap, level, "TOCSubsubsubsection"]
 
-(* parse a heading / list-item text into either a plain string or a ButtonBox
-   linked target - so "[Name](paclet:Pub/Pkg/tutorial/Name)" and the inferred
-   "[Name]()" form both render as clickable TOC entries. *)
+(* parse a heading / list-item text into either an inline-formatted heading
+   or a ButtonBox linked target - so "[Name](paclet:Pub/Pkg/tutorial/Name)"
+   and the inferred "[Name]()" form both render as clickable TOC entries,
+   and plain headings (or `code`-styled ones) carry their inline markup
+   (backticks, bold, italic, math) the same way every other heading does. *)
 tocCellContent[text_String, paclet_String] := Block[{trimmed = StringTrim[text], m},
     m = StringCases[trimmed, StartOfString ~~ "[" ~~ label : Shortest[Except["]"] ..] ~~ "](" ~~ url : Shortest[Except[")"] ...] ~~ ")" ~~ EndOfString :> {label, url}, 1];
     If[ m === {},
-        trimmed,
+        headingText[trimmed],
         With[{label = m[[1, 1]], url = m[[1, 2]]},
             ButtonBox[label, BaseStyle -> "Link",
                 ButtonData -> If[ url === "",
@@ -2090,8 +2124,14 @@ tocCellContent[text_String, paclet_String] := Block[{trimmed = StringTrim[text],
     ]
 ]
 
-tocCell[content : (_String | _ButtonBox), style_String] :=
-    Cell[If[Head[content] === String, content, TextData[content]], style]
+tocCell[content_, style_String] := Cell[
+    Switch[Head[content],
+        String, content,
+        TextData, content,
+        _, TextData[content]
+    ],
+    style
+]
 
 (* Walk the block stream once and build a nested CellGroupData tree of TOC*
    cells. A heading at depth N opens / continues a group at that depth, a list
@@ -2182,7 +2222,7 @@ $headingStyleMap = <|1 -> "Title", 2 -> "Section", 3 -> "Subsection", 4 -> "Subs
 defaultNotebook[data_] := Block[{counter = 0, cells},
     cells = Catenate @ Map[
         block |-> Switch[block["Type"],
-            "Heading", {Cell[block["Text"], Lookup[$headingStyleMap, block["Level"], "Subsubsection"]]},
+            "Heading", {Cell[headingText[block["Text"]], Lookup[$headingStyleMap, block["Level"], "Subsubsection"]]},
             "Prose", {Cell[TextData @ inlineTextData[block["Text"]], "Text"]},
             "List", listItemCells[block, "Item"],
             "Table", {tableCell[block]},
@@ -2271,7 +2311,7 @@ essayNotebook[data_] := Block[{meta = data["meta"], counter = 0, header, body,
         Function[{block, ix},
             Block[{type = block["Type"], text, captionStyle},
                 Switch[type,
-                    "Heading", {Cell[block["Text"], Lookup[$headingStyleMap, block["Level"], "Subsubsection"]]},
+                    "Heading", {Cell[headingText[block["Text"]], Lookup[$headingStyleMap, block["Level"], "Subsubsection"]]},
                     "Prose", text = block["Text"];
                         (* a one-line prose paragraph that ends in ":" right before a
                            code cell is the essay's code-caption style ("CodeText");

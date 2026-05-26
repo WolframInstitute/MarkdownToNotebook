@@ -461,6 +461,42 @@ VerificationTest[
 ]
 ```
 
+A heading carries the same inline markup prose does - backticks become an `InlineFormula` cell, bold / italic / math / links render the same way they would in a paragraph (regression: heading text was stored as a plain string and emitted as `Cell["A `foo` heading", "Section"]` with the backticks rendered literally):
+
+```wl
+VerificationTest[
+    MatchQ[
+        FirstCase[
+            MarkdownToNotebook["## A `foo` heading\n\nText.", "Evaluate" -> False],
+            Cell[_, "Section", ___],
+            Missing[],
+            Infinity
+        ],
+        Cell[TextData[{"A ", Cell[BoxData["foo"], "InlineFormula"], " heading"}], "Section"]
+    ],
+    True,
+    TestID -> "headings parse inline markup (backticks -> InlineFormula)"
+]
+```
+
+Bold / italic / strike runs containing other inline markup ("**$x$**", "*$n$*", "**`code`**", "~~$y$~~") recursively re-enter `inlineTextData` and distribute the formatting onto each resulting element via `wrapStyle`; an `InlineFormula` cell inside a bold span gets the `FontWeight -> "Bold"` option on the cell itself (regression: the bold rule used to capture the inner string verbatim and emit `StyleBox["$x$", "Bold"]`, so math / code inside bold rendered as literal `$x$`):
+
+```wl
+VerificationTest[
+    MatchQ[
+        FirstCase[
+            MarkdownToNotebook["Some **$1$** prose.", "Evaluate" -> False],
+            Cell[_, "Text", ___],
+            Missing[],
+            Infinity
+        ],
+        Cell[TextData[{"Some ", Cell[BoxData[FormBox["1", TraditionalForm]], "InlineFormula", FontWeight -> "Bold"], " prose."}], "Text"]
+    ],
+    True,
+    TestID -> "bold containing math wraps the InlineFormula with FontWeight -> Bold"
+]
+```
+
 A real-world document (thousands of lines) parses without hitting the default `$RecursionLimit` of 1024 - the line-by-line `blockLoop` and its splitters are tail-recursive but Wolfram does not optimize tail calls, so `parseBlocks` now lifts the limit to scale with the input (regression: a ~1500-line tutorial like [SymmetrySubcontextTutorial.md](https://raw.githubusercontent.com/sw1sh/TensorNetworks/refs/heads/master/Notebooks/Tests%20and%20explorations/Symmetry/SymmetrySubcontextTutorial.md) aborted with `TerminatedEvaluation[RecursionLimit]`):
 
 ```wl
