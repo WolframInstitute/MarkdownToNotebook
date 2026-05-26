@@ -1480,12 +1480,17 @@ literalCodeInline[code_String] := Cell[BoxData[StyleBox[StringTrim[code], "Inlin
 
 (* inline emphasis -> styled text runs. Bold is FontWeight, strikethrough a
    FontVariation; italic keeps the "TI" (text-italic) style usage descriptions
-   already mark arguments with. The styled content is a plain string (not re-parsed),
-   so a single emphasis level is supported, which covers ordinary prose. *)
-emBoldBox[s_String] := StyleBox[s, FontWeight -> "Bold"]
-emItalicBox[s_String] := StyleBox[s, "TI"]
-emBoldItalicBox[s_String] := StyleBox[s, "TI", FontWeight -> "Bold"]
-emStrikeBox[s_String] := StyleBox[s, FontVariations -> {"StrikeThrough" -> True}]
+   already mark arguments with. The captured string is re-parsed through
+   inlineTextData so $math$, `code`, [links](), and <code>...</code> nested
+   inside *italic* / **bold** / ***bold-italic*** / ~~strikethrough~~ render
+   correctly; the style attribute is then mapped over the plain-string runs of
+   the recursive result. Non-string runs (math / code / link Cells) keep their
+   own styling, matching how docs typically render math inside bold prose. *)
+applyEmphasisStyle[parts_List, opts___] := Replace[parts, r_String :> StyleBox[r, opts], {1}]
+emBoldBox[s_String] := Sequence @@ applyEmphasisStyle[inlineTextData[s], FontWeight -> "Bold"]
+emItalicBox[s_String] := Sequence @@ applyEmphasisStyle[inlineTextData[s], "TI"]
+emBoldItalicBox[s_String] := Sequence @@ applyEmphasisStyle[inlineTextData[s], "TI", FontWeight -> "Bold"]
+emStrikeBox[s_String] := Sequence @@ applyEmphasisStyle[inlineTextData[s], FontVariations -> {"StrikeThrough" -> True}]
 
 (* Pandoc / GFM markdown subscript "x~n~" and superscript "x^n^". The script is
    rendered as a one-character formula cell (SubscriptBox / SuperscriptBox with an
@@ -1525,10 +1530,66 @@ inlineImage[alt_String, src_String] := Block[{img = Quiet @ Import[src]},
 (* $math$ -> inline math; $$math$$ -> centered display math. The content is TeX
    (LaTeX math notation): ImportString parses it into typeset boxes (SqrtBox,
    FractionBox, ...). Fall back to a Wolfram-expression parse in TraditionalForm
-   if the TeX parse fails. *)
-texBoxes[math_String] := Block[{nb},
-    nb = Quiet @ ImportString["$" <> math <> "$", "TeX"];
-    If[Head[nb] === Notebook, FirstCase[nb, Cell[BoxData[b_], ___] :> b, $Failed, Infinity], $Failed]
+   if the TeX parse fails.
+
+   normalizeTeX rewrites a small set of amsmath fraction commands that Wolfram's
+   TeX importer mis-parses. \tfrac and \dfrac (text-style and display-style
+   fractions) in isolation parse fine, but in the presence of surrounding tokens
+   the importer extends the fraction to absorb prior and trailing content
+   (e.g. T = \tfrac{1}{2}(T + T^T) parses as FractionBox[T = 1, 2(T+T^T)]).
+   \frac has no such bug; substituting is lossless because \tfrac vs \frac is a
+   sizing hint that TraditionalForm in the notebook context-sizes anyway. *)
+normalizeTeX[s_String] := StringReplace[s, {
+    "\\tfrac" -> "\\frac",
+    "\\dfrac" -> "\\frac"
+}]
+
+(* Wolfram's TeX importer drops the delimiters of every matrix environment
+   (\begin{pmatrix} ... \end{pmatrix} -> bare GridBox, no parens; same for
+   bmatrix, vmatrix, ..., and even \bigl(\smallmatrix\bigr) loses its parens).
+   matrixDelims walks the source to record, in order, the delimiter pair each
+   matrix in the source wanted; wrapGridBoxes walks the imported boxes and
+   wraps the n-th GridBox with the n-th delimiter pair. *)
+matrixEnvPair = "pmatrix" | "bmatrix" | "Bmatrix" | "vmatrix" | "Vmatrix" | "matrix" | "smallmatrix"
+
+matrixDelims[tex_String] := Module[{matches},
+    matches = StringCases[tex,
+        d : ("\\bigl" | "\\Bigl" | "\\biggl" | "\\Biggl" | "\\left" | "") ~~
+        c : ("(" | "[" | "\\{" | "|" | "\\|" | "") ~~
+        Whitespace... ~~
+        "\\begin{" ~~ env : matrixEnvPair ~~ "}"
+        :> {d, c, env}
+    ];
+    Map[
+        Switch[#,
+            {_, "(", _} | {"", "", "pmatrix"}, {"(", ")"},
+            {_, "[", _} | {"", "", "bmatrix"}, {"[", "]"},
+            {_, "\\{", _} | {"", "", "Bmatrix"}, {"{", "}"},
+            {_, "|", _} | {"", "", "vmatrix"}, {"|", "|"},
+            {_, "\\|", _} | {"", "", "Vmatrix"}, {"\[DoubleVerticalBar]", "\[DoubleVerticalBar]"},
+            _, {"", ""}
+        ] &,
+        matches
+    ]
+]
+
+wrapGridBoxes[boxes_, delims_List] := Module[{i = 0},
+    boxes /. gb : GridBox[_, ___] :> With[{n = ++i},
+        If[ n <= Length[delims] && delims[[n, 1]] =!= "",
+            RowBox[{delims[[n, 1]], gb, delims[[n, 2]]}],
+            gb
+        ]
+    ]
+]
+
+texBoxes[math_String] := Block[{normalized = normalizeTeX[math], nb, boxes, delims},
+    delims = matrixDelims[normalized];
+    nb = Quiet @ ImportString["$" <> normalized <> "$", "TeX"];
+    boxes = If[Head[nb] === Notebook, FirstCase[nb, Cell[BoxData[b_], ___] :> b, $Failed, Infinity], $Failed];
+    If[ boxes =!= $Failed && delims =!= {},
+        boxes = wrapGridBoxes[boxes, delims]
+    ];
+    boxes
 ]
 
 mathInline[math_String] := Block[{boxes = texBoxes[math]},
@@ -1983,7 +2044,7 @@ $tutorialHeadingStyle = <|2 -> "Section", 3 -> "Subsection", 4 -> "Subsubsection
 tutorialBody[blocks_] := Block[{counter = 0},
     Catenate @ Map[
         block |-> Switch[block["Type"],
-            "Heading", If[block["Level"] <= 1, {}, {Cell[block["Text"], Lookup[$tutorialHeadingStyle, block["Level"], "Subsubsection"]]}],
+            "Heading", If[block["Level"] <= 1, {}, {Cell[TextData @ inlineTextData[block["Text"]], Lookup[$tutorialHeadingStyle, block["Level"], "Subsubsection"]]}],
             "Prose", {Cell[TextData @ inlineTextData[block["Text"]], "Text"]},
             "List", listItemCells[block, "Item"],
             "Table", {tableCell[block]},
@@ -2169,7 +2230,7 @@ $headingStyleMap = <|1 -> "Title", 2 -> "Section", 3 -> "Subsection", 4 -> "Subs
 defaultNotebook[data_] := Block[{counter = 0, cells},
     cells = Catenate @ Map[
         block |-> Switch[block["Type"],
-            "Heading", {Cell[block["Text"], Lookup[$headingStyleMap, block["Level"], "Subsubsection"]]},
+            "Heading", {Cell[TextData @ inlineTextData[block["Text"]], Lookup[$headingStyleMap, block["Level"], "Subsubsection"]]},
             "Prose", {Cell[TextData @ inlineTextData[block["Text"]], "Text"]},
             "List", listItemCells[block, "Item"],
             "Table", {tableCell[block]},
@@ -2258,7 +2319,7 @@ essayNotebook[data_] := Block[{meta = data["meta"], counter = 0, header, body,
         Function[{block, ix},
             Block[{type = block["Type"], text, captionStyle},
                 Switch[type,
-                    "Heading", {Cell[block["Text"], Lookup[$headingStyleMap, block["Level"], "Subsubsection"]]},
+                    "Heading", {Cell[TextData @ inlineTextData[block["Text"]], Lookup[$headingStyleMap, block["Level"], "Subsubsection"]]},
                     "Prose", text = block["Text"];
                         (* a one-line prose paragraph that ends in ":" right before a
                            code cell is the essay's code-caption style ("CodeText");
@@ -2511,6 +2572,10 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
        on an *unbound* symbol binds the local to the symbolic `$convertDepth + 1`,
        which re-expands without end (RecursionLimit on every call). *)
     $convertDepth = If[IntegerQ[$convertDepth], $convertDepth, 0] + 1,
+    (* blockLoop walks the source one line per recursive call, so the default
+       $RecursionLimit = 1024 caps the converter at ~1000-line documents. Raise it
+       for the dynamic extent of the conversion only; Block restores on exit. *)
+    $RecursionLimit = Max[$RecursionLimit, 65536],
     (* resolve the "Evaluate" option directly - OptionValue[func, {opts}, name] in a
        Block initializer mis-binds (it reads "func" as the option name and errors
        OptionValue::optnf, leaving evalExamples False so nothing is ever evaluated). *)
