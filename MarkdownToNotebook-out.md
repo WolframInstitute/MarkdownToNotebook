@@ -1988,6 +1988,145 @@ tutorialNotebook[data_] := Block[{meta = data["meta"], nb, title, body, paclet, 
     setDocMetadata[fillCategorization[nb, "Tech Note", meta], meta, "Tech Note"]
 ]
 
+(* === Overview (paclet table-of-contents) builder ===
+   An Overview page is the high-level table of contents the paclet's
+   Documentation index links to; in the FE the Documentation Tools palette
+   builds one with GenerateOverview by walking each tech-note's headings and
+   wrapping them in TOC* cells (Title -> TOCChapter, Section -> TOCSection, ...).
+   For markdown we map heading depth directly:
+
+       # Title          -> TOCDocumentTitle (once, at the top)
+       ## Chapter       -> TOCChapter
+       ### Section      -> TOCSection
+       #### Subsection  -> TOCSubsection
+       ##### …          -> TOCSubsubsection
+
+   Each heading text may carry a markdown link (`[label](paclet:…)` or the
+   inferred `[Name]()` form) - when present, the TOC cell renders the heading
+   as a clickable ButtonBox to that target, the same shape GenerateOverview
+   emits. List items inherit a "one level deeper than the previous heading"
+   so a chapter+bulleted-list entries pattern groups cleanly:
+
+       ## Symbols       -> TOCChapter "Symbols"
+       - [A]()          -> TOCSection link to A
+       - [B]()          -> TOCSection link to B
+
+   Categorization (Entity Type = "Overview") and the Paclet/Context/URI rows
+   come from the frontmatter (Paclet/Context/URI keys), same convention the
+   Symbol / Guide / TechNote builders use. *)
+$tocStyleMap = <|
+    1 -> "TOCDocumentTitle",
+    2 -> "TOCChapter",
+    3 -> "TOCSection",
+    4 -> "TOCSubsection",
+    5 -> "TOCSubsubsection",
+    6 -> "TOCSubsubsubsection"
+|>
+tocStyleFor[level_Integer] := Lookup[$tocStyleMap, level, "TOCSubsubsubsection"]
+
+(* parse a heading / list-item text into either a plain string or a ButtonBox
+   linked target - so "[Name](paclet:Pub/Pkg/tutorial/Name)" and the inferred
+   "[Name]()" form both render as clickable TOC entries. *)
+tocCellContent[text_String, paclet_String] := Block[{trimmed = StringTrim[text], m},
+    m = StringCases[trimmed, StartOfString ~~ "[" ~~ label : Shortest[Except["]"] ..] ~~ "](" ~~ url : Shortest[Except[")"] ...] ~~ ")" ~~ EndOfString :> {label, url}, 1];
+    If[ m === {},
+        trimmed,
+        With[{label = m[[1, 1]], url = m[[1, 2]]},
+            ButtonBox[label, BaseStyle -> "Link",
+                ButtonData -> If[ url === "",
+                    (* inferred link: assume a tutorial in the documented paclet,
+                       since this is the conventional shape for an overview entry. *)
+                    "paclet:" <> If[paclet === "", label, paclet <> "/tutorial/" <> label],
+                    If[StringStartsQ[url, "paclet:" | "http"], url, "paclet:" <> url]
+                ]
+            ]
+        ]
+    ]
+]
+
+tocCell[content : (_String | _ButtonBox), style_String] :=
+    Cell[If[Head[content] === String, content, TextData[content]], style]
+
+(* Walk the block stream once and build a nested CellGroupData tree of TOC*
+   cells. A heading at depth N opens / continues a group at that depth, a list
+   item under a heading at depth N becomes a leaf TOC cell at depth N+1.
+   Everything else (prose, code, tables) is dropped - an overview is a TOC,
+   not a body. A level-1 heading is silently dropped: the page title comes
+   from the frontmatter "Name:" key and is filled into the template's
+   single TOCDocumentTitle cell separately, so emitting another body cell
+   of the same style would duplicate the title. *)
+overviewBodyCells[blocks_, paclet_String] := Block[{out = {}, parentDepth = 1},
+    Scan[
+        block |-> Switch[block["Type"],
+            "Heading", If[block["Level"] >= 2,
+                AppendTo[out, tocCell[tocCellContent[block["Text"], paclet], tocStyleFor[block["Level"]]]];
+                parentDepth = block["Level"]
+            ],
+            "List", Scan[
+                AppendTo[out, tocCell[tocCellContent[#, paclet], tocStyleFor[parentDepth + 1]]] &,
+                block["Items"]
+            ],
+            _, Null
+        ],
+        blocks
+    ];
+    out
+]
+
+(* Group a flat sequence of TOC cells into the nested CellGroupData tree the
+   front end uses for collapsible TOC sections. Each cell of style s opens a
+   group, every following cell of a deeper style is a child of it, the first
+   cell of equal-or-shallower depth closes the group. *)
+$tocDepthOf = <|
+    "TOCDocumentTitle" -> 0, "TOCChapter" -> 1, "TOCSection" -> 2,
+    "TOCSubsection" -> 3, "TOCSubsubsection" -> 4, "TOCSubsubsubsection" -> 5
+|>
+groupTocCells[cells_List] := Block[{stack = {{}}, depths = {-1}, finalize, push},
+    finalize[] := Block[{kids = First[stack], parentKids, headWithKids},
+        stack = Rest[stack]; depths = Rest[depths];
+        If[kids =!= {} && Length[stack] > 0,
+            (* kids[[1]] is the head cell of this group; rest are its children *)
+            headWithKids = If[Length[kids] >= 2,
+                Cell[CellGroupData[kids, Open]],
+                First[kids]
+            ];
+            parentKids = First[stack];
+            stack = Prepend[Rest[stack], Append[parentKids, headWithKids]]
+        ]
+    ];
+    Scan[
+        cell |-> Block[{d = Lookup[$tocDepthOf, cell[[2]], 99]},
+            While[Length[depths] > 1 && First[depths] >= d, finalize[]];
+            stack = Prepend[stack, {cell}];
+            depths = Prepend[depths, d];
+        ],
+        cells
+    ];
+    While[Length[stack] > 1, finalize[]];
+    First[stack]
+]
+
+overviewNotebook[data_] := Block[{
+    meta = data["meta"], blocks = data["blocks"],
+    nb, title, paclet, tocCells, tocBlocks
+},
+    nb = docTemplate["OverviewBaseTemplateExt.nb"];
+    title = Lookup[meta, "Name", Lookup[meta, "Title", ""]];
+    paclet = Lookup[meta, "Paclet", ""];
+    nb = nb /. Cell["XXXX", "TOCDocumentTitle", o___] :>
+        Cell[If[title === "", "XXXX", title], "TOCDocumentTitle", o];
+    tocCells = overviewBodyCells[blocks, paclet];
+    tocBlocks = groupTocCells[tocCells];
+    nb = nb /. Cell[CellGroupData[{title : Cell[_, "TOCDocumentTitle", ___], _Cell | _ ..}, st_], go___] :>
+        Cell[CellGroupData[Prepend[tocBlocks, title], st], go];
+    nb = fillDocList[nb, "Keywords", asList @ Lookup[meta, "Keywords", {}]];
+    nb = nb /. {
+        Cell["XXXX", _, ___] :> Nothing,
+        Cell[BoxData["XXXX"], _, ___] :> Nothing
+    };
+    setDocMetadata[fillCategorization[nb, "Overview", meta], meta, "Overview"]
+]
+
 (* === default style-map builder ===
    No template/slots: markdown maps directly to standard documentation styles,
    so the author never writes cell styles. *)
@@ -2187,6 +2326,7 @@ buildNotebook["Demonstration", data_] := resourceNotebook["Demonstration", data]
 buildNotebook["Symbol", data_] := symbolNotebook[data]
 buildNotebook["Guide", data_] := guideNotebook[data]
 buildNotebook["TechNote", data_] := tutorialNotebook[data]
+buildNotebook["Overview", data_] := overviewNotebook[data]
 buildNotebook["ComputationalEssay", data_] := essayNotebook[data]
 buildNotebook["Essay", data_] := essayNotebook[data]
 buildNotebook["LLMTool", data_] := resourceNotebook["LLMTool", data]
@@ -2714,6 +2854,16 @@ MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/r
 
 ![output](images/MarkdownToNotebook-out-25.png)
 
+### Overview
+
+The `Overview` template fills the doc-tools overview page - the paclet's high-level table of contents that links into its Guide, Symbol, and Tutorial pages. Heading depth picks the cell style (`#` → `TOCDocumentTitle`, `##` → `TOCChapter`, `###` → `TOCSection`, `####` → `TOCSubsection`, `#####` → `TOCSubsubsection`); a bulleted list under a heading becomes TOC leaves one level deeper; each entry's `[Label](paclet:Pub/Pkg/<kind>/Name)` link is rendered as a clickable `ButtonBox`. The worked sample is the [AccessibleColors Overview](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/AccessibleColors/docs/Tutorials/Overview.md):
+
+```wl
+MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/AccessibleColors/docs/Tutorials/Overview.md"]
+```
+
+![output](images/MarkdownToNotebook-out-26.png)
+
 ### Computational Essay
 
 The `ComputationalEssay` template fills the Wolfram [Computational Essay](https://writings.stephenwolfram.com/2017/11/what-is-a-computational-essay/) genre - an intellectual story told through narrative prose interleaved with short, captioned Wolfram Language inputs. The produced notebook uses the `Default.nb` stylesheet (no resource scraper, no docked submit toolbar) and is deployable to the [Notebook Archive](https://www.notebookarchive.org/), [Wolfram Community](https://community.wolfram.com/), or a public `CloudObject`. The [How Random Is Pi?](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/PiIsMostlyRandom.md) sample probes the digits of pi for the kind of patterns a *normal* number ought not have - a chi-square test, a 2D random walk on the digits - in five short segments; deployed [here](https://www.wolframcloud.com/obj/nikm/DeployedResources/ComputationalEssay/HowRandomIsPi):
@@ -2722,7 +2872,7 @@ The `ComputationalEssay` template fills the Wolfram [Computational Essay](https:
 MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/PiIsMostlyRandom.md"]
 ```
 
-![output](images/MarkdownToNotebook-out-26.png)
+![output](images/MarkdownToNotebook-out-27.png)
 
 ## Properties and Relations
 
@@ -2732,7 +2882,7 @@ The Wolfram Language already reads markdown into a plain notebook - <code>[Impor
 ImportString["# Title\n\nText with inline math $\\sin x$.", {"Markdown", "Notebook"}]
 ```
 
-![output](images/MarkdownToNotebook-out-27.png)
+![output](images/MarkdownToNotebook-out-28.png)
 
 `FunctionResource` then fills the same template [CreateNotebook](https://reference.wolfram.com/language/ref/CreateNotebook.html)["FunctionResource"] opens (publishable with [ResourceSubmit](https://reference.wolfram.com/language/ref/ResourceSubmit.html)), and `Symbol`/`Guide` fill the DocumentationTools templates `DocumentationBuild` turns into reference pages.
 
@@ -2744,7 +2894,7 @@ A string that is neither a URL nor an existing file is treated as raw markdown, 
 MarkdownToNotebook["nonexistent.md", "Association"]["Sections"]
 ```
 
-![output](images/MarkdownToNotebook-out-28.png)
+![output](images/MarkdownToNotebook-out-29.png)
 
 ## Neat Examples
 
@@ -2754,7 +2904,7 @@ The neatest example is this very document: running the function on its own GitHu
 NotebookPut[MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/MarkdownToNotebook.md", "Evaluate" -> False]]
 ```
 
-![output](images/MarkdownToNotebook-out-29.png)
+![output](images/MarkdownToNotebook-out-30.png)
 
 Because this very document is itself such a literate source - its `## Definition` inlines `MarkdownToNotebook.wl` and its frontmatter is the resource metadata - running the function on it reproduces this definition notebook, so the function publishes itself.
 
@@ -2772,7 +2922,7 @@ VerificationTest[
 ]
 ```
 
-![output](images/MarkdownToNotebook-out-30.png)
+![output](images/MarkdownToNotebook-out-31.png)
 
 A `<code>[Symbol](https://reference.wolfram.com/language/ref/Symbol.html)</code>` reference in a Usage signature carries a paclet link on the head (regression: the link silently disappeared when the `<code>` rule was rewritten to wrap the whole span in one `InlineFormula` instead of recursing on the inside):
 
@@ -2787,7 +2937,7 @@ VerificationTest[
 ]
 ```
 
-![output](images/MarkdownToNotebook-out-31.png)
+![output](images/MarkdownToNotebook-out-32.png)
 
 A bullet list with indented continuation lines folds each continuation into the preceding item, so a three-bullet list with two-line continuations is three items, not six (regression: the list parser used to break at the continuation, producing alternating one-item lists and stray paragraphs):
 
@@ -2803,7 +2953,7 @@ VerificationTest[
 ]
 ```
 
-![output](images/MarkdownToNotebook-out-32.png)
+![output](images/MarkdownToNotebook-out-33.png)
 
 The inverse walker [NotebookToMarkdown]() emits "$\theta$"-style inline math for any `InlineFormula` cell wrapping a `FormBox` - not a backticked code span (regression: the previous handler wrapped every `InlineFormula` content in backticks, so the recovered math came out as "`$θ$`" with extra delimiters):
 
@@ -2820,7 +2970,7 @@ VerificationTest[
 ]
 ```
 
-![output](images/MarkdownToNotebook-out-33.png)
+![output](images/MarkdownToNotebook-out-34.png)
 
 The walker preserves a code cell's original surface layout by walking the box tree directly - so a multi-statement Input cell with literal "\n" separators round-trips with its line breaks intact (regression: an earlier `MakeExpression`-based deparse choked on multi-statement boxes and fell back to literal "RawBoxes[RowBox[…]]" output):
 
@@ -2837,7 +2987,7 @@ VerificationTest[
 ]
 ```
 
-![output](images/MarkdownToNotebook-out-34.png)
+![output](images/MarkdownToNotebook-out-35.png)
 
 The walker silently drops decoration cells the resource template injects - the help-bubble opener that sits inside a heading's `TextData` is a `Cell[BoxData[PaneSelectorBox[…]]]`, never authored content, so the recovered heading is just the title (regression: the opener leaked through as raw box source jammed onto the heading line):
 
@@ -2851,7 +3001,7 @@ VerificationTest[
 ]
 ```
 
-![output](images/MarkdownToNotebook-out-35.png)
+![output](images/MarkdownToNotebook-out-36.png)
 
 A backslash-escaped punctuation character inside `<code>...</code>` is a *markdown* source escape and unescapes before the cell is built - so `<code>\*</code>` lands in the notebook as a literal `*`, not as `\*` (regression: the `<code>` wrapper let markdown formatting through but skipped the backslash-unescape step, leaving the literal backslash in the cell content):
 
@@ -2866,7 +3016,7 @@ VerificationTest[
 ]
 ```
 
-![output](images/MarkdownToNotebook-out-36.png)
+![output](images/MarkdownToNotebook-out-37.png)
 
 The unescape preserves Wolfram named-character escapes (`\[CircleTimes]`, `\[Theta]`, ...) - they share the leading `\[` with the markdown `\[` punctuation escape, so the Wolfram-name pattern is matched first and rebuilt verbatim (regression: the punctuation rule ate the leading `\`, leaving a stray `[CircleTimes]` that the inferred-link parser then auto-linked into a ButtonBox):
 
@@ -2881,4 +3031,20 @@ VerificationTest[
 ]
 ```
 
-![output](images/MarkdownToNotebook-out-37.png)
+![output](images/MarkdownToNotebook-out-38.png)
+
+The `Overview` template maps the markdown heading hierarchy to TOC* cells (`#` → `TOCDocumentTitle`, `##` → `TOCChapter`, `###` → `TOCSection`, ...) and turns bulleted list items under a heading into TOC leaves one level deeper:
+
+```wl
+VerificationTest[
+    Sort @ DeleteDuplicates @ Cases[
+        MarkdownToNotebook["---\nTemplate: Overview\nName: T\n---\n\n## Chapter\n\n- [Foo](paclet:X/Y/ref/Foo)\n- [Bar](paclet:X/Y/ref/Bar)\n\n### Section\n"],
+        Cell[_, s_String /; StringStartsQ[s, "TOC"], ___] :> s,
+        Infinity
+    ],
+    {"TOCChapter", "TOCDocumentTitle", "TOCSection"},
+    TestID -> "`Template: Overview` emits TOCDocumentTitle/TOCChapter/TOCSection cells"
+]
+```
+
+![output](images/MarkdownToNotebook-out-39.png)

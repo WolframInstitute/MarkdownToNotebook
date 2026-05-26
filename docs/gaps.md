@@ -10,7 +10,7 @@ loses a distinction the palette draws; "Missing" = no md form at all.
 
 | Gap | Palette / toolbar | Markdown form | Notes |
 |---|---|---|---|
-| **Missing**: `Overview` template | "New Overview Page" + `TOCChapter` / `TOCSection` / `TOCSubsection` / `TOCSubsubsection` styles + `GenerateOverviewDialog[]` | no `Template: Overview` | the only mid-level Wolfram doc-page kind without a markdown shell |
+| ~~**Missing**: `Overview` template~~ **Done** | "New Overview Page" + `TOCChapter` / `TOCSection` / `TOCSubsection` / `TOCSubsubsection` styles + `GenerateOverviewDialog[]` | `Template: Overview`; heading levels map `#`/`##`/`###`/`####`/`#####` -> `TOCDocumentTitle` / `TOCChapter` / `TOCSection` / `TOCSubsection` / `TOCSubsubsection`; list items become TOC leaves one level deeper than the surrounding heading; each entry's `[label](paclet:…)` becomes a clickable `ButtonBox` (worked sample: `examples/AccessibleColors/docs/Tutorials/Overview.md`) | done |
 | **Missing**: TooltipBox annotations | "Annotate" / "Annotation Search ↑↓" / "Annotation Remove" | no md form | inline tooltips on a span of prose; usually authoring scratchwork |
 | **Missing**: Reviewer comments | "Insert comment for reviewer" / "Reply »" cells | no md form | a review-loop construct; the markdown source is the canonical artifact, so reviews don't round-trip |
 | **Missing**: `Excluded` cell tag | cell-tools "Mark/unmark as excluded" | (close, not equivalent: `#\| eval: false`) | excluded cells stay in the source notebook but are stripped from the scraped resource; `eval: false` keeps the cell visible (just doesn't run it) |
@@ -48,11 +48,12 @@ loses a distinction the palette draws; "Missing" = no md form at all.
 | ⚠ Lossy | Span First Column on a definition box | `TableSpanToggle[]` | (no equivalent - see Cross-cutting) |
 | ✗ Missing | Annotate | "Annotate" | no md form |
 
-## `Overview`
+## `Overview` (paclet table-of-contents page)
 
 | Status | Gap | Palette button → action | Markdown form |
 |---|---|---|---|
-| ✗ Missing | The whole template | "New Overview Page" / "Generate Overview" / `TOCChapter`/`TOCSection`/`TOCSubsection`/`TOCSubsubsection` | no `Template: Overview` yet; the closest is a Guide page |
+| ✓ Done | TOC page with hierarchical clickable entries | "New Overview Page" / `TOCDocumentTitle` / `TOCChapter` / `TOCSection` / `TOCSubsection` / `TOCSubsubsection` | `Template: Overview`; `#` / `##` / `###` / `####` / `#####` map to those styles; list items under a heading become TOC leaves one level deeper, each `[Label](paclet:…)` link rendered as a `ButtonBox` |
+| ⚠ Lossy | `GenerateOverview` auto-walking every tech-note's headings | `DocumentationTools`GenerateOverview[files, …]` | author the markdown by hand (it is the source of truth) |
 
 ## `FunctionResource` (and the resource-system family: `Prompt`, `LLMTool`, `Example`, `Data`)
 
@@ -101,13 +102,16 @@ own buttons on top of the resource-system shell.
 
 ## Quick "what to fix next" list
 
-In rough priority order, the markdown side is missing:
+In rough priority order, the markdown side is still missing:
 
-1. `Template: Overview` (+ `TOC*` heading styles, plus a build-overview command).
-2. A way to mark a cell **Excluded** (`#| excluded: true` → drops the cell from the scraped resource but keeps it in the source `.nb`) and **Hidden when published** (`#| hidden: true` → closed `CellOpen -> False` on the web page, open in the download).
-3. Guide-page listing-layout option (`#| listing: oneline | inline | block` per `## Functions` block) so the author can choose the layout the "1 Line Function Listing" / "Inline Listing Toggle" buttons set.
-4. An `## Annotations` convention (or `<annotate>…</annotate>` inline tag) for the rare `TooltipBox` cases.
-5. A `TableSpan` option for the rare wide-first-column case (likely a YAML option on the table block - GFM can't express it in the table syntax itself).
+1. A way to mark a cell **Excluded** (`#| excluded: true` → drops the cell from the scraped resource but keeps it in the source `.nb`) and **Hidden when published** (`#| hidden: true` → closed `CellOpen -> False` on the web page, open in the download).
+2. Guide-page listing-layout option (`#| listing: oneline | inline | block` per `## Functions` block) so the author can choose the layout the "1 Line Function Listing" / "Inline Listing Toggle" buttons set.
+3. An `## Annotations` convention (or `<annotate>…</annotate>` inline tag) for the rare `TooltipBox` cases.
+4. A `TableSpan` option for the rare wide-first-column case (likely a YAML option on the table block - GFM can't express it in the table syntax itself).
+
+Done since the last revision:
+
+- `Template: Overview` with the `TOC*` heading hierarchy (worked sample: `examples/AccessibleColors/docs/Tutorials/Overview.md`).
 
 The remaining gaps (Reviewer comments / Submit-to-repository button /
 bulk paclet rewrites / TOOLS dropdown items) are either review-loop

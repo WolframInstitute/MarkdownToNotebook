@@ -31,7 +31,7 @@ where `n` is `1`/`2`/`3`/`4` for Function/Guide/TechNote/Overview.
 | New Function Page | `TestCurrentPacletApplicationDirectory[PreCreateNewPageDialog["Reference"]]` | `Template: Symbol` + `Name:` + `Paclet:` + `URI:` | done |
 | New Guide Page | `TestCurrentPacletApplicationDirectory[PreCreateNewPageDialog["Guide"]]` | `Template: Guide` + `Name:` + `Paclet:` + `URI:` | done |
 | New Tech Note | `TestCurrentPacletApplicationDirectory[PreCreateNewPageDialog["TechNote"]]` | `Template: TechNote` + `Name:` + `Paclet:` + `URI:` | done |
-| New Overview Page | `TestCurrentPacletApplicationDirectory[PreCreateNewPageDialog["Overview"]]` | `Template: Overview` (not yet supported) | todo |
+| New Overview Page | `TestCurrentPacletApplicationDirectory[PreCreateNewPageDialog["Overview"]]` | `Template: Overview` | done |
 | Open Function Page (list) | `TestCurrentPacletApplicationDirectory[OpenPageDialog["Symbol"]]` | `examples/build.wls` over `docs/Symbols/*.md` | done |
 | Open Guide Page (list) | `TestCurrentPacletApplicationDirectory[OpenPageDialog["Guide"]]` | `examples/build.wls` over `docs/Guides/*.md` | done |
 | Open Tech Note (list) | `TestCurrentPacletApplicationDirectory[OpenPageDialog["Tutorial"]]` | `examples/build.wls` over `docs/TechNotes/*.md` | done |
@@ -39,7 +39,7 @@ where `n` is `1`/`2`/`3`/`4` for Function/Guide/TechNote/Overview.
 | Sample Guide Page | `NotebookOpen[..., "GuideExample.nb"]` | the AccessibleColors paclet guides | n/a (sample) |
 | Sample Tech Note Page | `NotebookOpen[..., "TechNoteExample.nb"]` | the AccessibleColors paclet tech notes | n/a (sample) |
 | Generate Function Pages | `TestCurrentPacletApplicationDirectory[ChoosePacletAndCreateReferencePages[]]` | `examples/build.wls` builds every page in `docs/Symbols/` | done |
-| Generate Overview | `TestCurrentPacletApplicationDirectory[GenerateOverviewDialog[]]` | `Template: Overview` (not yet supported) | todo |
+| Generate Overview | `TestCurrentPacletApplicationDirectory[GenerateOverviewDialog[]]` | `Template: Overview` (author the markdown by hand; the converter does not auto-walk other pages' headings) | partial |
 | Rename Symbol | `TestCurrentPacletApplicationDirectory[GenerateRenameSymbolDialog[]]` | rename the file and the `Name:` / `URI:` frontmatter | n/a (rename) |
 | Replace Paclet Base | `ReplacePacletNameInPacletDocumentation[]` | edit the `Paclet:` / `URI:` frontmatter | n/a (rename) |
 
@@ -90,10 +90,10 @@ where `n` is `1`/`2`/`3`/`4` for Function/Guide/TechNote/Overview.
 
 | Button | Action (`DocumentationTools``…) | Cell style | Markdown | Status |
 |---|---|---|---|---|
-| TOC Chapter | `StyleInsert["TOCChapter"]` | `TOCChapter` | `## Heading` in an Overview page | todo (template) |
-| TOC Section | `StyleInsert["TOCSection"]` | `TOCSection` | `### Heading` | todo |
-| TOC Subsection | `StyleInsert["TOCSubsection"]` | `TOCSubsection` | `#### Heading` | todo |
-| TOC Subsubsection | `StyleInsert["TOCSubsubsection"]` | `TOCSubsubsection` | (level 5) | todo |
+| TOC Chapter | `StyleInsert["TOCChapter"]` | `TOCChapter` | `## Heading` in an Overview page | done |
+| TOC Section | `StyleInsert["TOCSection"]` | `TOCSection` | `### Heading` (or a bulleted list under a `## Heading`) | done |
+| TOC Subsection | `StyleInsert["TOCSubsection"]` | `TOCSubsection` | `#### Heading` (or a bulleted list under a `### Heading`) | done |
+| TOC Subsubsection | `StyleInsert["TOCSubsubsection"]` | `TOCSubsubsection` | `##### Heading` (or a bulleted list under a `#### Heading`) | done |
 
 ## Links
 

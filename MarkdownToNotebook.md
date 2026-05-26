@@ -325,6 +325,16 @@ The `Demonstration` template fills the [Demonstrations Project](https://demonstr
 MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/BlochSphereGates.md"]
 ```
 
+### Overview
+
+The `Overview` template fills the doc-tools overview page - the paclet's high-level table of contents that links into its Guide, Symbol, and Tutorial pages. Heading depth picks the cell style (`#` → `TOCDocumentTitle`, `##` → `TOCChapter`, `###` → `TOCSection`, `####` → `TOCSubsection`, `#####` → `TOCSubsubsection`); a bulleted list under a heading becomes TOC leaves one level deeper; each entry's `[Label](paclet:Pub/Pkg/<kind>/Name)` link is rendered as a clickable `ButtonBox`. The worked sample is the [AccessibleColors Overview](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/AccessibleColors/docs/Tutorials/Overview.md):
+
+```wl
+#| screenshot: true
+#| tear: 200
+MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/AccessibleColors/docs/Tutorials/Overview.md"]
+```
+
 ### Computational Essay
 
 The `ComputationalEssay` template fills the Wolfram [Computational Essay](https://writings.stephenwolfram.com/2017/11/what-is-a-computational-essay/) genre - an intellectual story told through narrative prose interleaved with short, captioned Wolfram Language inputs. The produced notebook uses the `Default.nb` stylesheet (no resource scraper, no docked submit toolbar) and is deployable to the [Notebook Archive](https://www.notebookarchive.org/), [Wolfram Community](https://community.wolfram.com/), or a public `CloudObject`. The [How Random Is Pi?](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/PiIsMostlyRandom.md) sample probes the digits of pi for the kind of patterns a *normal* number ought not have - a chi-square test, a 2D random walk on the digits - in five short segments; deployed [here](https://www.wolframcloud.com/obj/nikm/DeployedResources/ComputationalEssay/HowRandomIsPi):
@@ -469,6 +479,20 @@ VerificationTest[
     ],
     True,
     TestID -> "`<code>\\[Name]</code>` preserves the Wolfram named-character escape"
+]
+```
+
+The `Overview` template maps the markdown heading hierarchy to TOC* cells (`#` → `TOCDocumentTitle`, `##` → `TOCChapter`, `###` → `TOCSection`, ...) and turns bulleted list items under a heading into TOC leaves one level deeper:
+
+```wl
+VerificationTest[
+    Sort @ DeleteDuplicates @ Cases[
+        MarkdownToNotebook["---\nTemplate: Overview\nName: T\n---\n\n## Chapter\n\n- [Foo](paclet:X/Y/ref/Foo)\n- [Bar](paclet:X/Y/ref/Bar)\n\n### Section\n"],
+        Cell[_, s_String /; StringStartsQ[s, "TOC"], ___] :> s,
+        Infinity
+    ],
+    {"TOCChapter", "TOCDocumentTitle", "TOCSection"},
+    TestID -> "`Template: Overview` emits TOCDocumentTitle/TOCChapter/TOCSection cells"
 ]
 ```
 
