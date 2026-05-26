@@ -461,6 +461,19 @@ VerificationTest[
 ]
 ```
 
+A real-world document (thousands of lines) parses without hitting the default `$RecursionLimit` of 1024 - the line-by-line `blockLoop` and its splitters are tail-recursive but Wolfram does not optimize tail calls, so `parseBlocks` now lifts the limit to scale with the input (regression: a ~1500-line tutorial like [SymmetrySubcontextTutorial.md](https://raw.githubusercontent.com/sw1sh/TensorNetworks/refs/heads/master/Notebooks/Tests%20and%20explorations/Symmetry/SymmetrySubcontextTutorial.md) aborted with `TerminatedEvaluation[RecursionLimit]`):
+
+```wl
+VerificationTest[
+    Head @ MarkdownToNotebook[
+        StringJoin[Table["## H" <> ToString[i] <> "\n\nP" <> ToString[i] <> "\n\n", {i, 1500}]],
+        "Evaluate" -> False
+    ],
+    Notebook,
+    TestID -> "parseBlocks scales $RecursionLimit with input - a 1500-block doc parses"
+]
+```
+
 The `"PreserveSource"` option defaults to `False` so a notebook the converter writes does *not* carry the source in its `TaggingRules` - any later edit to the cells is the new truth, visible in the walker's diff:
 
 ```wl

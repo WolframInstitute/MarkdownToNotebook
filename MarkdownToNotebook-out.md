@@ -330,7 +330,20 @@ blockLoop[lines_List, acc_] := Block[{line = First[lines], rest = Rest[lines], s
     ]
 ]
 
-parseBlocks[body_String] := blockLoop[StringSplit[body, "\n"], {}]
+(* blockLoop and its sibling splitters (fenceSplit, paraSplit, listSplit, ...)
+   recurse once per source line, and Wolfram does not tail-call optimize -
+   the default $RecursionLimit of 1024 trips on any document longer than
+   roughly a thousand lines. Lift the limit to scale with the document
+   (8x the line count, capped, with a 10000 floor so short docs are
+   unaffected) so a real-world tutorial of tens of thousands of lines
+   parses without aborting. Rewriting the parser as an iterative
+   While-loop would be cleaner long-term; this is the minimal patch
+   that keeps the parser useful on big inputs. *)
+parseBlocks[body_String] := Block[
+    {lines = StringSplit[body, "\n"], $RecursionLimit},
+    $RecursionLimit = Max[10000, 8 * Length[lines], Replace[$RecursionLimit, Except[_Integer] -> 0]];
+    blockLoop[lines, {}]
+]
 
 (* drop HTML/markdown comments (e.g. "<!-- => 21. -->" output annotations) *)
 stripComments[s_String] := StringReplace[s, "<!--" ~~ Shortest[___] ~~ "-->" -> ""]
@@ -3087,6 +3100,21 @@ VerificationTest[
 
 ![output](images/MarkdownToNotebook-out-36.png)
 
+A real-world document (thousands of lines) parses without hitting the default `$RecursionLimit` of 1024 - the line-by-line `blockLoop` and its splitters are tail-recursive but Wolfram does not optimize tail calls, so `parseBlocks` now lifts the limit to scale with the input (regression: a ~1500-line tutorial like [SymmetrySubcontextTutorial.md](https://raw.githubusercontent.com/sw1sh/TensorNetworks/refs/heads/master/Notebooks/Tests%20and%20explorations/Symmetry/SymmetrySubcontextTutorial.md) aborted with `TerminatedEvaluation[RecursionLimit]`):
+
+```wl
+VerificationTest[
+    Head @ MarkdownToNotebook[
+        StringJoin[Table["## H" <> ToString[i] <> "\n\nP" <> ToString[i] <> "\n\n", {i, 1500}]],
+        "Evaluate" -> False
+    ],
+    Notebook,
+    TestID -> "parseBlocks scales $RecursionLimit with input - a 1500-block doc parses"
+]
+```
+
+![output](images/MarkdownToNotebook-out-37.png)
+
 The `"PreserveSource"` option defaults to `False` so a notebook the converter writes does *not* carry the source in its `TaggingRules` - any later edit to the cells is the new truth, visible in the walker's diff:
 
 ```wl
@@ -3097,7 +3125,7 @@ VerificationTest[
 ]
 ```
 
-![output](images/MarkdownToNotebook-out-37.png)
+![output](images/MarkdownToNotebook-out-38.png)
 
 With `"PreserveSource" -> True`, the source is stamped under the `"MarkdownToNotebook"` tagging key byte-exact:
 
@@ -3118,7 +3146,7 @@ VerificationTest[
 ]
 ```
 
-![output](images/MarkdownToNotebook-out-38.png)
+![output](images/MarkdownToNotebook-out-39.png)
 
 The `#| hidden: true` cell option adds the `"HiddenMaterial"` modifier style and `CellOpen -> False` so the cell renders closed on the published web page (and open in the downloadable example notebook):
 
@@ -3138,7 +3166,7 @@ VerificationTest[
 ]
 ```
 
-![output](images/MarkdownToNotebook-out-39.png)
+![output](images/MarkdownToNotebook-out-40.png)
 
 The `Overview` template maps the markdown heading hierarchy to TOC* cells (`#` → `TOCDocumentTitle`, `##` → `TOCChapter`, `###` → `TOCSection`, ...) and turns bulleted list items under a heading into TOC leaves one level deeper:
 
@@ -3154,4 +3182,4 @@ VerificationTest[
 ]
 ```
 
-![output](images/MarkdownToNotebook-out-40.png)
+![output](images/MarkdownToNotebook-out-41.png)

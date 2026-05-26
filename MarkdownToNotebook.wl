@@ -310,7 +310,20 @@ blockLoop[lines_List, acc_] := Block[{line = First[lines], rest = Rest[lines], s
     ]
 ]
 
-parseBlocks[body_String] := blockLoop[StringSplit[body, "\n"], {}]
+(* blockLoop and its sibling splitters (fenceSplit, paraSplit, listSplit, ...)
+   recurse once per source line, and Wolfram does not tail-call optimize -
+   the default $RecursionLimit of 1024 trips on any document longer than
+   roughly a thousand lines. Lift the limit to scale with the document
+   (8x the line count, capped, with a 10000 floor so short docs are
+   unaffected) so a real-world tutorial of tens of thousands of lines
+   parses without aborting. Rewriting the parser as an iterative
+   While-loop would be cleaner long-term; this is the minimal patch
+   that keeps the parser useful on big inputs. *)
+parseBlocks[body_String] := Block[
+    {lines = StringSplit[body, "\n"], $RecursionLimit},
+    $RecursionLimit = Max[10000, 8 * Length[lines], Replace[$RecursionLimit, Except[_Integer] -> 0]];
+    blockLoop[lines, {}]
+]
 
 (* drop HTML/markdown comments (e.g. "<!-- => 21. -->" output annotations) *)
 stripComments[s_String] := StringReplace[s, "<!--" ~~ Shortest[___] ~~ "-->" -> ""]
