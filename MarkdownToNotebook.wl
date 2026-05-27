@@ -115,10 +115,40 @@ fenceSplit[lines_List, collected_] := If[ fenceQ[First[lines]],
     fenceSplit[Rest[lines], Prepend[collected, First[lines]]]
 ]
 
+(* Pandoc-style fenced divs ":::". An opening line "::: kind" (kind is any
+   non-empty token, e.g. "solved-example", "theorem", "proof", "exercise",
+   "solution") starts a div; the matching "::: " closes it. Divs nest.
+   Used by the Chapter template to scaffold the multi-cell book constructs
+   (SolvedExample, Theorem/Proof, Exercise/Solution) that have no direct
+   markdown analogue. *)
+divOpenQ[line_String] := Block[{t = StringTrim[line]},
+    StringStartsQ[t, ":::"] && StringTrim[StringDrop[t, 3]] =!= ""
+]
+divCloseQ[line_String] := StringTrim[line] === ":::"
+divKind[line_String] := StringTrim[StringDrop[StringTrim[line], 3]]
+
+(* gather lines until the matching ::: closer; respects nested divs *)
+divSplit[lines_List] := Block[{depth = 1, acc = {}, rest = lines},
+    While[depth > 0 && rest =!= {},
+        Which[
+            divOpenQ[First[rest]],
+                depth++; AppendTo[acc, First[rest]]; rest = Rest[rest],
+            divCloseQ[First[rest]],
+                depth--;
+                If[depth > 0, AppendTo[acc, First[rest]]];
+                rest = Rest[rest],
+            True,
+                AppendTo[acc, First[rest]]; rest = Rest[rest]
+        ]
+    ];
+    {acc, rest}
+]
+
 paraSplit[{}, collected_] := {Reverse[collected], {}}
 paraSplit[lines_List, collected_] := Block[{line = First[lines]},
     If[ StringTrim[line] === "" || fenceQ[line] || headingQ[line] || listItemQ[line] ||
-            orderedItemQ[line] || blockquoteQ[line] || mathBlockOpenQ[line],
+            orderedItemQ[line] || blockquoteQ[line] || mathBlockOpenQ[line] ||
+            divOpenQ[line] || divCloseQ[line],
         {Reverse[collected], lines},
         paraSplit[Rest[lines], Prepend[collected, line]]
     ]
@@ -272,6 +302,14 @@ blockLoop[lines_List, acc_] := Block[{line = First[lines], rest = Rest[lines], s
         fenceQ[line],
             split = fenceSplit[rest, {}];
             blockLoop[Last[split], Prepend[acc, codeBlock[StringReplace[StringTrim[line], StartOfString ~~ "```" -> ""], First[split]]]]
+        ,
+        divOpenQ[line],
+            split = divSplit[rest];
+            blockLoop[Last[split], Prepend[acc,
+                <|"Type" -> "Div",
+                  "Kind" -> divKind[line],
+                  "Blocks" -> parseBlocks[StringRiffle[First[split], "\n"]]|>
+            ]]
         ,
         headingQ[line],
             blockLoop[rest, Prepend[acc, headingBlock[line]]]
@@ -571,20 +609,26 @@ evaluateAll[cells_List, ctx_String, ctxPath_List] := Block[{$Context = ctx, $Con
    block["OutputBoxes"] / block["Messages"] directly instead of recomputing hashes.
    The cache entry is normally an Association <|"out" -> boxes, "msgs" -> {...}|>;
    accept the legacy raw-boxes form too (older cache entries with no message data). *)
-annotateOutputs[blocks_List, hashes_List, outputs_] := Block[{i = 0, entry, out, msgs},
-    Map[
-        b |-> If[ executableQ[b],
-            (i += 1;
-             entry = Lookup[outputs, hashes[[i]], Missing[]];
-             {out, msgs} = If[AssociationQ[entry] && KeyExistsQ[entry, "out"],
-                 {entry["out"], Lookup[entry, "msgs", {}]},
-                 {entry, {}}
-             ];
-             Append[Append[b, "OutputBoxes" -> out], "Messages" -> msgs]),
-            b
-        ],
-        blocks
-    ]
+annotateOutputs[blocks_List, hashes_List, outputs_] := Block[{i = 0, walk},
+    walk[b_] := Which[
+        executableQ[b],
+            Block[{entry, out, msgs},
+                i += 1;
+                entry = Lookup[outputs, hashes[[i]], Missing[]];
+                {out, msgs} = If[AssociationQ[entry] && KeyExistsQ[entry, "out"],
+                    {entry["out"], Lookup[entry, "msgs", {}]},
+                    {entry, {}}
+                ];
+                Append[Append[b, "OutputBoxes" -> out], "Messages" -> msgs]
+            ],
+        b["Type"] === "Div",
+            (* recurse: walk the Div's inner blocks, the counter `i`
+               continues from the outer walk so each cell's hash and
+               output map line up. *)
+            Append[b, "Blocks" -> walk /@ b["Blocks"]],
+        True, b
+    ];
+    walk /@ blocks
 ]
 
 (* === notebook cell builders === *)
@@ -1595,13 +1639,35 @@ inlineImage[alt_String, src_String] := Block[{img = Quiet @ Import[src]},
 ]
 
 (* $math$ -> inline math; $$math$$ -> centered display math. The content is TeX
-   (LaTeX math notation): ImportString parses it into typeset boxes (SqrtBox,
-   FractionBox, ...). Fall back to a Wolfram-expression parse in TraditionalForm
-   if the TeX parse fails. *)
-texBoxes[math_String] := Block[{nb},
-    nb = Quiet @ ImportString["$" <> math <> "$", "TeX"];
-    If[MatchQ[nb, _Notebook], FirstCase[nb, Cell[BoxData[b_], ___] :> b, $Failed, Infinity], $Failed]
-]
+   (LaTeX math notation). The Wolfram`Parser`LaTeX` paclet (when installed)
+   is preferred - its LaTeXMathParse handles \mathbb / \frac / big operators
+   / Greek / named symbols properly. Fall back to ImportString[..., "TeX"]
+   (the built-in importer that drops styling) when the paclet isn't
+   available, and to a Wolfram-expression parse if that also fails. *)
+
+texBoxes[math_String] :=
+    Block[{r = wolframParserTeX[math]},
+        If[ r =!= $Failed, r, texBoxesViaImport[math] ]
+    ]
+
+wolframParserTeX[math_String] :=
+    If[ Length[Names["Wolfram`Parser`LaTeX`LaTeXMathParse"]] === 0,
+        $Failed,
+        Block[{r = Quiet @ Check[
+            Symbol["Wolfram`Parser`LaTeX`LaTeXMathParse"][math],
+            $Failed
+        ]},
+            If[MatchQ[r, _ParseError | $Failed | _Failure], $Failed, r]
+        ]
+    ]
+
+texBoxesViaImport[math_String] :=
+    Block[{nb = Quiet @ ImportString["$" <> math <> "$", "TeX"]},
+        If[ MatchQ[nb, _Notebook],
+            FirstCase[nb, Cell[BoxData[b_], ___] :> b, $Failed, Infinity],
+            $Failed
+        ]
+    ]
 
 mathInline[math_String] := Block[{boxes = texBoxes[math]},
     If[ boxes === $Failed,
@@ -2445,6 +2511,656 @@ resourceNotebook[resourceType_String, data0_] := Block[{template, data = Append[
         Notebook[cells, LightDark -> "Light", Sequence @@ FilterRules[{o}, Except[LightDark]]]]
 ]
 
+(* === Template: Chapter (Wolfram Book Tools) ===
+   A chapter notebook in the WolframBookTools sense: one Section heading
+   (with CounterAssignments -> {{"Section", n-1}, ...}), then body blocks
+   in the BookToolsStyles vocabulary. The H1 of the markdown is the chapter
+   title; the frontmatter "ChapterNumber:" sets the counter. H2 headings
+   are Subsection by default, but a fixed set of reserved titles
+   (Summary / Vocabulary / Exercises / Q&A / Tech Notes / More to Explore
+   / References / Takeaways / Resources / Key Concepts) drop the block
+   that follows them into the matching book-style back-matter section
+   instead. Multi-cell scaffolds that have no direct markdown analogue
+   (SolvedExample, Theorem/Proof, Exercise/Solution) are authored as
+   Pandoc-style ":::" fenced divs - see docs/book-palette.md for the full
+   markdown <-> cell-style mapping. *)
+
+$bookStyleSheet := FrontEnd`FileName[{"Wolfram"}, "BookToolsStyles.nb",
+    CharacterEncoding -> "UTF-8"]
+
+(* heading levels inside a chapter notebook: H2..H5 -> Subsection..Sub^4section.
+   H1 is reserved for the chapter title (rendered as the Section cell). *)
+$chapterHeadingStyle = <|
+    2 -> "Subsection",
+    3 -> "Subsubsection",
+    4 -> "Subsubsubsection",
+    5 -> "Subsubsubsubsection"
+|>
+
+(* H2 titles that select a named back-matter section style (case-insensitive,
+   trimmed). The value is the SectionStyle plus the body-cell context the
+   section renders in. *)
+$reservedH2 = <|
+    "summary"               -> "Summary",
+    "vocabulary"            -> "Vocabulary",
+    "vocab"                 -> "Vocabulary",
+    "key concepts"          -> "KeyConcepts",
+    "key terms"             -> "KeyConcepts",
+    "exercises"             -> "Exercises",
+    "exercise"              -> "Exercises",
+    "q&a"                   -> "QA",
+    "q & a"                 -> "QA",
+    "q and a"               -> "QA",
+    "questions"             -> "QA",
+    "questions and answers" -> "QA",
+    "tech notes"            -> "TechNotes",
+    "technical notes"       -> "TechNotes",
+    "more to explore"       -> "MoreExplore",
+    "more"                  -> "MoreExplore",
+    "further reading"       -> "MoreExplore",
+    "references"            -> "References",
+    "bibliography"          -> "References",
+    "resources"             -> "Resources",
+    "takeaways"             -> "Takeaways",
+    "key points"            -> "Takeaways"
+|>
+
+reservedSectionKindOf[heading_String] := Lookup[$reservedH2,
+    ToLowerCase[StringTrim[heading]], None]
+
+(* the chapter's Section heading: the canonical "<counter> | <title>" shape the
+   palette's New Chapter dialog writes (CounterBox + SectionBar separator +
+   title), with CounterAssignments resetting Section / Subsection /
+   Subsubsection / Exercise counters at the start of the chapter. *)
+chapterSectionCell[title_String, num_Integer] := Cell[
+    TextData[Join[
+        {CounterBox["Section"], StyleBox[" | ", "SectionBar"]},
+        inlineTextData[title]
+    ]],
+    "Section",
+    CounterAssignments -> {
+        {"Section", num - 1}, {"Subsection", 0},
+        {"Subsubsection", 0}, {"Exercise", 0}
+    }
+]
+chapterSectionCell[title_String, _] := Cell[
+    TextData[Join[{StyleBox[" | ", "SectionBar"]}, inlineTextData[title]]],
+    "Section"
+]
+
+(* a normal Input/Output pair re-styled to a given pair of styles (e.g.
+   ExerciseInput/ExerciseOutput, SolvedExampleInput/SolvedExampleOutput,
+   TechNoteInput/TechNoteOutput). Mirrors exampleIO but with custom styles
+   and without numbered In[]/Out[] labels - the book style sheets don't
+   carry those for the alt code styles. *)
+styledIOCells[block_, inStyle_String, outStyle_String] := Block[{
+    outBoxes = Lookup[block, "OutputBoxes", Missing[]],
+    code = block["Code"], inCell, outCell, msgs = Lookup[block, "Messages", {}]
+},
+    inCell = Cell[BoxData[inputBoxes[code]], inStyle];
+    Which[
+        MissingQ[outBoxes] || outBoxes === Null,
+            Prepend[messageCell /@ msgs, inCell] // (Flatten[{#}] &),
+        True,
+            outCell = Cell[BoxData[outBoxes], outStyle];
+            {Cell[CellGroupData[
+                Flatten[{inCell, messageCell /@ msgs, outCell}],
+                Open
+            ]]}
+    ]
+]
+
+(* "free-form" body cells - the cells produced inside an ordinary subsection
+   (i.e. one whose H2 isn't a reserved back-matter title), or inside the
+   chapter's introduction (the prose between the chapter heading and the
+   first H2). Mirrors defaultNotebook's per-block dispatch with book styles
+   substituted (Item/Subitem nested by list depth, CodeText for a colon-
+   ending prose line preceding an Input). The "counter" reference is shared
+   with the rest of the chapter (each evaluated Input gets the next In[n] /
+   Out[n] number, increasing through the whole notebook). *)
+$bookListLevel = 1
+$bookListStyle[1] = "Item"
+$bookListStyle[2] = "Subitem"
+$bookListStyle[_] = "Subsubitem"
+
+bookProseCell[block_, nextBlockType_String] := Block[{text = block["Text"]},
+    If[StringEndsQ[StringTrim[text], ":"] &&
+        ! StringContainsQ[text, "\n"] && nextBlockType === "Code",
+        Cell[TextData @ inlineTextData[text], "CodeText"],
+        Cell[TextData @ inlineTextData[text], "Text"]
+    ]
+]
+
+(* free-form (subsection-level) cell from a block. `next` is the type of the
+   following block (used to decide CodeText vs Text for caption-like prose). *)
+bookFreeCells[block_, next_String, counterSym_] := Switch[block["Type"],
+    "Heading",
+        {Cell[headingText[block["Text"]],
+            Lookup[$chapterHeadingStyle, block["Level"], "Subsubsubsection"]]},
+    "Prose",
+        {bookProseCell[block, next]},
+    "List",
+        listItemCells[block, "Item"],
+    "Table",
+        {tableCell[block]},
+    "Quote",
+        {quoteCell[block["Text"]]},
+    "MathBlock",
+        {mathBlockCell[block["Text"]]},
+    "Image",
+        {imageCell[block]},
+    "Code",
+        If[ executableQ[block],
+            $chapterCounter += 1;
+            exampleIOFor[block, $chapterCounter],
+            withCellFlag[block, {Cell[block["Code"], "Program"]}]
+        ],
+    "Div",
+        bookDivCells[block, counterSym],
+    "Separator",
+        {Cell["", "ExampleDelimiter"]},
+    _, {}
+]
+
+(* the fenced-div dispatch: each ::: kind opens one of the Book Tools
+   multi-cell scaffolds. Kinds we handle: solved-example, theorem,
+   theorem-numbered, proof, exercise, solution. Anything else falls back to
+   rendering the inner blocks as plain free-form cells. *)
+bookDivCells[block_, counterSym_] := Block[{
+    kind = ToLowerCase[StringTrim[StringReplace[block["Kind"], "_" -> "-"]]],
+    inner = block["Blocks"]
+},
+    Switch[kind,
+        "solved-example",       solvedExampleCells[inner, counterSym, False],
+        "solved-example-numbered", solvedExampleCells[inner, counterSym, True],
+        "theorem",              theoremCells[inner, counterSym, False],
+        "theorem-numbered",     theoremCells[inner, counterSym, True],
+        "proof",                proofCells[inner, counterSym, False],
+        "proof-numbered",       proofCells[inner, counterSym, True],
+        "exercise",             exerciseDivCells[inner, counterSym],
+        "solution",             solutionDivCells[inner, counterSym],
+        _,
+            Flatten[Map[
+                bookFreeCells[#, "", counterSym] &,
+                inner
+            ]]
+    ]
+]
+
+(* SolvedExample scaffold. The first non-code inner block is the lead-in
+   that becomes the SolvedExampleNote, the inner ``wl`` blocks become
+   SolvedExampleInput / SolvedExampleOutput, and any inner display math
+   becomes SolvedExampleDisplayFormula(Numbered). A SolvedExampleEndCap
+   terminates the group. If `numbered`, the heading carries CounterBox
+   counters; otherwise it's just titled "Solved Example" plus the lead-in. *)
+solvedExampleCells[inner_List, counterSym_, numbered_] := Block[{
+    headBlock, restBlocks, headTextData, headCell
+},
+    {headBlock, restBlocks} = If[
+        inner =!= {} && First[inner]["Type"] === "Prose",
+        {First[inner], Rest[inner]},
+        {<|"Type" -> "Prose", "Text" -> "Solved Example"|>, inner}
+    ];
+    headTextData = If[numbered,
+        Join[inlineTextData[headBlock["Text"] <> " "],
+            {CounterBox["Section"], ".", CounterBox["SolvedExample"]}],
+        inlineTextData[headBlock["Text"]]
+    ];
+    headCell = Cell[TextData[headTextData], "SolvedExample"];
+    Join[
+        {headCell},
+        Flatten @ Map[bookSolvedInnerCells[#, counterSym] &, restBlocks],
+        {Cell["", "SolvedExampleEndCap"]}
+    ]
+]
+
+bookSolvedInnerCells[block_, counterSym_] := Switch[block["Type"],
+    "Prose",
+        {Cell[TextData @ inlineTextData[block["Text"]], "SolvedExampleNote"]},
+    "Code",
+        If[ executableQ[block],
+            styledIOCells[block, "SolvedExampleInput", "SolvedExampleOutput"],
+            {Cell[block["Code"], "SolvedExampleInput"]}
+        ],
+    "MathBlock",
+        With[{nm = Lookup[block, "Numbered", False]},
+            {Cell[BoxData[PaneBox[
+                Replace[texBoxes[block["Text"]], $Failed ->
+                    FormBox[inputBoxes[block["Text"]], TraditionalForm]],
+                ImageSize -> Full, Alignment -> Center]],
+                If[TrueQ[nm], "SolvedExampleDisplayFormulaNumbered",
+                    "SolvedExampleDisplayFormula"]]}
+        ],
+    "List",
+        listItemCells[block, "Item"],
+    _, bookFreeCells[block, "", counterSym]
+]
+
+(* Theorem scaffold: a Theorem heading (with CounterBox counters when
+   numbered), then a TheoremStatement (the first prose paragraph if any),
+   then any further inner blocks rendered as free-form cells. The
+   ProofTheoremEndCap terminates the group only when nested under a Proof. *)
+theoremCells[inner_List, counterSym_, numbered_] := Block[{
+    headBlock, restBlocks, headTextData, headCell, statementCell, rest
+},
+    {headBlock, restBlocks} = If[
+        inner =!= {} && First[inner]["Type"] === "Prose",
+        {First[inner], Rest[inner]},
+        {<|"Type" -> "Prose", "Text" -> "Theorem"|>, inner}
+    ];
+    headTextData = If[numbered,
+        Join[inlineTextData[headBlock["Text"] <> " "],
+            {CounterBox["Section"], ".", CounterBox["Subsection"]}],
+        inlineTextData[headBlock["Text"]]
+    ];
+    headCell = Cell[TextData[headTextData], "Theorem"];
+    (* split the statement cell out of restBlocks without using a multi-
+       assignment - {Nothing, x} would auto-collapse to {x} and break Set. *)
+    If[restBlocks =!= {} && First[restBlocks]["Type"] === "Prose",
+        statementCell = Cell[TextData @ inlineTextData[First[restBlocks]["Text"]],
+            "TheoremStatement"];
+        rest = Rest[restBlocks]
+    ,
+        statementCell = Nothing;
+        rest = restBlocks
+    ];
+    Join[{headCell, statementCell},
+        Flatten @ Map[bookFreeCells[#, "", counterSym] &, rest]]
+]
+
+proofCells[inner_List, counterSym_, numbered_] := Block[{
+    rest, contentCells
+},
+    contentCells = Flatten @ Map[bookProofInnerCells[#, counterSym] &, inner];
+    Join[{Cell["Proof", "Proof"]}, contentCells,
+        {Cell["", "ProofTheoremEndCap"]}]
+]
+
+bookProofInnerCells[block_, counterSym_] := Switch[block["Type"],
+    "Prose",
+        {Cell[TextData @ inlineTextData[block["Text"]], "ProofContent"]},
+    "MathBlock",
+        {Cell[BoxData[PaneBox[
+            Replace[texBoxes[block["Text"]], $Failed ->
+                FormBox[inputBoxes[block["Text"]], TraditionalForm]],
+            ImageSize -> Full, Alignment -> Center]],
+            "ProofTheoremDisplayFormula"]},
+    _, bookFreeCells[block, "", counterSym]
+]
+
+(* one Exercise. The first prose line becomes the Exercise prompt cell;
+   subsequent prose/code/list/math blocks render in the Exercise context
+   (paragraphs -> ExerciseNote, ``wl`` -> ExerciseInput/ExerciseOutput).
+   A nested ::: solution div opens the ExerciseSolution group. *)
+exerciseDivCells[inner_List, counterSym_] := Block[{
+    promptBlock, rest, promptCell
+},
+    {promptBlock, rest} = If[
+        inner =!= {} && First[inner]["Type"] === "Prose",
+        {First[inner], Rest[inner]},
+        {<|"Type" -> "Prose", "Text" -> "Exercise"|>, inner}
+    ];
+    promptCell = Cell[TextData @ inlineTextData[promptBlock["Text"]],
+        "Exercise"];
+    Prepend[
+        Flatten @ Map[bookExerciseInnerCells[#, counterSym] &, rest],
+        promptCell
+    ]
+]
+
+bookExerciseInnerCells[block_, counterSym_] := Switch[block["Type"],
+    "Prose",
+        {Cell[TextData @ inlineTextData[block["Text"]], "ExerciseNote"]},
+    "Code",
+        If[ executableQ[block],
+            styledIOCells[block, "ExerciseInput", "ExerciseOutput"],
+            {Cell[block["Code"], "ExerciseInput"]}
+        ],
+    "List",
+        listItemCells[block, "Item"],
+    "MathBlock",
+        {mathBlockCell[block["Text"]]},
+    "Div",
+        If[ToLowerCase[StringTrim[block["Kind"]]] === "solution",
+            solutionDivCells[block["Blocks"], counterSym],
+            bookDivCells[block, counterSym]
+        ],
+    _, bookFreeCells[block, "", counterSym]
+]
+
+solutionDivCells[inner_List, counterSym_] := Join[
+    {Cell["Solution", "ExerciseSolution"]},
+    Flatten @ Map[bookSolutionInnerCells[#, counterSym] &, inner]
+]
+
+bookSolutionInnerCells[block_, counterSym_] := Switch[block["Type"],
+    "Prose",
+        {Cell[TextData @ inlineTextData[block["Text"]], "SolutionAnswer"]},
+    "Code",
+        If[ executableQ[block],
+            styledIOCells[block, "ExerciseInput", "ExerciseOutput"],
+            {Cell[block["Code"], "ExerciseInput"]}
+        ],
+    "List",
+        Map[Cell[TextData @ inlineTextData[#], "SolutionItem"] &,
+            block["Items"]],
+    _, bookFreeCells[block, "", counterSym]
+]
+
+(* === reserved back-matter sections === *)
+
+(* group consecutive blocks under H2 boundaries. Returns a list of
+   {<heading or None>, {blocks}} pairs. The first group has heading None
+   if there is intro content before the first H2; subsequent groups carry
+   their H2 heading block as the first element. *)
+groupByH2[blocks_List] := Block[{groups = {}, current = None, currentBlocks = {}, finalize},
+    finalize[h_, bs_] := AppendTo[groups, {h, bs}];
+    Do[
+        If[b["Type"] === "Heading" && b["Level"] === 2,
+            finalize[current, currentBlocks];
+            current = b; currentBlocks = {},
+            AppendTo[currentBlocks, b]
+        ],
+        {b, blocks}
+    ];
+    finalize[current, currentBlocks];
+    DeleteCases[groups, {None, {}}]
+]
+
+(* Summary section: heading -> SummarySection; paragraphs -> SummaryNote;
+   bullets -> SummaryList. *)
+summarySectionCells[heading_, blocks_, counterSym_] := Prepend[
+    Catenate @ Map[
+        b |-> Switch[b["Type"],
+            "Prose", {Cell[TextData @ inlineTextData[b["Text"]], "SummaryNote"]},
+            "List",  listItemCells[b, "SummaryList"],
+            _, bookFreeCells[b, "", counterSym]
+        ],
+        blocks
+    ],
+    Cell[headingText[heading["Text"]], "SummarySection"]
+]
+
+(* Vocabulary: a 2-column pipe table becomes a VocabularyTable GridBox;
+   anything else renders free-form (so subsection headings nested inside
+   vocab still work). *)
+vocabularyTableCellFromTable[block_] := Cell[
+    BoxData[GridBox[
+        Map[
+            row |-> {RowBox[{
+                row[[1]], " ",
+                Cell[row[[2]], "VocabularyText"]
+            }]},
+            block["Rows"]
+        ]
+    ]],
+    "VocabularyTable"
+]
+
+vocabularySectionCells[heading_, blocks_, counterSym_] := Prepend[
+    Catenate @ Map[
+        b |-> Switch[b["Type"],
+            "Table",
+                {vocabularyTableCellFromTable[b]},
+            "Prose",
+                {Cell[TextData @ inlineTextData[b["Text"]], "Text"]},
+            "Heading",
+                {Cell[headingText[b["Text"]],
+                    Switch[b["Level"],
+                        3, "VocabularySubsection",
+                        4, "VocabularySubsubsection",
+                        _, "VocabularySubsection"]]},
+            _, bookFreeCells[b, "", counterSym]
+        ],
+        blocks
+    ],
+    Cell[headingText[heading["Text"]], "VocabularySection"]
+]
+
+(* KeyConcepts: a "Key Concepts" / "Key Terms" H2 - renders the heading as
+   a regular Subsection and the bulleted list as plain Items (the EIWL-style
+   "things you'll learn" bullet list at the top of a chapter). *)
+keyConceptsSectionCells[heading_, blocks_, counterSym_] := Prepend[
+    Catenate @ Map[bookFreeCells[#, "", counterSym] &, blocks],
+    Cell[headingText[heading["Text"]], "Subsection"]
+]
+
+(* Exercises: heading -> ExerciseSection; H3 -> ExerciseSubsection; each
+   "::: exercise" div is one Exercise group; bare ordered-list items
+   collapse to single-line Exercise cells. *)
+exercisesSectionCells[heading_, blocks_, counterSym_] := Prepend[
+    Catenate @ Map[
+        b |-> Switch[b["Type"],
+            "Heading",
+                {Cell[headingText[b["Text"]],
+                    If[b["Level"] === 3, "ExerciseSubsection",
+                        Lookup[$chapterHeadingStyle, b["Level"],
+                            "Subsubsection"]]]},
+            "Prose",
+                {Cell[TextData @ inlineTextData[b["Text"]],
+                    "ExerciseSectionNote"]},
+            "List",
+                Map[Cell[TextData @ inlineTextData[#], "Exercise"] &,
+                    b["Items"]],
+            "Div",
+                bookDivCells[b, counterSym],
+            _, bookFreeCells[b, "", counterSym]
+        ],
+        blocks
+    ],
+    Cell[headingText[heading["Text"]], "ExerciseSection"]
+]
+
+(* Q&A: heading -> QASection; paragraph that starts with Q. / Q: / Q -
+   trims that lead-in and becomes a Question; same for A. -> Answer.
+   Anything else falls through to a plain Text cell. *)
+qaProseCell[text_String] := Block[{trimmed = StringTrim[text]},
+    Which[
+        StringMatchQ[trimmed, ("Q." | "Q:" | "Q -" | "**Q.**" | "**Q:**") ~~ Whitespace ~~ ___],
+            Cell[TextData @ inlineTextData @ StringTrim @
+                StringReplace[trimmed,
+                    StartOfString ~~ ("**Q.**" | "**Q:**" | "Q." | "Q:" | "Q -") ~~ Whitespace -> ""],
+                "Question"],
+        StringMatchQ[trimmed, ("A." | "A:" | "A -" | "**A.**" | "**A:**") ~~ Whitespace ~~ ___],
+            Cell[TextData @ inlineTextData @ StringTrim @
+                StringReplace[trimmed,
+                    StartOfString ~~ ("**A.**" | "**A:**" | "A." | "A:" | "A -") ~~ Whitespace -> ""],
+                "Answer"],
+        True,
+            Cell[TextData @ inlineTextData[text], "Text"]
+    ]
+]
+
+qaSectionCells[heading_, blocks_, counterSym_] := Prepend[
+    Catenate @ Map[
+        b |-> Switch[b["Type"],
+            "Prose", {qaProseCell[b["Text"]]},
+            "List",  listItemCells[b, "Item"],
+            _, bookFreeCells[b, "", counterSym]
+        ],
+        blocks
+    ],
+    Cell[headingText[heading["Text"]], "QASection"]
+]
+
+(* Tech Notes: heading -> TechNoteSection; paragraphs -> TechNote; code ->
+   TechNoteInput/Output; list items -> TechNoteItem. *)
+techNotesSectionCells[heading_, blocks_, counterSym_] := Prepend[
+    Catenate @ Map[
+        b |-> Switch[b["Type"],
+            "Prose", {Cell[TextData @ inlineTextData[b["Text"]], "TechNote"]},
+            "Code",
+                If[ executableQ[b],
+                    styledIOCells[b, "TechNoteInput", "TechNoteOutput"],
+                    {Cell[b["Code"], "TechNoteInput"]}
+                ],
+            "List",
+                Map[Cell[TextData @ inlineTextData[#], "TechNoteItem"] &,
+                    b["Items"]],
+            "MathBlock", {mathBlockCell[b["Text"]]},
+            _, bookFreeCells[b, "", counterSym]
+        ],
+        blocks
+    ],
+    Cell[headingText[heading["Text"]], "TechNoteSection"]
+]
+
+(* More to Explore: heading -> MoreExploreSection; bullets -> MoreExplore;
+   bare-URL prose -> MoreExploreShortURL. *)
+moreExploreCell[text_String] := Cell[TextData @ inlineTextData[text],
+    If[StringMatchQ[StringTrim[text], "http" ~~ ___ | "wolfr.am/" ~~ ___],
+        "MoreExploreShortURL", "MoreExplore"]
+]
+
+moreExploreSectionCells[heading_, blocks_, counterSym_] := Prepend[
+    Catenate @ Map[
+        b |-> Switch[b["Type"],
+            "Prose", {moreExploreCell[b["Text"]]},
+            "List",
+                Map[Cell[TextData @ inlineTextData[#], "MoreExplore"] &,
+                    b["Items"]],
+            _, bookFreeCells[b, "", counterSym]
+        ],
+        blocks
+    ],
+    Cell[headingText[heading["Text"]], "MoreExploreSection"]
+]
+
+(* References: heading -> ReferenceSection; bullets / paragraphs ->
+   Reference cells. *)
+referencesSectionCells[heading_, blocks_, counterSym_] := Prepend[
+    Catenate @ Map[
+        b |-> Switch[b["Type"],
+            "Prose", {Cell[TextData @ inlineTextData[b["Text"]], "Reference"]},
+            "List",
+                Map[Cell[TextData @ inlineTextData[#], "Reference"] &,
+                    b["Items"]],
+            _, bookFreeCells[b, "", counterSym]
+        ],
+        blocks
+    ],
+    Cell[headingText[heading["Text"]], "ReferenceSection"]
+]
+
+resourcesSectionCells[heading_, blocks_, counterSym_] := Prepend[
+    Catenate @ Map[
+        b |-> Switch[b["Type"],
+            "Prose", {Cell[TextData @ inlineTextData[b["Text"]], "ResourcesText"]},
+            "List",
+                Map[Cell[TextData @ inlineTextData[#], "ResourcesText"] &,
+                    b["Items"]],
+            _, bookFreeCells[b, "", counterSym]
+        ],
+        blocks
+    ],
+    Cell[headingText[heading["Text"]], "ResourcesSubsection"]
+]
+
+takeawaysSectionCells[heading_, blocks_, counterSym_] := Prepend[
+    Catenate @ Map[
+        b |-> Switch[b["Type"],
+            "Prose", {Cell[TextData @ inlineTextData[b["Text"]], "TakeawaysText"]},
+            "List",
+                Map[Cell[TextData @ inlineTextData[#], "TakeawaysText"] &,
+                    b["Items"]],
+            _, bookFreeCells[b, "", counterSym]
+        ],
+        blocks
+    ],
+    Cell[headingText[heading["Text"]], "TakeawaysSection"]
+]
+
+(* dispatch: given an H2 heading block (or None) plus its body blocks,
+   build the cells for that group. None means "intro content before the
+   first H2" - emit it as free-form cells. *)
+chapterGroupCells[None, blocks_, counterSym_] :=
+    Block[{i, next, out = {}},
+        Do[
+            next = If[i < Length[blocks], blocks[[i + 1]]["Type"], ""];
+            out = Join[out, bookFreeCells[blocks[[i]], next, counterSym]],
+            {i, Length[blocks]}
+        ];
+        out
+    ]
+chapterGroupCells[heading_Association, blocks_, counterSym_] := Block[{
+    kind = reservedSectionKindOf[heading["Text"]], i, next, out
+},
+    Switch[kind,
+        "Summary",      summarySectionCells[heading, blocks, counterSym],
+        "Vocabulary",   vocabularySectionCells[heading, blocks, counterSym],
+        "KeyConcepts",  keyConceptsSectionCells[heading, blocks, counterSym],
+        "Exercises",    exercisesSectionCells[heading, blocks, counterSym],
+        "QA",           qaSectionCells[heading, blocks, counterSym],
+        "TechNotes",    techNotesSectionCells[heading, blocks, counterSym],
+        "MoreExplore",  moreExploreSectionCells[heading, blocks, counterSym],
+        "References",   referencesSectionCells[heading, blocks, counterSym],
+        "Resources",    resourcesSectionCells[heading, blocks, counterSym],
+        "Takeaways",    takeawaysSectionCells[heading, blocks, counterSym],
+        _,
+            out = {Cell[headingText[heading["Text"]], "Subsection"]};
+            Do[
+                next = If[i < Length[blocks], blocks[[i + 1]]["Type"], ""];
+                out = Join[out, bookFreeCells[blocks[[i]], next, counterSym]],
+                {i, Length[blocks]}
+            ];
+            out
+    ]
+]
+
+(* `counterSym` is a Block-local symbol so the nested helpers can SetDelayed
+   on it (the value mutates as wl example cells get In[n]/Out[n] labels).
+   We carry it as an explicit argument through the section dispatchers so
+   each is closure-free. *)
+chapterNotebook[data_] := Block[{
+    meta = data["meta"], blocks = data["blocks"],
+    title, chapterNum, groups, bodyCells, $chapterCounter = 0, frontmatterOpts,
+    firstH1, contentBlocks
+},
+    (* Drop the H1 heading from the body: the chapter title is the Section
+       heading we emit ourselves, not a Subsection/.. inside the chapter.
+       Fall back to the H1 text for the title when Name: is absent. *)
+    firstH1 = SelectFirst[blocks,
+        # =!= Null && #["Type"] === "Heading" && #["Level"] === 1 &, Null];
+    contentBlocks = DeleteCases[blocks,
+        b_ /; AssociationQ[b] && b["Type"] === "Heading" && b["Level"] === 1];
+    title = Lookup[meta, "Name", Lookup[meta, "Title",
+        If[firstH1 =!= Null, firstH1["Text"], ""]]];
+    chapterNum = With[{n = Lookup[meta, "ChapterNumber", Missing[]]},
+        Which[
+            IntegerQ[n], n,
+            StringQ[n] && StringMatchQ[StringTrim[n], DigitCharacter ..],
+                ToExpression[StringTrim[n]],
+            True, Missing[]
+        ]
+    ];
+    (* a Title-style banner above the chapter heading - used only when a
+       Subtitle frontmatter key is set, to mimic the palette's optional
+       Subchapter cell. The chapter title itself always renders as the
+       Section heading. *)
+    groups = groupByH2[contentBlocks];
+    bodyCells = Catenate @ Map[
+        chapterGroupCells[#[[1]], #[[2]], $chapterCounter] &,
+        groups
+    ];
+    frontmatterOpts = DeleteCases[{
+        With[{pw = Lookup[meta, "PageWidth", Inherited]},
+            If[NumericQ[pw], PageWidth -> pw, Nothing]],
+        With[{spb = Lookup[meta, "ShowPageBreaks", Inherited]},
+            If[BooleanQ[spb], ShowPageBreaks -> spb, Nothing]]
+    }, Nothing];
+    Notebook[
+        Join[
+            {chapterSectionCell[title,
+                Replace[chapterNum, Except[_Integer] -> 0]]},
+            If[Lookup[meta, "Subtitle", ""] =!= "",
+                {Cell[Lookup[meta, "Subtitle", ""], "Subchapter"]}, {}],
+            bodyCells
+        ],
+        StyleDefinitions -> $bookStyleSheet,
+        Sequence @@ frontmatterOpts
+    ]
+]
+
 buildNotebook["FunctionResource", data_] := resourceNotebook["Function", data]
 buildNotebook["Paclet", data_] := resourceNotebook["Paclet", data]
 buildNotebook["Example", data_] := resourceNotebook["Example", data]
@@ -2457,6 +3173,8 @@ buildNotebook["TechNote", data_] := tutorialNotebook[data]
 buildNotebook["Overview", data_] := overviewNotebook[data]
 buildNotebook["ComputationalEssay", data_] := essayNotebook[data]
 buildNotebook["Essay", data_] := essayNotebook[data]
+buildNotebook["Chapter", data_] := chapterNotebook[data]
+buildNotebook["BookChapter", data_] := chapterNotebook[data]
 buildNotebook["LLMTool", data_] := resourceNotebook["LLMTool", data]
 buildNotebook[_, data_] := defaultNotebook[data]
 
@@ -2562,6 +3280,9 @@ markdownWithImages[blocks_, meta_, target_String] := Block[{dir, base, imgDir, n
         "MathBlock", "$$ " <> b["Text"] <> " $$",
         "Image", "![" <> Lookup[b, "Alt", ""] <> "](" <> Lookup[b, "Path", ""] <> ")",
         "Code", codeMd[b],
+        "Div", "::: " <> b["Kind"] <> "\n\n" <>
+            StringRiffle[DeleteCases[mdOf /@ b["Blocks"], ""], "\n\n"] <>
+            "\n\n:::",
         _, ""
     ];
     Export[target, serializeFrontmatter[meta] <> "\n" <> StringRiffle[DeleteCases[mdOf /@ blocks, ""], "\n\n"] <> "\n", "Text"];
@@ -2652,7 +3373,10 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
     (* evaluate every executable cell in document order, threading state in a
        private context (so the document's own code can't clobber the live
        session), cached by a cumulative hash of all cells up to each one. *)
-    orderedCode = Cases[blocks, b_ /; executableQ[b]];
+    (* recurse into Div blocks so executable cells nested inside ::: fenced
+       divs (exercises, solutions, solved-examples, ...) get evaluated and
+       cached alongside the top-level cells. *)
+    orderedCode = Cases[blocks, b_ /; executableQ[b], Infinity];
     hashes = cumulativeHashes[orderedCode];
     ctx = "MTNB$" <> IntegerString[Hash[text], 36] <> "`";
     (* let example cells resolve the documented paclet's symbols unqualified, plus
