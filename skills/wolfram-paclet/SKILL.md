@@ -54,7 +54,17 @@ ID (`Publisher/PacletName`); `MainGuide` is the **relative** notebook path, not 
 bare name; `Description` must match `PacletInfo.wl`'s `"Description"` exactly; each
 `Sources` entry is one citation (commas inside it are preserved). `Categories` fills
 a fixed checkbox group, so always set it to one or more **valid Paclet Repository
-categories** (do not invent names) - an empty group is a submission hint.
+categories** (do not invent names) - an empty group is a submission hint. The
+valid set is exactly these 23 (from `ResourceSystemClient`Private`resourceSortingProperties["Paclet"]["Categories"]`):
+Cloud & Deployment, Core Language & Structure, Data Manipulation & Analysis,
+Engineering Data & Computation, External Interfaces & Connections,
+Financial Data & Computation, Geographic Data & Computation, Geometry,
+Graphs & Networks, Higher Mathematical Computation, Images,
+Knowledge Representation & Natural Language, Machine Learning,
+Notebook Documents & Presentation, Scientific and Medical Data & Computation,
+Social, Cultural & Linguistic Data, Sound & Video, Strings & Text,
+Symbolic & Numeric Computation, System Operation & Setup,
+Time-Related Computation, User Interface Construction, Visualization & Graphics.
 
 ## Sections
 

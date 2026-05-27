@@ -495,15 +495,22 @@ messageMd[_] := ""
    *one* mechanism that respects all of those: whatever the kernel decides
    to actually print, we capture verbatim. *)
 
-captureMessages[expr_] := Block[{tmp, stream, res, txt, msgs},
-    tmp = FileNameJoin[{$TemporaryDirectory,
+(* The local file path here must NOT be named `tmp` - the caller (accumEval)
+   has its own `tmp` holding the cell source file path, and captureMessages
+   is HoldFirst, so the `Get[tmp]` inside `captureMessages @ Get[tmp]` is
+   evaluated only after Block re-binds `tmp` to OUR message file. The
+   captured Get then reads the empty message file and returns Null - the
+   bug that made every example cell's output Null. Use `msgFile` so the
+   shadow can't happen. *)
+captureMessages[expr_] := Block[{msgFile, stream, res, txt, msgs},
+    msgFile = FileNameJoin[{$TemporaryDirectory,
         "mtnb-msg-" <> IntegerString[$KernelID, 36] <> "-" <>
         IntegerString[RandomInteger[10^9], 36] <> ".txt"}];
-    stream = OpenWrite[tmp];
+    stream = OpenWrite[msgFile];
     res = Block[{$Messages = {stream}}, expr];
     Close[stream];
-    txt = If[FileExistsQ[tmp], Quiet @ Import[tmp, "Text"], ""];
-    Quiet @ DeleteFile[tmp];
+    txt = If[FileExistsQ[msgFile], Quiet @ Import[msgFile, "Text"], ""];
+    Quiet @ DeleteFile[msgFile];
     msgs = If[StringQ[txt] && StringTrim[txt] =!= "",
         DeleteCases[Map[StringTrim, StringSplit[txt, "\n\n"]], ""],
         {}];
