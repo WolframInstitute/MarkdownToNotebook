@@ -1,3 +1,6 @@
 [submodule "examples/AccessibleColors"]
 	path = examples/AccessibleColors
 	url = https://github.com/sw1sh/AccessibleColors.git
+[submodule "examples/PAdic"]
+	path = examples/PAdic
+	url = https://github.com/sw1sh/PAdic.git

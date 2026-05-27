@@ -46,10 +46,10 @@ testBlocksFrom[file_String] := With[{
 
 runTestBlock[b_] := Block[{result, name, ok},
     result = Quiet @ ToExpression[b["Code"]];
-    name = If[Head[result] === TestObject, result["TestID"], "(no TestID)"];
-    ok = Head[result] === TestObject && result["Outcome"] === "Success";
+    name = If[MatchQ[result, _TestObject], result["TestID"], "(no TestID)"];
+    ok = MatchQ[result, _TestObject] && result["Outcome"] === "Success";
     recordResult[name, ok];
-    If[ ! ok && Head[result] === TestObject,
+    If[ ! ok && MatchQ[result, _TestObject],
         print["     expected: ", ToString[result["ExpectedOutput"], InputForm],
               "\n     actual:   ", ToString[result["ActualOutput"], InputForm],
               "\n     outcome:  ", result["Outcome"]]

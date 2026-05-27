@@ -25,7 +25,7 @@ paths = Select[Join[
 ], FreeQ[#, "-out"] &]
 
 Scan[
-    p |-> Module[{hints = checkNb[p]},
+    p |-> Block[{hints = checkNb[p]},
         print[""];
         print["==== ", FileNameTake[p], " (", Length[hints], " hint", If[Length[hints] == 1, "", "s"], ") ===="];
         Scan[

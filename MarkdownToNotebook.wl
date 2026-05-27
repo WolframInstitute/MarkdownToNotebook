@@ -427,7 +427,7 @@ If[! ValueQ[$convertDepth], $convertDepth = 0]
    LightDark -> "Light" already baked in; appending a second LightDark would
    leave both in the option sequence and the front end would honour the first
    (Light) one, so strip any existing LightDark before setting ours. *)
-resultNotebook[res_] := Block[{nb = If[Head[res] === NotebookObject, NotebookGet[res], res]},
+resultNotebook[res_] := Block[{nb = If[MatchQ[res, _NotebookObject], NotebookGet[res], res]},
     nb /. Notebook[c_, o___] :> Notebook[c, Sequence @@ DeleteCases[{o}, LightDark -> _], LightDark -> $lightDark]
 ]
 
@@ -457,7 +457,7 @@ capRaster[img_] := If[ ! ImageQ[img], img,
 
 outputBoxes[res_, opts_] := Which[
     res === Null, Null,
-    Head[res] === NotebookObject,
+    MatchQ[res, _NotebookObject],
         (* a whole-notebook thumbnail can be enormous; rasterize at a lower
            resolution and cap the height so the cell does not trip the analysis
            "huge raster" / "large screen area" checks, while still showing the
@@ -465,7 +465,7 @@ outputBoxes[res_, opts_] := Which[
         With[{img = Quiet @ Rasterize[resultNotebook[res], ImageResolution -> 96]},
             Quiet @ NotebookClose[res];
             ToBoxes @ capRaster[img]],
-    TrueQ[Lookup[opts, "screenshot", False]] && Head[res] === Notebook,
+    TrueQ[Lookup[opts, "screenshot", False]] && MatchQ[res, _Notebook],
         ToBoxes @ capRaster @ Quiet @ Rasterize[resultNotebook[res], ImageResolution -> 144],
     True, ToBoxes[res]
 ]
@@ -495,7 +495,7 @@ messageMd[_] := ""
    *one* mechanism that respects all of those: whatever the kernel decides
    to actually print, we capture verbatim. *)
 
-captureMessages[expr_] := Module[{tmp, stream, res, txt, msgs},
+captureMessages[expr_] := Block[{tmp, stream, res, txt, msgs},
     tmp = FileNameJoin[{$TemporaryDirectory,
         "mtnb-msg-" <> IntegerString[$KernelID, 36] <> "-" <>
         IntegerString[RandomInteger[10^9], 36] <> ".txt"}];
@@ -1593,7 +1593,7 @@ inlineImage[alt_String, src_String] := Block[{img = Quiet @ Import[src]},
    if the TeX parse fails. *)
 texBoxes[math_String] := Block[{nb},
     nb = Quiet @ ImportString["$" <> math <> "$", "TeX"];
-    If[Head[nb] === Notebook, FirstCase[nb, Cell[BoxData[b_], ___] :> b, $Failed, Infinity], $Failed]
+    If[MatchQ[nb, _Notebook], FirstCase[nb, Cell[BoxData[b_], ___] :> b, $Failed, Infinity], $Failed]
 ]
 
 mathInline[math_String] := Block[{boxes = texBoxes[math]},
@@ -2161,22 +2161,31 @@ tocCell[content_, style_String] := Cell[
    from the frontmatter "Name:" key and is filled into the template's
    single TOCDocumentTitle cell separately, so emitting another body cell
    of the same style would duplicate the title. *)
-overviewBodyCells[blocks_, paclet_String] := Block[{out = {}, parentDepth = 1},
-    Scan[
-        block |-> Switch[block["Type"],
-            "Heading", If[block["Level"] >= 2,
-                AppendTo[out, tocCell[tocCellContent[block["Text"], paclet], tocStyleFor[block["Level"]]]];
-                parentDepth = block["Level"]
-            ],
-            "List", Scan[
-                AppendTo[out, tocCell[tocCellContent[#, paclet], tocStyleFor[parentDepth + 1]]] &,
-                block["Items"]
-            ],
-            _, Null
-        ],
-        blocks
-    ];
-    out
+(* Fold threads the parent-heading depth through the block walk: each step
+   sees the running depth and the cells emitted so far, and returns the
+   updated pair. The result is a single allocation - no AppendTo growing a
+   list one element at a time. *)
+overviewBodyCells[blocks_, paclet_String] := Last @ Fold[
+    Function[{state, block},
+        Block[{depth = First[state], cells = Last[state], lvl},
+            Switch[block["Type"],
+                "Heading",
+                    lvl = block["Level"];
+                    If[ lvl >= 2,
+                        {lvl, Append[cells, tocCell[tocCellContent[block["Text"], paclet], tocStyleFor[lvl]]]},
+                        {depth, cells}
+                    ],
+                "List",
+                    {depth, Join[cells, Map[
+                        tocCell[tocCellContent[#, paclet], tocStyleFor[depth + 1]] &,
+                        block["Items"]
+                    ]]},
+                _, state
+            ]
+        ]
+    ],
+    {1, {}},
+    blocks
 ]
 
 (* Group a flat sequence of TOC cells into the nested CellGroupData tree the
@@ -2330,7 +2339,7 @@ $essayTemplate := $essayTemplate = Replace[
 ]
 
 essayNotebook[data_] := Block[{meta = data["meta"], counter = 0, header, body,
-    templateOpts = If[Head[$essayTemplate] === Notebook, Rest[List @@ $essayTemplate],
+    templateOpts = If[MatchQ[$essayTemplate, _Notebook], Rest[List @@ $essayTemplate],
         {StyleDefinitions -> "Default.nb"}]},
     header = essayHeaderCells[meta];
     body = Catenate @ MapIndexed[
