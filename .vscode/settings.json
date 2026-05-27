@@ -1,0 +1,22 @@
+{
+  // Override the Wolfram LSP launch command to disable ONLY the
+  // SuspiciousSessionSymbol lint (the Print / Exit "session symbol" warning).
+  // This replicates the extension's default kernel command and injects a
+  // SetOptions that adds "SuspiciousSessionSymbol" to CodeInspectCST's
+  // TagExclusions before the language server starts; every other lint still
+  // runs. (The LSP calls the low-level CodeInspectCST directly, which reads
+  // these option defaults, so SetOptions on it is what takes effect.)
+  //
+  // NOTE: the kernel path is machine-specific (Wolfram 15.0 here); update it
+  // if your install differs. Reload the VSCode/Cursor window after editing.
+  "wolfram.advanced.lsp.command": [
+    "/Applications/Wolfram 15.0.app/Contents/MacOS/WolframKernel",
+    "-noinit",
+    "-noprompt",
+    "-nopaclet",
+    "-noicon",
+    "-nostartuppaclets",
+    "-run",
+    "Needs[\"LSPServer`\"]; Needs[\"CodeInspector`\"]; SetOptions[CodeInspector`CodeInspectCST, \"TagExclusions\" -> {\"SuspiciousSessionSymbol\"}]; LSPServer`StartServer[]"
+  ]
+}

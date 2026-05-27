@@ -7,8 +7,6 @@
    cloud so the Applications section of MarkdownToNotebook.md can link a live URL
    for every template type. *)
 
-print[args___] := WriteString["stdout", StringJoin[ToString /@ {args}], "\n"]
-
 (* match the deployed-notebook appearance: pin the front end to light so the
    example-notebook thumbnails rendered during conversion are not darkened. *)
 Quiet @ UsingFrontEnd[CurrentValue[$FrontEnd, LightDark] = "Light"]
@@ -20,7 +18,7 @@ Get[FileNameJoin[{ParentDirectory[dir], "MarkdownToNotebook.wl"}]]
 Scan[DeleteObject, PersistentObjects["MarkdownToNotebook/ExampleOutput/*", "Local"]]
 
 sources = Select[FileNames["*.md", dir], ! StringEndsQ[#, "-out.md"] &]
-print["build: ", Length[sources], " example document(s) in ", FileNameTake[dir]]
+Print["build: ", Length[sources], " example document(s) in ", FileNameTake[dir]]
 
 (* Same deploy idiom as ../build.wls phase 5: open the notebook in a real front
    end, stamp CellIDs and save so the headless scraper can see every cell, build
@@ -65,25 +63,25 @@ deployedURL[obj_] := Replace[obj, {
 }]
 
 cloudReady = TrueQ[$CloudConnected] || (Quiet @ CloudConnect[]; TrueQ[$CloudConnected])
-If[ ! cloudReady, print["  warn: not cloud-connected, deploy steps will be skipped"] ]
+If[ ! cloudReady, Print["  warn: not cloud-connected, deploy steps will be skipped"] ]
 
 Scan[
     src |-> Block[{result, nb, outNb, deployed},
         result = MarkdownToNotebook[src, "Association"];
         nb = result["Notebook"];
         outNb = MarkdownToNotebook[src, FileNameJoin[{dir, FileBaseName[src] <> ".nb"}]];
-        print["  ", FileNameTake[src]];
-        print["    Template:       ", result["Template"]];
-        print["    Name:           ", result["Metadata"]["Name"]];
-        print["    Output cells:   ", Count[nb, Cell[_, "Output", ___], Infinity], " (evaluated examples)"];
-        print["    Unfilled slots: ", Count[nb, _TemplateSlot, Infinity]];
-        print["    wrote:          ", FileNameTake[outNb], " (", Head @ Quiet @ Get[outNb], ")"];
+        Print["  ", FileNameTake[src]];
+        Print["    Template:       ", result["Template"]];
+        Print["    Name:           ", result["Metadata"]["Name"]];
+        Print["    Output cells:   ", Count[nb, Cell[_, "Output", ___], Infinity], " (evaluated examples)"];
+        Print["    Unfilled slots: ", Count[nb, _TemplateSlot, Infinity]];
+        Print["    wrote:          ", FileNameTake[outNb], " (", Head @ Quiet @ Get[outNb], ")"];
         If[ cloudReady,
             deployed = deployResource[outNb, result["Template"], result["Metadata"]["Name"]];
-            print["    deployed:       ", deployedURL[deployed]]
+            Print["    deployed:       ", deployedURL[deployed]]
         ]
     ],
     sources
 ]
 
-print["build: done"]
+Print["build: done"]

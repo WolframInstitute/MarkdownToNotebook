@@ -6,8 +6,6 @@
    The only hand-written part is the tiny Definition-cell extractor below;
    everything else comes from the markdown. *)
 
-print[args___] := WriteString["stdout", StringJoin[ToString /@ {args}], "\n"]
-
 (* the definition-notebook template version follows the kernel's
    DefinitionNotebookClient paclet; pull the latest so the generated notebook is
    not flagged "out of date" when opened in a newer front end. *)
@@ -38,7 +36,7 @@ includeFiles[t_String] := FileNameJoin[{dir, StringTrim[#]}] & /@
 loadDefinition[src_String] := Block[{text = Import[src, "Text"], includes},
     includes = includeFiles[text];
     If[ includes =!= {},
-        print["  including: ", FileNameTake /@ includes];
+        Print["  including: ", FileNameTake /@ includes];
         Scan[Get, includes]
         ,
         Block[{boot = FileNameJoin[{$TemporaryDirectory, "mtrf-" <> FileBaseName[src] <> "-boot.wl"}]},
@@ -56,25 +54,25 @@ buildOne[mdName_String, entrySymbol_Symbol, cloudPath_String] := Block[
     {src, text, coldTime, result, nb, warmTime, outNb, deployed},
     src = FileNameJoin[{dir, mdName}];
     text = Import[src, "Text"];
-    print[""];
-    print["build: ", mdName];
+    Print[""];
+    Print["build: ", mdName];
     loadDefinition[src];
     If[ DownValues[entrySymbol] === {},
-        print["  warn: ", SymbolName[entrySymbol], " has no definition after include"]
+        Print["  warn: ", SymbolName[entrySymbol], " has no definition after include"]
     ];
-    print["  converting (cold run)"];
+    Print["  converting (cold run)"];
     {coldTime, result} = AbsoluteTiming @ MarkdownToNotebook[src, "Association"];
     nb = result["Notebook"];
-    print["    Template:    ", result["Template"]];
-    print["    Name:        ", result["Metadata"]["Name"]];
-    print["    Sections:    ", result["Sections"]];
-    print["    Output cells:   ", Count[nb, Cell[_, "Output", ___], Infinity], " (evaluated examples)"];
-    print["    Unfilled slots: ", Count[nb, _TemplateSlot, Infinity]];
-    print["    cold run:    ", coldTime, " s"];
+    Print["    Template:    ", result["Template"]];
+    Print["    Name:        ", result["Metadata"]["Name"]];
+    Print["    Sections:    ", result["Sections"]];
+    Print["    Output cells:   ", Count[nb, Cell[_, "Output", ___], Infinity], " (evaluated examples)"];
+    Print["    Unfilled slots: ", Count[nb, _TemplateSlot, Infinity]];
+    Print["    cold run:    ", coldTime, " s"];
     {warmTime, _} = AbsoluteTiming @ MarkdownToNotebook[src, "Association"];
-    print["    warm run:    ", warmTime, " s (", Length @ PersistentObjects["MarkdownToNotebook/ExampleOutput/*", "Local"], " cached)"];
+    Print["    warm run:    ", warmTime, " s (", Length @ PersistentObjects["MarkdownToNotebook/ExampleOutput/*", "Local"], " cached)"];
     outNb = MarkdownToNotebook[src, FileNameJoin[{dir, FileBaseName[src] <> ".nb"}]];
-    print["    wrote:       ", FileNameTake[outNb], " (", Head @ Quiet @ Get[outNb], ")"];
+    Print["    wrote:       ", FileNameTake[outNb], " (", Head @ Quiet @ Get[outNb], ")"];
     If[ TrueQ[$CloudConnected],
         deployed = UsingFrontEnd @ Block[{nbo, ro, rf},
             CurrentValue[$FrontEnd, LightDark] = "Light";
@@ -87,29 +85,29 @@ buildOne[mdName_String, entrySymbol_Symbol, cloudPath_String] := Block[
             NotebookClose[nbo];
             CloudDeploy[rf, CloudObject[cloudPath], Permissions -> "Public"]
         ];
-        print["    deployed:    ", Replace[deployed, {
+        Print["    deployed:    ", Replace[deployed, {
             co_CloudObject :> First[co],
             ro_ResourceObject :> ro["DocumentationLink"],
             a_Association :> Lookup[a, "ResultLink", a]
         }]]
         ,
-        print["    skipped:     not cloud-connected"]
+        Print["    skipped:     not cloud-connected"]
     ]
 ]
 
 (* clear the per-cell evaluation cache once up front so the cold-run numbers
    are honest; the warm-run inside buildOne measures the hit rate against the
    entries this cold run just wrote. *)
-print["build: clearing example cache"]
+Print["build: clearing example cache"]
 Scan[DeleteObject, PersistentObjects["MarkdownToNotebook/ExampleOutput/*", "Local"]]
 
-print["build: connecting cloud"]
+Print["build: connecting cloud"]
 Needs["DefinitionNotebookClient`"]
 If[ Not[TrueQ[$CloudConnected]], Quiet @ CloudConnect[] ]
-If[ Not[TrueQ[$CloudConnected]], print["  warn: not cloud-connected, deploy steps will be skipped"] ]
+If[ Not[TrueQ[$CloudConnected]], Print["  warn: not cloud-connected, deploy steps will be skipped"] ]
 
 buildOne["MarkdownToNotebook.md", MarkdownToNotebook, "DeployedResources/Function/MarkdownToNotebook"]
 buildOne["NotebookToMarkdown.md", NotebookToMarkdown, "DeployedResources/Function/NotebookToMarkdown"]
 
-print[""]
-print["build: done (source: github.com/sw1sh/MarkdownToNotebook)"]
+Print[""]
+Print["build: done (source: github.com/sw1sh/MarkdownToNotebook)"]

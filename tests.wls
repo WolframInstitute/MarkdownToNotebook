@@ -18,8 +18,6 @@
 
    Exit code is 0 on full pass, 1 on any failure (so CI can rely on it). *)
 
-print[args___] := WriteString["stdout", StringJoin[ToString /@ {args}], "\n"]
-
 dir = DirectoryName[$InputFileName]
 Get[FileNameJoin[{dir, "MarkdownToNotebook.wl"}]]
 Get[FileNameJoin[{dir, "NotebookToMarkdown.wl"}]]
@@ -27,7 +25,7 @@ Get[FileNameJoin[{dir, "NotebookToMarkdown.wl"}]]
 results = {}
 recordResult[name_String, ok_] := (
     AppendTo[results, {name, ok}];
-    print[If[ok, "  PASS  ", "  FAIL  "], name]
+    Print[If[ok, "  PASS  ", "  FAIL  "], name]
 )
 
 (* === extracted regression suite ===
@@ -50,17 +48,17 @@ runTestBlock[b_] := Block[{result, name, ok},
     ok = MatchQ[result, _TestObject] && result["Outcome"] === "Success";
     recordResult[name, ok];
     If[ ! ok && MatchQ[result, _TestObject],
-        print["     expected: ", ToString[result["ExpectedOutput"], InputForm],
+        Print["     expected: ", ToString[result["ExpectedOutput"], InputForm],
               "\n     actual:   ", ToString[result["ActualOutput"], InputForm],
               "\n     outcome:  ", result["Outcome"]]
     ]
 ]
 
-print["regressions (from MarkdownToNotebook.md ## Tests):"]
+Print["regressions (from MarkdownToNotebook.md ## Tests):"]
 Scan[runTestBlock, testBlocksFrom["MarkdownToNotebook.md"]]
 
-print[""]
-print["regressions (from NotebookToMarkdown.md ## Tests):"]
+Print[""]
+Print["regressions (from NotebookToMarkdown.md ## Tests):"]
 Scan[runTestBlock, testBlocksFrom["NotebookToMarkdown.md"]]
 
 (* === walker smoke pass ===
@@ -76,8 +74,8 @@ Scan[runTestBlock, testBlocksFrom["NotebookToMarkdown.md"]]
    Information"), so heading count is not a robust invariant. Output
    formatting fidelity is checked piecewise by dedicated tests as it lands. *)
 
-print[""]
-print["walker smoke (md -> nb -> walker(nb), code cells preserved):"]
+Print[""]
+Print["walker smoke (md -> nb -> walker(nb), code cells preserved):"]
 
 (* count fenced wl code blocks in the source, EXCLUDING those whose first line
    is "#| input: false" - those are intentionally rendered as Output-only cells
@@ -105,7 +103,7 @@ Scan[
         ok = StringQ[recovered] && StringLength[recovered] > 0 && recCodes >= srcCodes;
         recordResult["walker smoke: " <> FileNameTake[src], ok];
         If[ ! ok && StringQ[recovered],
-            print["     code cells: source ", srcCodes, " / walker ", recCodes]
+            Print["     code cells: source ", srcCodes, " / walker ", recCodes]
         ]
     ],
     sources
@@ -113,11 +111,11 @@ Scan[
 
 (* === summary === *)
 
-print[""]
-print["==== summary ====", "  ", Count[results, {_, True}], " / ", Length[results], " pass"]
+Print[""]
+Print["==== summary ====", "  ", Count[results, {_, True}], " / ", Length[results], " pass"]
 
 If[ ! AllTrue[results, Last],
-    print["FAILURES:"];
-    Scan[print["  ", #[[1]]] &, Select[results, ! Last[#] &]];
+    Print["FAILURES:"];
+    Scan[Print["  ", #[[1]]] &, Select[results, ! Last[#] &]];
     Exit[1]
 ]

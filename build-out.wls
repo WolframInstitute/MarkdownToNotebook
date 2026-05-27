@@ -6,8 +6,6 @@
    (MarkdownToNotebook[source, "out.md"]); the dark renderings are pinned with
    the $lightDark global so the twin reads well against GitHub's dark theme. *)
 
-print[args___] := WriteString["stdout", StringJoin[ToString /@ {args}], "\n"]
-
 dir = DirectoryName[$InputFileName];
 SetDirectory[dir];
 Get[FileNameJoin[{dir, "MarkdownToNotebook.wl"}]];
@@ -28,9 +26,9 @@ UsingFrontEnd[
     CurrentValue[$FrontEnd, LightDark] = "Dark";
     Scan[
         name |-> Block[{src = FileNameJoin[{dir, name}], out = FileNameJoin[{dir, FileBaseName[name] <> "-out.md"}]},
-            print["build-out: generating ", FileNameTake[out]];
+            Print["build-out: generating ", FileNameTake[out]];
             MarkdownToNotebook[src, out];
-            print["build-out: wrote ", FileNameTake[out], " (+ images/)"]
+            Print["build-out: wrote ", FileNameTake[out], " (+ images/)"]
         ],
         sources
     ]

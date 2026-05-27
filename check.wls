@@ -4,8 +4,6 @@
    button on each resource notebook; CellIDs are stamped on open so the
    scraper can find cells (the headless build does not assign them). *)
 
-print[args___] := WriteString["stdout", StringJoin[ToString /@ {args}], "\n"]
-
 Needs["DefinitionNotebookClient`"]
 
 checkNb[path_String] := UsingFrontEnd @ Block[{nbo, ds},
@@ -26,10 +24,10 @@ paths = Select[Join[
 
 Scan[
     p |-> Block[{hints = checkNb[p]},
-        print[""];
-        print["==== ", FileNameTake[p], " (", Length[hints], " hint", If[Length[hints] == 1, "", "s"], ") ===="];
+        Print[""];
+        Print["==== ", FileNameTake[p], " (", Length[hints], " hint", If[Length[hints] == 1, "", "s"], ") ===="];
         Scan[
-            h |-> print["  [", h["Level"], "] ", h["Tag"], "  ", ToString[h["Parameters"], InputForm]],
+            h |-> Print["  [", h["Level"], "] ", h["Tag"], "  ", ToString[h["Parameters"], InputForm]],
             hints
         ]
     ],

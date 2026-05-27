@@ -7,8 +7,6 @@
 
    Run from anywhere:  wolframscript docs/update-screenshots.wls            *)
 
-print[args___] := WriteString["stdout", StringJoin[ToString /@ {args}], "\n"]
-
 docsDir = DirectoryName[$InputFileName]
 repoDir = ParentDirectory[docsDir]
 imagesDir = FileNameJoin[{docsDir, "images"}]
@@ -28,7 +26,7 @@ $pageWidth = 1010
 
 saveImage[img_, name_] := (
     Export[FileNameJoin[{imagesDir, name}], img];
-    print["  wrote images/", name, "  ", ImageDimensions[img]]
+    Print["  wrote images/", name, "  ", ImageDimensions[img]]
 )
 
 (* convert a markdown doc to its authoring notebook expression *)
@@ -56,14 +54,14 @@ captureNotebook[nbExpr_, name_String, dpi_:$pageDPI, width_:$pageWidth] := Using
     saveImage[img, name]
 ]
 
-print["updating documentation screenshots"]
+Print["updating documentation screenshots"]
 
 (* 1. the Documentation Tools palette *)
 palettePath = FileNameJoin[{$InstallationDirectory, "AddOns", "Applications",
     "DocumentationTools", "FrontEnd", "Palettes", "DocumentationTools.nb"}]
 If[ FileExistsQ[palettePath],
     captureNotebook[Get[palettePath], "palette.png", $paletteDPI],
-    print["  palette not found: ", palettePath]
+    Print["  palette not found: ", palettePath]
 ]
 
 (* 2. a built Symbol reference page *)
@@ -82,4 +80,4 @@ captureNotebook[
     "resource-definition.png", 54
 ]
 
-print["done"]
+Print["done"]
