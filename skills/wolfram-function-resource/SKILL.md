@@ -79,10 +79,14 @@ Always set `Categories` - an empty checkbox group is a submission hint.
   table becomes a `TableNotes` grid (use it for an options table).
 - Example sections, in order: `## Basic Examples` (start with the simplest use),
   then `## Scope`, `## Options`, `## Applications`, `## Properties and Relations`,
-  `## Possible Issues`, `## Neat Examples`. Each example is one computation;
-  separate sibling examples in a section with a `---` line (a thematic break),
-  which restarts the `In[]`/`Out[]` numbering. A `### Heading` inside an example
-  section becomes a subsubsection.
+  `## Possible Issues`, `## Neat Examples`. The example-authoring rule
+  (one demonstration per cell, one-sentence `:`-terminated caption,
+  `---` between siblings, `### Heading` becomes a subsubsection) is
+  documented once in [docs/examples.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/examples.md) - follow it for every example
+  section in a resource.
+- `## Author Notes` - optional prose, fills the Author Information panel.
+  **Required when the resource was drafted with help from an AI assistant**;
+  see [the disclosure rule in resource-guidelines.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/resource-guidelines.md#ai-assisted-authoring-disclosure-author-notes).
 
 ## Code-cell options
 

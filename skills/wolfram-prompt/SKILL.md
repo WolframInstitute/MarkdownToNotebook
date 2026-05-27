@@ -80,7 +80,10 @@ Links: ["[label](https://example.com)"]
 - `## Basic Examples` (and any of the usual `Scope`, `Applications`, `Properties and Relations`,
   `Possible Issues`, `Neat Examples` subsections) - programmatic examples that show
   the prompt working through [`LLMSynthesize`]() / [`LLMResourceFunction`]() rather
-  than a chat session. Same example-section conventions as a Function Resource.
+  than a chat session. Same example-section conventions as a Function Resource;
+  for the per-cell authoring rules (one demonstration per cell,
+  `:`-terminated caption, `---` between siblings) see
+  [docs/examples.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/examples.md).
 
 **Optional, Persona-only**:
 

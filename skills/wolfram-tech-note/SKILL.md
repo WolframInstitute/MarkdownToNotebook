@@ -48,7 +48,10 @@ it directly to documentation cell styles:
   pipe tables become grids; `![alt](path)` inlines an image.
 - Fenced `wl` cells are evaluated and shown as `Input`/`Output`; record expected
   results in `<!-- => ... -->` comments. Give the `Context` frontmatter so the
-  paclet loads and examples run.
+  paclet loads and examples run. Tech-note example cells follow the same
+  per-cell rule the resource pages use: one demonstration per cell,
+  one-sentence `:`-terminated caption, `---` between siblings - see
+  [docs/examples.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/examples.md).
 
 Structure the note as a narrative: lead with the problem, show the simplest
 approach, then build up. Use concrete, runnable examples throughout. Inline math is

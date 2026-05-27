@@ -76,6 +76,9 @@ Kids & Fun (each with its own subtree).
   at a distinct parameter set (a static `Show[...]` / `Plot[...]` that reproduces
   what the Manipulate would render at those parameters is fine). The site requires
   *at least three* snapshots and they should illustrate the range of behavior.
+  Each snapshot is its own captioned demonstration with a `---` separator
+  between siblings - the [docs/examples.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/examples.md) rule, applied to the
+  snapshot strip.
 
 **Optional**:
 

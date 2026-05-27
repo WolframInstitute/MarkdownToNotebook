@@ -71,7 +71,10 @@ needs. The conventional shape:
 - An introductory section that motivates the question.
 - Several body sections, each one a *segment* of `Text + CodeText + Input + Output`:
   a sentence or two of context, then a one-line caption ending with `:` that
-  describes what the code does, then the code itself, then its output.
+  describes what the code does, then the code itself, then its output. The
+  one-cell-per-demonstration rule that holds across every other resource
+  type (see [docs/examples.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/examples.md)) holds here too - never
+  cram two unrelated computations into one `wl` cell.
 - A closing section that summarises what was found and what was *not* shown.
 - A `## References` section with one numbered reference per item.
 

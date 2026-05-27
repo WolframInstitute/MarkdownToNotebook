@@ -72,13 +72,21 @@ Time-Related Computation, User Interface Construction, Visualization & Graphics.
 - `## Usage` - the symbols the paclet provides, as `<code>[Range]()</code>`
   inferred reference links (the `<code>` wrapper applies code styling, the empty
   parens make markdown viewers render it as a clickable link).
-- Example sections (`## Basic Examples`, `## Scope`, `## Applications`, ...) - one
-  computation per example; separate siblings with a `---` line.
+- Example sections (`## Basic Examples`, `## Scope`, `## Applications`, ...) -
+  follow the example-authoring rule in [docs/examples.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/examples.md)
+  (one demonstration per cell, one-sentence `:`-terminated caption,
+  `---` between siblings).
 - `## Hero Image` - the landing-page image. Its first executable cell is evaluated;
   show the image and keep the generating code in a closed group (the converter uses
   the `Cell[CellGroupData[{input, output}, {2}]]` idiom). The scraped image must be
   400-1500 px on each side with aspect ratio `h/w` in 0.5-1.25, or the build flags
   `HeroImageTooSmall`/`TooLarge`/`Squashed`.
+- `## Author Notes` - optional prose, fills the Author Information panel.
+  **Required when the paclet was drafted with help from an AI assistant**:
+  identify the model, the human supervisor, and which parts are model-
+  generated vs hand-edited. See the [AI-assisted authoring
+  disclosure](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/resource-guidelines.md#ai-assisted-authoring-disclosure-author-notes)
+  section of the resource guidelines for the minimum-bar template.
 
 ## Code-cell options
 

@@ -65,8 +65,10 @@ Visualization & Graphics. Always set `Categories` - an empty group is a submissi
   Use one cell per named element.
 - `## Examples` - intro prose plus runnable computations that demonstrate the content
   (the Example template has a single Examples slot, so this fills it directly - no
-  named sub-sections like a Function resource). Separate sibling examples with a `---`
-  line, which restarts the `In[]`/`Out[]` numbering.
+  named sub-sections like a Function resource). Follow the example-authoring
+  rule in [docs/examples.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/examples.md):
+  one demonstration per cell, one-sentence `:`-terminated caption, `---`
+  between siblings.
 - `## Hero Image` - the landing-page image. Its first executable cell is evaluated;
   the converter keeps the image with its generating code in a closed group
   (`Cell[CellGroupData[{input, output}, {2}]]`). The scraped image must be 400-1500 px

@@ -73,9 +73,10 @@ resolves this). `URI` is the page's `ref/` path.
   the twin rewrites it to the public web URL.
 - `## Basic Examples` then the extended sections `## Scope`, `## Options`,
   `## Applications`, `## Properties and Relations`, `## Possible Issues`,
-  `## Neat Examples`. Each example is one computation; separate siblings in a
-  section with a `---` line. A `### Heading` inside a section becomes an
-  `ExampleSubsection` (one per option / sub-topic, as on real reference pages).
+  `## Neat Examples`. The example-authoring rule (one demonstration per
+  cell, one-sentence `:`-terminated caption, `---` between siblings,
+  `### Heading` becomes an `ExampleSubsection`) is documented once in
+  [docs/examples.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/examples.md) - follow it everywhere example cells appear.
 
 ## Examples and outputs
 
