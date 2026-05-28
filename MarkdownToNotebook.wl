@@ -1565,22 +1565,13 @@ symbolInContextQ[name_String, ctx_String] := ctx =!= "" &&
    ResourceFunction["..."]. We strip those so a usage signature reads as code. *)
 stripLinks[boxes_] := boxes //. ButtonBox[content_, ___] :> content
 
-(* prose inline `code`: if the body is a single known symbol (in $docContext
-   or System`), auto-link it to its ref page - so authors can write `Range` or
-   `WCAGContrastRatio` and get the same clickable code-styled link the
-   explicit "[`Name`](paclet:Pub/Pkg/ref/Name)" form produces, no need to
-   spell the URI by hand. Multi-token bodies ("Range[5]"), names the kernel
-   does not know (a paragraph-locale variable like `x`), and anything that
-   does not look like an identifier pass through as plain InlineFormula -
-   the bare-string fallback inputBoxes builds. *)
-codeToInline[code_String] := Block[{trimmed = StringTrim[code], url},
-    url = If[symbolLikeQ[trimmed] && ! StringContainsQ[trimmed, "`" | "[" | " "],
-        inferURL[trimmed], None];
-    If[ url =!= None,
-        Cell[BoxData[ButtonBox[trimmed, BaseStyle -> "Link", ButtonData -> url]], "InlineFormula"],
-        Cell[BoxData[inputBoxes[code]], "InlineFormula"]
-    ]
-]
+(* prose inline `code` is just an InlineFormula cell - no auto-linking, even
+   when the body is a known symbol name. Linking is opt-in via the explicit
+   "[`Name`]()" / "[Name]()" form (handled by linkInferred) so that a name
+   that collides with a WL symbol but means something else in context (a TeX
+   environment named "Cases", an English word "Range", a variable "x") is
+   not turned into a ref-page link the author did not ask for. *)
+codeToInline[code_String] := Cell[BoxData[inputBoxes[code]], "InlineFormula"]
 
 (* double-backtick ``code`` -> the palette's "Code (Inline)": a literal,
    non-linkified monospace span (InlineCode), unlike Template Input. *)
