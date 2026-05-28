@@ -278,6 +278,26 @@ The published [Wolfram/AccessibleColors](https://resources.wolframcloud.com/Pacl
 MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/AccessibleColors/main/docs/Guides/AccessibleColors.md"]
 ```
 
+---
+
+The [WolframParser](https://github.com/sw1sh/WolframParser) paclet - a fast, composable parser library that pairs a `GrammarRules` DSL compiled via `FunctionCompile` with a Parsec-style combinator core - is a larger Paclet example: guide, twelve symbol pages, six tutorials, the LaTeX-math parser, and the resource-submission notebook all driven from the same `docs/` markdown tree; the built guide is deployed [here](https://www.wolframcloud.com/obj/nikm/DeployedResources/Paclet/WolframParser):
+
+```wl
+#| screenshot: true
+#| tear: 200
+MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/WolframParser/main/docs/Guides/WolframParser.md"]
+```
+
+---
+
+The [PAdic](https://github.com/sw1sh/PAdic) paclet - p-adic valuations, the non-archimedean norm, digit expansions in $\mathbb{Q}_p$, and Hensel lift - is a math-heavy Paclet example whose guide and symbol pages use inline `$…$` LaTeX throughout; the built guide is deployed [here](https://www.wolframcloud.com/obj/nikm/DeployedResources/Paclet/PAdic):
+
+```wl
+#| screenshot: true
+#| tear: 200
+MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/PAdic/main/docs/Guides/PAdic.md"]
+```
+
 ### Example
 
 The `Example` template fills the [Example Repository](https://resources.wolframcloud.com/ExampleRepository/) definition notebook. The [`PrimeSpiralPoints`](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/PrimeSpiralPoints.md) sample ships a `"Points"` content element and a short gallery of derived plots; deployed [here](https://www.wolframcloud.com/obj/nikm/DeployedResources/Example/PrimeSpiralPoints):
@@ -346,6 +366,16 @@ The `ComputationalEssay` template fills the Wolfram [Computational Essay](https:
 #| screenshot: true
 #| tear: 200
 MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/PiIsMostlyRandom.md"]
+```
+
+### Book
+
+The `Chapter` template fills the [Wolfram Book Tools](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/WolframBookTools) chapter notebook - the structure used by long-form course / book material with TOC navigation, exercises, vocabulary, Q&A, and back matter. The [IntroToQuantumComputing](https://github.com/sw1sh/MarkdownToNotebook/tree/main/examples/IntroToQuantumComputing) example is a worked two-chapter book modelled on the first two lessons of the [Wolfram Quantum Framework](https://github.com/WolframResearch/QuantumFramework) course, augmented with the book-style back matter the original notebooks did not have. Each chapter compiles independently; the build script also stamps `ExpressionUUID`s on heading cells (so the TOC buttons have stable jump targets), generates `Contents.nb` in the same shape `WolframBookTools` `WBTMakeContentsFromDialog` writes, and (`--publish`) deploys the whole book to the cloud - chapter 1 [here](https://www.wolframcloud.com/obj/nikm/IntroToQuantumComputing/01-what-is-quantum-computation.nb), chapter 2 [here](https://www.wolframcloud.com/obj/nikm/IntroToQuantumComputing/02-building-blocks-of-quantum-circuits.nb), and the [TOC](https://www.wolframcloud.com/obj/nikm/IntroToQuantumComputing/Contents.nb):
+
+```wl
+#| screenshot: true
+#| tear: 200
+MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/IntroToQuantumComputing/chapters/01-what-is-quantum-computation.md"]
 ```
 
 ## Properties and Relations

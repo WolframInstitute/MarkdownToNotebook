@@ -68,7 +68,7 @@ the start.
 
   ```wolfram
   If[ Length[dirs] === 0,
-      print["no examples to run"];
+      Print["no examples to run"];
       Exit[1]
   ]
   ```
@@ -258,7 +258,7 @@ branchial = If[ TrueQ[OptionValue["Branchial"]]
 
 (* GOOD: short branches keep commas inline *)
 If[ Length[dirs] === 0,
-    print["no examples"];
+    Print["no examples"];
     Exit[1]
 ]
 
