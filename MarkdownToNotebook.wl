@@ -17,6 +17,16 @@
 
 Needs["GeneralUtilities`"]
 
+If[ PacletFind["Wolfram/WolframParser"] === {},
+    If[ DirectoryQ["examples/WolframParser"],
+        PacletDirectoryLoad["examples/WolframParser"],
+        If[ FailureQ[PacletInstall["Wolfram/WolframParser"]],
+            PacletInstall[ResourceObject["https://wolfr.am/1ECIxdqhB"]]
+        ]
+    ]
+]
+Needs["Wolfram`Parser`"]
+
 mdSep = "\n(*--cell--*)\n"
 
 (* === frontmatter === *)
@@ -456,9 +466,25 @@ sectionText[sections_, key_] := StringRiffle[
 
 (* === notebook evaluation with a cumulative-hash cache ===
    All executable cells are evaluated in document order, threading state, so a
-   cell's cache key depends on every cell before it (whole-notebook sequence). *)
+   cell's cache key depends on every cell before it (whole-notebook sequence).
+   A thematic break ("---") in the source resets the chain: the next cell's
+   hash is built only from cells after the break, and accumEval clears the
+   per-document eval context + ClearSystemCache[] at the same point, so two
+   sections separated by "---" never share definitions or cache keys. The
+   input here is the interleaved sequence of executable code blocks and
+   "Separator" blocks; the returned list has one hash per executable cell
+   (separators contribute a reset, not a hash). *)
 
-cumulativeHashes[cells_List] := Map[Hash, Rest @ FoldList[#1 <> mdSep <> #2["Code"] &, "", cells]]
+cumulativeHashes[items_List] := Block[{acc = "", hashes = {}},
+    Scan[
+        item |-> If[item["Type"] === "Separator",
+            acc = "",
+            acc = acc <> mdSep <> item["Code"]; AppendTo[hashes, Hash[acc]]
+        ],
+        items
+    ];
+    hashes
+]
 
 (* the light/dark mode example renderings are pinned to. Default light (the
    deployed notebook is light); the markdown-out twin sets it to "Dark". Guard the
@@ -570,14 +596,26 @@ captureMessages[expr_] := Block[{msgFile, stream, res, txt, msgs},
 ]
 SetAttributes[captureMessages, HoldFirst]
 
-accumEval[state_, b_] := Block[{code = state["code"] <> mdSep <> b["Code"], res, msgs, tmp},
-    (* Get a temp package so every top-level statement runs (ToExpression on a
-       multi-statement string only takes the first); Get returns the last value. *)
-    tmp = FileNameJoin[{$TemporaryDirectory, "mtnb-cell-" <> IntegerString[Hash[code], 36] <> ".wl"}];
-    Export[tmp, b["Code"], "Text"];
-    {res, msgs} = captureMessages @ Get[tmp];
-    <|"code" -> code,
-      "out" -> Append[state["out"], Hash[code] -> <|"out" -> outputBoxes[res, b["Options"]], "msgs" -> msgs|>]|>
+accumEval[state_, b_] := If[b["Type"] === "Separator",
+    (* a "---" thematic break resets the evaluation environment: clear every
+       symbol the document defined in its private context, drop the cumulative
+       code chain so the next cell's cache key starts fresh, and ClearSystemCache[]
+       so any AutoMemoization / Once entries the section accumulated do not leak
+       into the next section. The host session's Global` context and unrelated
+       paclets are left alone - only the per-doc context is wiped. *)
+    Quiet @ ClearAll[Evaluate[state["ctx"] <> "*"]];
+    ClearSystemCache[];
+    <|state, "code" -> ""|>
+    ,
+    Block[{code = state["code"] <> mdSep <> b["Code"], res, msgs, tmp},
+        (* Get a temp package so every top-level statement runs (ToExpression on a
+           multi-statement string only takes the first); Get returns the last value. *)
+        tmp = FileNameJoin[{$TemporaryDirectory, "mtnb-cell-" <> IntegerString[Hash[code], 36] <> ".wl"}];
+        Export[tmp, b["Code"], "Text"];
+        {res, msgs} = captureMessages @ Get[tmp];
+        <|state, "code" -> code,
+          "out" -> Append[state["out"], Hash[code] -> <|"out" -> outputBoxes[res, b["Options"]], "msgs" -> msgs|>]|>
+    ]
 ]
 
 (* Pre-load every package whose first use during evaluation would otherwise
@@ -614,9 +652,9 @@ preloadContextPath[ctxPath_List] := Quiet @ Scan[
 
 (* a front end is active for the whole pass so an example may open the notebook it
    produces (NotebookPut) and have its thumbnail captured (see outputBoxes). *)
-evaluateAll[cells_List, ctx_String, ctxPath_List] := Block[{$Context = ctx, $ContextPath = ctxPath},
+evaluateAll[items_List, ctx_String, ctxPath_List] := Block[{$Context = ctx, $ContextPath = ctxPath},
     preloadContextPath[ctxPath];
-    UsingFrontEnd[Fold[accumEval, <|"code" -> "", "out" -> <||>|>, cells]]["out"]
+    UsingFrontEnd[Fold[accumEval, <|"code" -> "", "out" -> <||>, "ctx" -> ctx|>, items]]["out"]
 ]
 
 (* attach each executable block's output (by cumulative hash) so builders read
@@ -1668,11 +1706,11 @@ texBoxes[math_String] :=
         If[ r =!= $Failed, r, texBoxesViaImport[math] ]
     ]
 
-wolframParserTeX[math_String] :=
-    If[ Length[Names["Wolfram`Parser`LaTeX`LaTeXMathParse"]] === 0,
+wolframParserTeX[math_String] := 
+    If[ ! ValueQ[LaTeXMathParse],
         $Failed,
         Block[{r = Quiet @ Check[
-            Symbol["Wolfram`Parser`LaTeX`LaTeXMathParse"][math],
+            LaTeXMathParse[math],
             $Failed
         ]},
             If[MatchQ[r, _ParseError | $Failed | _Failure], $Failed, r]
@@ -3417,11 +3455,15 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
 
     (* evaluate every executable cell in document order, threading state in a
        private context (so the document's own code can't clobber the live
-       session), cached by a cumulative hash of all cells up to each one. *)
+       session), cached by a cumulative hash of all cells up to each one.
+       "---" thematic breaks are picked up alongside the executable cells so
+       the evaluator can reset the context + cumulative-hash chain at each
+       separator (see cumulativeHashes / accumEval). *)
     (* recurse into Div blocks so executable cells nested inside ::: fenced
        divs (exercises, solutions, solved-examples, ...) get evaluated and
        cached alongside the top-level cells. *)
-    orderedCode = Cases[blocks, b_ /; executableQ[b], Infinity];
+    orderedCode = Cases[blocks,
+        b_ /; (executableQ[b] || b["Type"] === "Separator"), Infinity];
     hashes = cumulativeHashes[orderedCode];
     ctx = "MTNB$" <> IntegerString[Hash[text], 36] <> "`";
     (* let example cells resolve the documented paclet's symbols unqualified, plus
