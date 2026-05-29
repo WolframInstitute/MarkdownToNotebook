@@ -1165,10 +1165,26 @@ usageStatement[text_String] := Block[{trimmed = StringTrim[text], m},
         1]
 ]
 
-usagePair[{code_String, desc_String}] := {
-    Cell[BoxData[stripLinks @ templateBox[code]], "UsageInputs", FontFamily -> "Source Sans Pro"],
-    Cell[TextData @ inlineTextData[desc], "UsageDescription"]
-}
+(* one usage line as inline TextData items: ModInfo placeholder + the
+   InlineFormula signature + the prose description. The signature goes through
+   codeInlineCell (the <code>...</code> handler) so the head gets its
+   paclet-ref ButtonBox link while ParseTextTemplate's auto-linking of
+   incidental System symbols inside the args is stripped. *)
+usageLineItems[{code_String, desc_String}] := Block[{trimmedDesc = StringTrim[desc]},
+    Join[
+        {Cell["   ", "ModInfo"], codeInlineCell[code]},
+        If[trimmedDesc === "", {}, Prepend[inlineTextData[trimmedDesc], " "]]
+    ]
+]
+
+(* the palette's "Double Usage Line" template inserts ONE `Cell[..., "Usage"]`
+   whose TextData lists every usage line in the section, separated by
+   newlines. So N "## Usage" paragraphs in markdown collapse into one Usage
+   cell with N lines inside - matching what DoubleUsageLinesInsert writes. *)
+usageMultiCell[pairs_List] := Cell[
+    TextData @ Flatten @ Riffle[usageLineItems /@ pairs, {"\n"}],
+    "Usage"
+]
 
 usageSlot[opts_, sections_] := Block[{pairs},
     pairs = Flatten[
@@ -1176,7 +1192,7 @@ usageSlot[opts_, sections_] := Block[{pairs},
         1
     ];
     If[ pairs === {}, Return[slotDefault[opts]] ];
-    {Cell[CellGroupData[Catenate[usagePair /@ pairs], Open]]}
+    {Cell[CellGroupData[{usageMultiCell[pairs]}, Open]]}
 ]
 
 (* the Details & Options notes: one "Notes" cell per item, so each renders as its
@@ -2133,14 +2149,27 @@ fillExtendedExamples[nb_, sections_] := Block[{content},
     }
 ]
 
-symbolNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"], nb, name, usage, notes, basicText, basicCells},
+symbolNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"], nb, name, usagePairs, notes, basicText, basicCells, raw},
     nb = docTemplate["FunctionBaseTemplateExt.nb"];
     name = Lookup[meta, "Name", ""];
-    usage = rawSectionText[sections, "usage"];
+    (* one Usage cell for the whole ## Usage section - the palette's Double
+       Usage Line recipe (Cell[..., "Usage"] containing ModInfo + InlineFormula
+       + text per usage line, all lines separated by "\n" inside the single
+       cell). The Symbol template ships with a single Usage placeholder cell;
+       replace it. Fall back to a whole-text usageCell when the prose does
+       not parse into signature+description pairs (e.g. no recognisable head
+       before the args). *)
+    usagePairs = Flatten[
+        usageStatement /@ Cases[Lookup[sections, "usage", {}], b_ /; b["Type"] === "Prose" :> b["Text"]],
+        1
+    ];
     notes = detailsCells[sections];
     nb = fillDocString[nb, "ObjectName", name];
-    If[ usage =!= "",
-        nb = nb /. Cell[_, "Usage", ___] :> usageCell[usage]
+    Which[
+        usagePairs =!= {},
+            nb = nb /. Cell[_, "Usage", ___] :> usageMultiCell[usagePairs],
+        (raw = rawSectionText[sections, "usage"]) =!= "",
+            nb = nb /. Cell[_, "Usage", ___] :> usageCell[raw]
     ];
     If[ notes =!= {},
         nb = nb /. Cell[_, "Notes", ___] :> Sequence @@ notes
