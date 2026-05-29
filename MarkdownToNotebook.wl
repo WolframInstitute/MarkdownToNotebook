@@ -939,16 +939,60 @@ applyHidden[block_, cells_List] := If[
     cells
 ]
 
+(* "#| collapse: input"  ("true" alias) - hide the example's Input cell,
+   keep Output visible. Implemented as CellGroupData[..., {n,...}] where
+   the int-list second arg picks which cells stay visible by 1-based index;
+   the group bracket reveals the hidden cells when clicked.
+   "#| collapse: output" - keep Input visible, hide Output. CellGroupData
+   defaults to showing its first cell when Closed, and the example's first
+   cell IS the Input, so we just set the group state to Closed.
+   "#| collapse: all"    - hide BOTH. CellOpen -> False on each cell of the
+   example's group; the group bracket on the right stays clickable. *)
+collapseMode[v_] := Switch[v,
+    True | "true" | "input" | "Input", "Input",
+    "output" | "Output", "Output",
+    "all" | "All" | "both" | "Both", "All",
+    _, None
+]
+
+(* recurse into nested CellGroupData; at the example group, apply the requested
+   collapse and stop. *)
+applyCollapseMode[mode_String][Cell[CellGroupData[cells_List, state_], go___]] :=
+    Switch[mode,
+        "Input",
+            (* hide Input - show only the indices of the non-Input cells *)
+            With[{visible = Flatten @ Position[cells, Cell[_, s_String, ___] /; s =!= "Input", {1}, Heads -> False]},
+                If[visible === {}, Cell[CellGroupData[cells, state], go],
+                    Cell[CellGroupData[cells, visible], go]
+                ]
+            ],
+        "Output",
+            (* default Closed shows only the first cell (Input); good as-is *)
+            Cell[CellGroupData[cells, Closed], go],
+        "All",
+            (* hide everything - CellOpen -> False per cell, group bracket stays *)
+            Cell[CellGroupData[closeCell /@ cells, state], go]
+    ]
+applyCollapseMode[_][other_] := other
+
+closeCell[Cell[content_, style___, opts:OptionsPattern[]]] :=
+    If[FreeQ[{opts}, CellOpen], Cell[content, style, opts, CellOpen -> False], Cell[content, style, opts]]
+closeCell[other_] := other
+
+applyCollapse[block_, cells_List] := With[{mode = collapseMode[Lookup[block["Options"], "collapse", False]]},
+    If[mode === None, cells, applyCollapseMode[mode] /@ cells]
+]
+
 (* an example's cells (Input / Output), prefixed with its per-cell flag banner
    and decorated with any "excluded" / "hidden" per-cell tag. "#| input: false"
    drops the Input cell - the example renders as just its captured Output (the
    Demonstration-snapshot use case). *)
 exampleIOFor[block_, n_Integer] :=
-    applyExcluded[block, applyHidden[block, withCellFlag[block, exampleIO[
+    applyExcluded[block, applyHidden[block, applyCollapse[block, withCellFlag[block, exampleIO[
         block["Code"], block["OutputBoxes"], n,
         extraOutputOpts[block], Lookup[block, "Messages", {}],
         Lookup[block["Options"], "input", True] === False
-    ]]]]
+    ]]]]]
 
 (* a document-level flag banner ("Flag" frontmatter) prepended to the notebook *)
 applyDocFlag[nb_, ""] := nb
