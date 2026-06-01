@@ -69,7 +69,7 @@ buildOne[mdName_String, entrySymbol_Symbol, cloudPath_String] := Block[
     Print["    Output cells:   ", Count[nb, Cell[_, "Output", ___], Infinity], " (evaluated examples)"];
     Print["    Unfilled slots: ", Count[nb, _TemplateSlot, Infinity]];
     Print["    cold run:    ", coldTime, " s"];
-    {warmTime, _} = AbsoluteTiming @ MarkdownToNotebook[src, "Association"];
+    warmTime = First @ AbsoluteTiming @ MarkdownToNotebook[src, "Association"];
     Print["    warm run:    ", warmTime, " s (", Length @ PersistentObjects["MarkdownToNotebook/ExampleOutput/*", "Local"], " cached)"];
     outNb = MarkdownToNotebook[src, FileNameJoin[{dir, FileBaseName[src] <> ".nb"}]];
     Print["    wrote:       ", FileNameTake[outNb], " (", Head @ Quiet @ Get[outNb], ")"];

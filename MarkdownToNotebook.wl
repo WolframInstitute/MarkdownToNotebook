@@ -1205,11 +1205,25 @@ usageLineItems[{code_String, desc_String}] := Block[{trimmedDesc = StringTrim[de
 (* the palette's "Double Usage Line" template inserts ONE `Cell[..., "Usage"]`
    whose TextData lists every usage line in the section, separated by
    newlines. So N "## Usage" paragraphs in markdown collapse into one Usage
-   cell with N lines inside - matching what DoubleUsageLinesInsert writes. *)
+   cell with N lines inside - matching what DoubleUsageLinesInsert writes.
+   Used by the Symbol template's symbolNotebook. The FunctionResource
+   template uses usagePair instead - the WFR resource scraper expects the
+   UsageInputs / UsageDescription pair structure and rejects a single-cell
+   Usage shape. *)
 usageMultiCell[pairs_List] := Cell[
     TextData @ Flatten @ Riffle[usageLineItems /@ pairs, {"\n"}],
     "Usage"
 ]
+
+(* one usage line as the pair of cells the WFR FunctionResource scraper
+   expects: a UsageInputs cell holding the signature boxes, followed by a
+   UsageDescription cell holding the prose. The two stack as one visual
+   usage line in the resource page; multiple pairs catenate into one
+   CellGroupData. *)
+usagePair[{code_String, desc_String}] := {
+    Cell[BoxData[stripLinks @ templateBox[code]], "UsageInputs", FontFamily -> "Source Sans Pro"],
+    Cell[TextData @ inlineTextData[desc], "UsageDescription"]
+}
 
 usageSlot[opts_, sections_] := Block[{pairs},
     pairs = Flatten[
@@ -1217,7 +1231,7 @@ usageSlot[opts_, sections_] := Block[{pairs},
         1
     ];
     If[ pairs === {}, Return[slotDefault[opts]] ];
-    {Cell[CellGroupData[{usageMultiCell[pairs]}, Open]]}
+    {Cell[CellGroupData[Catenate[usagePair /@ pairs], Open]]}
 ]
 
 (* the Details & Options notes: one "Notes" cell per item, so each renders as its
@@ -2025,9 +2039,18 @@ usageCell[rawUsage_String] := Block[{
    placeholder (the narrow modification-indicator column, always whitespace -
    NOT a slot for col-1 content) and the N content cells styled TableText.
    The cell style supplies dividers / alignment / spacing, so no inline
-   GridBox options are needed. *)
-tableModStyleFor[2] := "2ColumnTableMod"
-tableModStyleFor[3] := "3ColumnTableMod"
+   GridBox options are needed. ONLY emitted when the document is a paclet
+   documentation page (Symbol / Guide / TechNote / Overview), where the
+   stylesheet defines 2ColumnTableMod / 3ColumnTableMod / ModInfo / TableText.
+   The resource definition-notebook stylesheets (FunctionResource / Paclet /
+   Example / Data / Prompt / Demonstration / LLMTool) do NOT define those
+   styles - rendering an *TableMod cell there leaks unstyled / wrong-looking
+   tables. For those templates we fall through to the generic GridBox path
+   with the TableNotes / Text cell wrapper that has always shipped. *)
+$tableModTemplates = {"Symbol", "Guide", "TechNote", "Overview", "Chapter", "BookChapter", "ComputationalEssay", "Essay", "Default"}
+
+tableModStyleFor[2] /; MemberQ[$tableModTemplates, $docTemplate] := "2ColumnTableMod"
+tableModStyleFor[3] /; MemberQ[$tableModTemplates, $docTemplate] := "3ColumnTableMod"
 tableModStyleFor[_] := None
 
 modInfoPlaceholder = Cell["      ", "ModInfo"];
@@ -2037,12 +2060,12 @@ tableModRow[cells_List, ncol_Integer, opts___] := Prepend[
     modInfoPlaceholder
 ]
 
-(* Fallback for column counts the palette has no *TableMod style for (1 or
-   >= 4). "TableNotes" is the table style the Function Repository / Paclet /
-   Example definition-notebook docked cells insert, and exists in those
-   stylesheets. The documentation stylesheets (Symbol / Guide / TechNote)
-   and Default.nb do not define it, so a "TableNotes" cell renders unstyled
-   / cramped there - switch to "Text" for those, which exists everywhere. *)
+(* Fallback for templates / widths the palette has no *TableMod style for.
+   "TableNotes" is the table style the Function Repository / Paclet / Example
+   definition-notebook docked cells insert, and exists in those stylesheets.
+   The documentation stylesheets (Symbol / Guide / TechNote) and Default.nb
+   do not define it, so a "TableNotes" cell renders unstyled / cramped there
+   - switch to "Text" for those, which exists everywhere. *)
 tableCellBox[text_String, opts___] := Cell[TextData @ inlineTextData[text], "TableText", opts]
 
 tableGridRow[cells_List, ncol_Integer, opts___] :=
@@ -2050,9 +2073,11 @@ tableGridRow[cells_List, ncol_Integer, opts___] :=
 
 $tableCellStyleFor := If[MemberQ[{"FunctionResource", "Paclet", "Example", "Data", "Prompt", "Demonstration"}, $docTemplate], "TableNotes", "Text"]
 
-(* a pipe table renders as a *TableMod cell when the column count matches a
-   palette-supported width (2 or 3); the header row is bolded for readability.
-   Other widths fall through to a generic GridBox with inline dividers. *)
+(* a pipe table renders as a *TableMod cell when the doc template's
+   stylesheet defines them (paclet documentation pages, ncol = 2 or 3);
+   otherwise (resource definition notebooks, or wider tables) it falls
+   through to a generic GridBox with inline dividers and the
+   $tableCellStyleFor-picked outer cell style. *)
 tableCell[block_] := Block[{ncol = Length[block["Header"]], modStyle = tableModStyleFor[Length[block["Header"]]], rows},
     If[modStyle =!= None,
         rows = Join[
@@ -2450,7 +2475,7 @@ $tocDepthOf = <|
     "TOCDocumentTitle" -> 0, "TOCChapter" -> 1, "TOCSection" -> 2,
     "TOCSubsection" -> 3, "TOCSubsubsection" -> 4, "TOCSubsubsubsection" -> 5
 |>
-groupTocCells[cells_List] := Block[{stack = {{}}, depths = {-1}, finalize, push},
+groupTocCells[cells_List] := Block[{stack = {{}}, depths = {-1}, finalize},
     finalize[] := Block[{kids = First[stack], parentKids, headWithKids},
         stack = Rest[stack]; depths = Rest[depths];
         If[kids =!= {} && Length[stack] > 0,
@@ -2949,9 +2974,7 @@ theoremCells[inner_List, counterSym_, numbered_] := Block[{
         Flatten @ Map[bookFreeCells[#, "", counterSym] &, rest]]
 ]
 
-proofCells[inner_List, counterSym_, numbered_] := Block[{
-    rest, contentCells
-},
+proofCells[inner_List, counterSym_, numbered_] := Block[{contentCells},
     contentCells = Flatten @ Map[bookProofInnerCells[#, counterSym] &, inner];
     Join[{Cell["Proof", "Proof"]}, contentCells,
         {Cell["", "ProofTheoremEndCap"]}]
@@ -3189,7 +3212,7 @@ techNotesSectionCells[heading_, blocks_, counterSym_] := Prepend[
 (* More to Explore: heading -> MoreExploreSection; bullets -> MoreExplore;
    bare-URL prose -> MoreExploreShortURL. *)
 moreExploreCell[text_String] := Cell[TextData @ inlineTextData[text],
-    If[StringMatchQ[StringTrim[text], "http" ~~ ___ | "wolfr.am/" ~~ ___],
+    If[StringMatchQ[StringTrim[text], ("http" ~~ ___) | ("wolfr.am/" ~~ ___)],
         "MoreExploreShortURL", "MoreExplore"]
 ]
 
@@ -3255,7 +3278,7 @@ takeawaysSectionCells[heading_, blocks_, counterSym_] := Prepend[
    build the cells for that group. None means "intro content before the
    first H2" - emit it as free-form cells. *)
 chapterGroupCells[None, blocks_, counterSym_] :=
-    Block[{i, next, out = {}},
+    Block[{next, out = {}},
         Do[
             next = If[i < Length[blocks], blocks[[i + 1]]["Type"], ""];
             out = Join[out, bookFreeCells[blocks[[i]], next, counterSym]],
@@ -3264,7 +3287,7 @@ chapterGroupCells[None, blocks_, counterSym_] :=
         out
     ]
 chapterGroupCells[heading_Association, blocks_, counterSym_] := Block[{
-    kind = reservedSectionKindOf[heading["Text"]], i, next, out
+    kind = reservedSectionKindOf[heading["Text"]], next, out
 },
     Switch[kind,
         "Summary",      summarySectionCells[heading, blocks, counterSym],
