@@ -95,17 +95,36 @@ The build pipeline pins the front end to Light so that the graph outputs which
 *do* rasterize are not inverted - keep that in mind if you author a paclet
 guide that wants Dark.
 
-### Don't hand-convert `...` to `…`
+### Ellipsis - let MTN do prose, do it yourself in non-runnable code
 
 The docked Check fires `ThreeDotEllipsis` whenever it sees a literal `...`
-in prose. **MTN handles this for you**: every prose run (heading, paragraph,
-list item, quote, usage description) gets `...` rewritten to `…` (U+2026)
-on the way to the notebook. The replacement only fires on the plain-text
-runs, so `...` inside backticks, inside an inline `<code>` span, inside
-`$...$` math, or inside a fenced `wl` cell is left untouched - write
-`` `Association[name -> LeanTerm, ...]` `` and `Print["loading..."]` exactly
-as you mean them and the lint will not complain about either. Don't sprinkle
-`…` into source by hand; let MTN do it.
+in prose. **MTN handles prose for you**: every prose run (heading,
+paragraph, list item, quote, usage description) gets `...` rewritten to
+`…` (U+2026) on the way to the notebook. The replacement only fires on
+the plain-text runs, so `...` inside backticks, inside an inline `<code>`
+span, inside `$...$` math, or inside a fenced `wl` cell is left untouched.
+
+That carve-out exists because `...` is **syntactic** in Wolfram Language -
+it's the `RepeatedNull` pattern operator (`{a, b...}` matches `a` followed
+by zero or more `b`s). MTN cannot tell whether your `...` is meant as
+"etc" or as the operator, so inside any code position it stays as-is.
+
+That leaves one case for the **author** to handle: an inline `<code>` (or
+backtick) span that shows a **signature sketch**, not runnable code, where
+`...` means "and so on". Write `…` (or `\[Ellipsis]`) explicitly so a
+reader does not mistake the placeholder for `RepeatedNull`:
+
+```md
+- <code>[Association]()[*key* -> *value*, …]</code>     <- "etc"
+- <code>[Range]()[*n*]</code>                            <- one signature
+- ``MyFn[args___] := body``                              <- runnable, ... means RepeatedNull
+```
+
+In an actual fenced `wl` cell that the build evaluates, never substitute
+`…` for `...` - the parser does not accept `\[Ellipsis]` as a pattern
+operator, and the cell will fail to evaluate. The rule of thumb: **prose
+is automatic; runnable code is verbatim; non-runnable signature sketches
+use `…` deliberately**.
 
 ### Gate heavy examples
 
