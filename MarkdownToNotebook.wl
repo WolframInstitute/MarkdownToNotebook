@@ -504,7 +504,7 @@ resetBoundaryQ[mode_, item_] := Switch[mode,
     _,           MatchQ[item["Type"], "Separator" | "Heading"]
 ]
 
-cumulativeHashes[mode_, items_List] := Module[{acc = "", hashes = {}},
+cumulativeHashes[mode_, items_List] := Block[{acc = "", hashes = {}},
     Scan[
         item |-> (
             If[resetBoundaryQ[mode, item], acc = ""];
@@ -639,12 +639,7 @@ printMd[_] := ""
               "cells" -> {injected cell, ...}|>.
    Failed Get / parse returns "outs" -> {Missing[]} so callers downstream
    still see the failure as a no-output cell rather than a crash. *)
-(* Module - not Block - for the bookkeeping locals so the names cannot
-   collide with anything in the user code we evaluate inside. The
-   inner Block-binds the FOUR symbols that genuinely need dynamic
-   scoping ($Messages, Print, Echo, CellPrint) without exposing the
-   surrounding scratch names. *)
-captureCellRun[code_String, opts_Association : <||>] := Module[{msgFile, prtFile, msgStream, prtStream, stmts, outs, cellsExtra, msgTxt, prtTxt, msgs, prints},
+captureCellRun[code_String, opts_Association : <||>] := Block[{msgFile, prtFile, msgStream, prtStream, stmts, outs, cellsExtra, msgTxt, prtTxt, msgs, prints},
     msgFile = CreateFile[];
     prtFile = CreateFile[];
     msgStream = OpenWrite[msgFile];
@@ -716,14 +711,14 @@ resetState[state_] := If[
     (* pre-definition area: cumulative code chain still resets so cache
        keys don't span the boundary, but we keep every bound symbol. *)
     (ClearSystemCache[]; <|state, "code" -> ""|>),
-    Module[{toRemove = Complement[docContextSymbols[state["ctx"]], state["protected"]]},
+    Block[{toRemove = Complement[docContextSymbols[state["ctx"]], state["protected"]]},
         If[toRemove =!= {}, Quiet @ ClearAll @@ toRemove];
         ClearSystemCache[];
         <|state, "code" -> ""|>
     ]
 ]
 
-evalCell[state_, b_] := Module[{code = state["code"] <> mdSep <> b["Code"], captured},
+evalCell[state_, b_] := Block[{code = state["code"] <> mdSep <> b["Code"], captured},
     (* captureCellRun parses b["Code"] into top-level statements via
        ToExpression[..., Hold] so every statement runs in document order
        and each non-`;`-suppressed value contributes its own Output - matching
@@ -757,7 +752,7 @@ captureProtectedQ[state_, b_] :=
    triggers a reset before its own evaluation. Capture the protected
    baseline before clearing if this boundary marks the transition into
    the first example section. *)
-accumEval[state0_, b_] := Module[{state = state0, s},
+accumEval[state0_, b_] := Block[{state = state0, s},
     If[ captureProtectedQ[state, b],
         state = <|state, "protected" -> docContextSymbols[state["ctx"]]|>
     ];
@@ -798,6 +793,27 @@ $framePackages = {
 preloadContextPath[ctxPath_List] := Quiet @ Scan[
     Quiet @ Check[Needs[#], Null] &,
     DeleteDuplicates @ Select[Join[$framePackages, ctxPath], # =!= "System`" &]
+]
+
+(* Install a one-symbol forwarding alias in the per-doc context so example
+   cells in a self-referential document can call MarkdownToNotebook
+   unqualified WITHOUT having Context[MarkdownToNotebook] on $ContextPath
+   (which would expose every internal helper and Block local as a public
+   symbol the example can collide with - see issue #5).
+
+   Sets the OwnValue of <ctx>`MarkdownToNotebook to the real
+   MarkdownToNotebook symbol, so an example's `MarkdownToNotebook[...]`
+   resolves to <ctx>`MarkdownToNotebook (via $Context lookup at parse
+   time), then evaluates to MarkdownToNotebook[...] via the OwnValue.
+
+   $Context is rebound to ctx and $ContextPath stripped to System` for
+   the ToExpression call so the LHS interns into ctx (creating
+   ctx`MarkdownToNotebook) while the RHS - a fully qualified name -
+   resolves to the real symbol regardless. *)
+installSelfAlias[ctx_String] := With[{realName = Context[MarkdownToNotebook] <> "MarkdownToNotebook"},
+    Block[{$Context = ctx, $ContextPath = {"System`"}},
+        Quiet @ ToExpression["MarkdownToNotebook = " <> realName, InputForm]
+    ]
 ]
 
 (* a front end is active for the whole pass so an example may open the notebook it
@@ -3917,10 +3933,16 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
     cacheDocName = If[$docName === "", src["Name"], $docName];
     cacheNames = MapIndexed[exampleCacheName[cacheDocName, First[#2], #1] &, hashes];
     ctx = "MTNB$" <> IntegerString[Hash[text], 36] <> "`";
-    (* let example cells resolve the documented paclet's symbols unqualified, plus
-       MarkdownToNotebook's own context so self-referential examples (a doc whose
-       examples call MarkdownToNotebook itself) actually evaluate. *)
-    ctxPath = DeleteDuplicates @ Flatten @ {Lookup[meta, "Context", Nothing], Context[MarkdownToNotebook], "System`"};
+    (* let example cells resolve the documented paclet's symbols unqualified.
+       NOT Context[MarkdownToNotebook]: that exposes every internal helper
+       and Block local as a public symbol the example code can collide with
+       (see issue #5 - a free `s` in an example would resolve to accumEval's
+       Block-local `s` and bind to the per-cell state association). For
+       self-referential examples (a doc whose example calls
+       MarkdownToNotebook itself) we install a one-symbol forwarding alias
+       in the per-doc context below. *)
+    ctxPath = DeleteDuplicates @ Flatten @ {Lookup[meta, "Context", Nothing], "System`"};
+    installSelfAlias[ctx];
     cached = AssociationThread[hashes -> Map[exampleCacheGet, cacheNames]];
     allHit = hashes =!= {} && AllTrue[cached, ! MissingQ[#] &];
     (* "Evaluate" -> False leaves the example cells unevaluated (input only). An
