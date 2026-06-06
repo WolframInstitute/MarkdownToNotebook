@@ -569,53 +569,116 @@ outputBoxes[res_, opts_] := Which[
     True, ToBoxes[res]
 ]
 
-(* a captured message string -> a notebook "Message" cell. captureMessages
+(* a captured message string -> a notebook "Message" cell. captureCellRun
    redirects $Messages to a write stream and we read the printed text back
    verbatim, so the cell text is exactly the line the kernel itself printed -
    no template lookup, no arg substitution to redo. *)
 messageCell[s_String] := Cell[s, "Message", "MSG"]
 messageCell[hf_] := Cell[ToString[hf, InputForm], "Message", "MSG"]
 
-(* Plain-text rendering of a captured message for the markdown twin: just a
-   blockquote with each line prefixed. The message text is whatever the kernel
-   itself would print to $Messages, so what shows up is exactly what an
-   interactive user would see fire for that cell. *)
+(* Captured Print / Echo output -> a notebook "Print" cell. The kernel's
+   print channel is bypassable in script mode (rebinding $Output does NOT
+   re-route Print under `wl -f`), so we instead Block-override Print and
+   Echo themselves to write the captured text to our stream - a real local
+   binding shadow on the protected symbol. The cell text is the verbatim
+   line that Print/Echo would have written to stdout. *)
+printCell[s_String] := Cell[s, "Print"]
+printCell[hf_] := Cell[ToString[hf, InputForm], "Print"]
+
+(* Plain-text rendering of captured messages / prints for the markdown twin.
+   Both render as blockquotes, one per captured chunk, so what shows up in
+   the twin is exactly what an interactive user would see fire for that cell. *)
 messageMd[s_String] := "> " <> StringReplace[StringTrim[s], "\n" -> "\n> "]
 messageMd[_] := ""
+printMd[s_String] := "> " <> StringReplace[StringTrim[s], "\n" -> "\n> "]
+printMd[_] := ""
 
-(* Capture the messages the kernel would *print* during evaluation, by
-   redirecting $Messages to a private write stream. This is the proper fix
-   for the "ton of garbage in the twin" problem - Internal`HandlerBlock
-   captures every fired message, including the 50k OptionValue::optnf and
-   General::newsym Wolfram's own framework fires per Plot and which the
-   kernel's normal message printer silently swallows (most of them have
-   $Off-style suppression, are inside an Internal`InheritedBlock[{$Off}, ...]
-   in Charting, or hit General::stop). Redirecting the print stream is the
-   *one* mechanism that respects all of those: whatever the kernel decides
-   to actually print, we capture verbatim. *)
+(* Capture EVERYTHING a cell's evaluation would produce in a real notebook,
+   without relying on the FE-driven NotebookEvaluate (which hangs in headless
+   `wl` since there is no FE->kernel link to drive it). Three complementary
+   mechanisms cover the four observable channels:
 
-(* The local file path here must NOT be named `tmp` - the caller (accumEval)
-   has its own `tmp` holding the cell source file path, and captureMessages
-   is HoldFirst, so the `Get[tmp]` inside `captureMessages @ Get[tmp]` is
-   evaluated only after Block re-binds `tmp` to OUR message file. The
-   captured Get then reads the empty message file and returns Null - the
-   bug that made every example cell's output Null. Use `msgFile` so the
-   shadow can't happen. *)
-captureMessages[expr_] := Block[{msgFile, stream, res, txt, msgs},
+   - Messages: redirect $Messages to a private write stream. Captures every
+     fired message including the OptionValue::optnf / General::newsym noise
+     Wolfram's framework fires per Plot (mostly suppressed by $Off / Stop /
+     Internal`InheritedBlock in Charting). Redirecting the print stream is
+     the *one* mechanism that respects all of those - whatever the kernel
+     decides to actually print, we capture verbatim.
+
+   - Print / Echo: Block-shadow the symbols. In script mode ($Output is
+     {OutputStream[stdout]}, no FE link), rebinding $Output does NOT
+     re-route Print - it writes straight to stdout via a hardcoded channel.
+     A local Block-binding on the Protected symbol works inside the
+     dynamic scope without touching the global definition.
+
+   - Intermediate Output values: parse the cell source into top-level
+     statements (Hold[s1, s2, ..., sN]) and evaluate each in order. A
+     statement whose held form is CompoundExpression[..., Null] (a
+     `;`-terminated source line) suppresses its Output cell - matching
+     notebook semantics. Plain expressions emit one Output per statement,
+     so a cell with `1+1\n2+2\n3+3` round-trips with three Output cells,
+     not just the last value Get returned previously.
+
+   - CellPrint: Block-shadow to capture cells injected by EchoFunction,
+     ResourceObject scrapers, or hand-written CellPrint calls. The captured
+     cells render in-line right after the Print/Echo cells.
+
+   Returns <|"outs" -> {boxes-or-Missing per non-suppressed statement},
+              "msgs" -> {message text, ...},
+              "prints" -> {print text, ...},
+              "cells" -> {injected cell, ...}|>.
+   Failed Get / parse returns "outs" -> {Missing[]} so callers downstream
+   still see the failure as a no-output cell rather than a crash. *)
+captureCellRun[code_String, opts_Association : <||>] := Block[{msgFile, prtFile, msgStream, prtStream, stmts, outs, cellsExtra, msgTxt, prtTxt, msgs, prints},
     msgFile = FileNameJoin[{$TemporaryDirectory,
         "mtnb-msg-" <> IntegerString[$KernelID, 36] <> "-" <>
         IntegerString[RandomInteger[10^9], 36] <> ".txt"}];
-    stream = OpenWrite[msgFile];
-    res = Block[{$Messages = {stream}}, expr];
-    Close[stream];
-    txt = If[FileExistsQ[msgFile], Quiet @ Import[msgFile, "Text"], ""];
-    Quiet @ DeleteFile[msgFile];
-    msgs = If[StringQ[txt] && StringTrim[txt] =!= "",
-        DeleteCases[Map[StringTrim, StringSplit[txt, "\n\n"]], ""],
+    prtFile = FileNameJoin[{$TemporaryDirectory,
+        "mtnb-prt-" <> IntegerString[$KernelID, 36] <> "-" <>
+        IntegerString[RandomInteger[10^9], 36] <> ".txt"}];
+    msgStream = OpenWrite[msgFile];
+    prtStream = OpenWrite[prtFile];
+    stmts = Quiet @ ToExpression[code, InputForm, Hold];
+    If[Head[stmts] =!= Hold, stmts = Hold[code]];  (* parse failure: re-run for the message *)
+    outs = {};
+    cellsExtra = {};
+    Block[{$Messages = {msgStream}, Print, Echo, CellPrint},
+        Print[args___] := (
+            WriteString[prtStream, StringJoin @@ Map[ToString, {args}]];
+            WriteString[prtStream, "\n\n"]
+        );
+        Echo[e_] := (Print[">> ", e]; e);
+        Echo[e_, label_] := (Print[">> ", label, " ", e]; e);
+        Echo[e_, label_, f_] := (Print[">> ", label, " ", f[e]]; e);
+        CellPrint[c_Cell] := (AppendTo[cellsExtra, c]; Null);
+        CellPrint[cs_List] := (cellsExtra = Join[cellsExtra, Cases[cs, _Cell]]; Null);
+        (* Walk statements: each held position is extracted with Extract,
+           which preserves the Hold wrapper so we can inspect its surface
+           form before releasing it. A CompoundExpression[..., Null] tail
+           is the source's "no output" mark - skip emission for that. *)
+        Do[
+            With[{heldStmt = Extract[stmts, i, Hold]},
+                If[ MatchQ[heldStmt, Hold[CompoundExpression[___, Null]]],
+                    (* suppressed - evaluate for side effects, no Output *)
+                    ReleaseHold[heldStmt],
+                    AppendTo[outs, outputBoxes[ReleaseHold[heldStmt], opts]]
+                ]
+            ],
+            {i, Length[stmts]}
+        ]
+    ];
+    Close[msgStream]; Close[prtStream];
+    msgTxt = If[FileExistsQ[msgFile], Quiet @ Import[msgFile, "Text"], ""];
+    prtTxt = If[FileExistsQ[prtFile], Quiet @ Import[prtFile, "Text"], ""];
+    Quiet @ DeleteFile[msgFile]; Quiet @ DeleteFile[prtFile];
+    msgs = If[StringQ[msgTxt] && StringTrim[msgTxt] =!= "",
+        DeleteCases[Map[StringTrim, StringSplit[msgTxt, "\n\n"]], ""],
         {}];
-    {res, msgs}
+    prints = If[StringQ[prtTxt] && StringTrim[prtTxt] =!= "",
+        DeleteCases[Map[StringTrim, StringSplit[prtTxt, "\n\n"]], ""],
+        {}];
+    <|"outs" -> outs, "msgs" -> msgs, "prints" -> prints, "cells" -> cellsExtra|>
 ]
-SetAttributes[captureMessages, HoldFirst]
 
 (* clear every symbol the document defined in its private context (and any
    nested sub-context it opened, e.g. "Doc`Private`"), drop the cumulative code
@@ -631,14 +694,16 @@ resetState[state_] := (
     <|state, "code" -> ""|>
 )
 
-evalCell[state_, b_] := Block[{code = state["code"] <> mdSep <> b["Code"], res, msgs, tmp},
-    (* Get a temp package so every top-level statement runs (ToExpression on a
-       multi-statement string only takes the first); Get returns the last value. *)
-    tmp = FileNameJoin[{$TemporaryDirectory, "mtnb-cell-" <> IntegerString[Hash[code], 36] <> ".wl"}];
-    Export[tmp, b["Code"], "Text"];
-    {res, msgs} = captureMessages @ Get[tmp];
+evalCell[state_, b_] := Block[{code = state["code"] <> mdSep <> b["Code"], captured},
+    (* captureCellRun parses b["Code"] into top-level statements via
+       ToExpression[..., Hold] so every statement runs in document order
+       and each non-`;`-suppressed value contributes its own Output - matching
+       how a notebook cell with multiple expressions renders multiple Out[n]s.
+       outputBoxes is applied per-value inside the capture (the cell's options
+       e.g. "screenshot" / "tear" / "image" route through to each output). *)
+    captured = captureCellRun[b["Code"], b["Options"]];
     <|state, "code" -> code,
-      "out" -> Append[state["out"], Hash[code] -> <|"out" -> outputBoxes[res, b["Options"]], "msgs" -> msgs|>]|>
+      "out" -> Append[state["out"], Hash[code] -> captured]|>
 ]
 
 (* fold step: per "EvaluateSeparator" mode, reset before this item if it is a
@@ -695,14 +760,32 @@ evaluateAll[items_List, ctx_String, ctxPath_List, mode_] := Block[{$Context = ct
 annotateOutputs[blocks_List, hashes_List, outputs_] := Block[{i = 0, walk},
     walk[b_] := Which[
         executableQ[b],
-            Block[{entry, out, msgs},
+            Block[{entry, outsList, msgs, prints, cellsExtra},
                 i += 1;
                 entry = Lookup[outputs, hashes[[i]], Missing[]];
-                {out, msgs} = If[AssociationQ[entry] && KeyExistsQ[entry, "out"],
-                    {entry["out"], Lookup[entry, "msgs", {}]},
-                    {entry, {}}
+                (* Three cache shapes to accommodate:
+                     - new: <|"outs" -> {boxes...}, "msgs" -> ..., "prints" -> ..., "cells" -> {...}|>
+                     - intermediate: <|"out" -> boxes, "msgs" -> ..., "prints" -> ...|>
+                     - legacy: bare boxes (no association)
+                   The "outs" list may be empty (a cell whose only statements
+                   are `;`-suppressed) - that's intentional, render as
+                   input + prints + messages with no Output cell. *)
+                {outsList, msgs, prints, cellsExtra} = Which[
+                    AssociationQ[entry] && KeyExistsQ[entry, "outs"],
+                        {entry["outs"], Lookup[entry, "msgs", {}],
+                         Lookup[entry, "prints", {}], Lookup[entry, "cells", {}]},
+                    AssociationQ[entry] && KeyExistsQ[entry, "out"],
+                        {{entry["out"]}, Lookup[entry, "msgs", {}],
+                         Lookup[entry, "prints", {}], {}},
+                    True,
+                        {{entry}, {}, {}, {}}
                 ];
-                Append[Append[b, "OutputBoxes" -> out], "Messages" -> msgs]
+                Append[Append[Append[Append[
+                    Append[b, "OutputBoxes" -> First[outsList, Missing[]]],
+                    "Outputs" -> outsList],
+                    "Messages" -> msgs],
+                    "Prints" -> prints],
+                    "ExtraCells" -> cellsExtra]
             ],
         b["Type"] === "Div",
             (* recurse: walk the Div's inner blocks, the counter `i`
@@ -870,21 +953,31 @@ extraOutputOpts[block_] := If[
    resulting panel image is wanted in the published notebook - showing the
    call would clutter the snapshot section. Toggled per-cell with
    "#| input: false". *)
-exampleIO[code_String, outBoxes_, n_Integer, outOpts_List : {}, msgs_List : {}, hideInput : (True | False) : False] := Block[{
+exampleIO[code_String, outBoxes_, n_Integer, outOpts_List : {}, msgs_List : {}, hideInput : (True | False) : False, prints_List : {}, extraCells_List : {}, outsList_List : Automatic] := Block[{
     inCell = Cell[BoxData[inputBoxes[code]], "Input", CellLabel -> "In[" <> ToString[n] <> "]:= "],
+    printCells = printCell /@ prints,
     msgCells = messageCell /@ msgs,
-    outCell
+    outputCells, allOuts
 },
+    (* prefer the explicit per-statement outs list when given; fall back to
+       the single OutputBoxes for legacy callers. A "No useful output" cell
+       (Missing[] / Null entry) is dropped so a Cell whose only statements
+       are `;`-suppressed renders cleanly as input + prints. *)
+    allOuts = If[ListQ[outsList] && outsList =!= {Automatic} && outsList =!= Automatic,
+        outsList, {outBoxes}];
+    allOuts = DeleteCases[allOuts, _?MissingQ | Null];
+    outputCells = MapIndexed[
+        With[{label = If[hideInput, Nothing, CellLabel -> "Out[" <> ToString[n] <> If[Length[allOuts] > 1, "@" <> ToString[First[#2]], ""] <> "]= "]},
+            Cell[BoxData[#1], "Output", label, Sequence @@ outOpts]] &,
+        allOuts];
     Which[
-        MissingQ[outBoxes] || outBoxes === Null,
-            If[hideInput, msgCells, Join[{inCell}, msgCells]],
+        outputCells === {},
+            If[hideInput, Flatten[{extraCells, printCells, msgCells}],
+               Flatten[{inCell, extraCells, printCells, msgCells}]],
         hideInput,
-            (* output-only: no Input cell, no In/Out label, no group bracket *)
-            outCell = Cell[BoxData[outBoxes], "Output", Sequence @@ outOpts];
-            Flatten[{msgCells, outCell}],
+            Flatten[{extraCells, printCells, msgCells, outputCells}],
         True,
-            outCell = Cell[BoxData[outBoxes], "Output", CellLabel -> "Out[" <> ToString[n] <> "]= ", Sequence @@ outOpts];
-            {Cell[CellGroupData[Flatten[{inCell, msgCells, outCell}], Open]]}
+            {Cell[CellGroupData[Flatten[{inCell, extraCells, printCells, msgCells, outputCells}], Open]]}
     ]
 ]
 
@@ -1022,7 +1115,10 @@ exampleIOFor[block_, n_Integer] :=
     applyExcluded[block, applyHidden[block, applyCollapse[block, withCellFlag[block, exampleIO[
         block["Code"], block["OutputBoxes"], n,
         extraOutputOpts[block], Lookup[block, "Messages", {}],
-        Lookup[block["Options"], "input", True] === False
+        Lookup[block["Options"], "input", True] === False,
+        Lookup[block, "Prints", {}],
+        Lookup[block, "ExtraCells", {}],
+        Lookup[block, "Outputs", Automatic]
     ]]]]]
 
 (* a document-level flag banner ("Flag" frontmatter) prepended to the notebook *)
@@ -2894,16 +2990,18 @@ chapterSectionCell[title_String, _] := Cell[
    carry those for the alt code styles. *)
 styledIOCells[block_, inStyle_String, outStyle_String] := Block[{
     outBoxes = Lookup[block, "OutputBoxes", Missing[]],
-    code = block["Code"], inCell, outCell, msgs = Lookup[block, "Messages", {}]
+    code = block["Code"], inCell, outCell,
+    msgs = Lookup[block, "Messages", {}],
+    prints = Lookup[block, "Prints", {}]
 },
     inCell = Cell[BoxData[inputBoxes[code]], inStyle];
     Which[
         MissingQ[outBoxes] || outBoxes === Null,
-            Prepend[messageCell /@ msgs, inCell] // (Flatten[{#}] &),
+            Flatten[{inCell, printCell /@ prints, messageCell /@ msgs}],
         True,
             outCell = Cell[BoxData[outBoxes], outStyle];
             {Cell[CellGroupData[
-                Flatten[{inCell, messageCell /@ msgs, outCell}],
+                Flatten[{inCell, printCell /@ prints, messageCell /@ msgs, outCell}],
                 Open
             ]]}
     ]
@@ -3540,7 +3638,7 @@ markdownWithImages[blocks_, meta_, target_String] := Block[{dir, base, imgDir, n
     dir = DirectoryName[target]; base = FileBaseName[target];
     imgDir = FileNameJoin[{dir, "images"}];
     Quiet @ CreateDirectory[imgDir, CreateIntermediateDirectories -> True];
-    codeMd[b_] := Block[{fence, imgFile, img, msgs, msgBlock, hasOutput},
+    codeMd[b_] := Block[{fence, imgFile, img, msgs, msgBlock, prints, prtBlock, outsList, outsBlock},
         (* twin keeps no "#| key: value" cell options - those are notebook-side
            evaluation directives (file, screenshot, tear, eval, flag) that have
            no rendered meaning. The file include is already expanded into
@@ -3549,20 +3647,30 @@ markdownWithImages[blocks_, meta_, target_String] := Block[{dir, base, imgDir, n
         (* captured kernel messages render as plain markdown blockquote admonitions
            (one per message) so a stray Power::infy or Part::partw shows up in the
            viewer right next to the cell that fired it - the twin had been silent
-           about them, hiding real errors behind a tidy-looking output image. *)
+           about them, hiding real errors behind a tidy-looking output image.
+           Captured Print / Echo output renders the same way, between the fence
+           and any messages, so a `Print["loaded N entries"]` shows up as a
+           visible stdout breadcrumb in the twin. *)
+        prints = If[KeyExistsQ[b, "Prints"], b["Prints"], {}];
+        prtBlock = If[prints === {} || MissingQ[prints], "",
+            "\n\n" <> StringRiffle[DeleteCases[printMd /@ prints, ""], "\n\n"]];
         msgs = If[KeyExistsQ[b, "Messages"], b["Messages"], {}];
         msgBlock = If[msgs === {} || MissingQ[msgs], "",
             "\n\n" <> StringRiffle[DeleteCases[messageMd /@ msgs, ""], "\n\n"]];
-        hasOutput = executableQ[b] && ! MissingQ[b["OutputBoxes"]] && b["OutputBoxes"] =!= Null;
-        If[ hasOutput,
-            n += 1; imgFile = base <> "-" <> ToString[n] <> ".png";
-            img = UsingFrontEnd @ Rasterize[
-                Notebook[{Cell[BoxData[b["OutputBoxes"]], "Output", Sequence @@ extraOutputOpts[b]]}, LightDark -> $lightDark, StyleDefinitions -> "Default.nb"],
-                ImageResolution -> 96];
-            writeImageIfChanged[FileNameJoin[{imgDir, imgFile}], img];
-            fence <> msgBlock <> "\n\n![output](images/" <> imgFile <> ")",
-            fence <> msgBlock
-        ]
+        (* per-statement outputs: a cell with `1+1\n2+2` produces two output
+           images, one per non-suppressed value. Empty outsList -> no images
+           (a cell whose only statements were `;`-suppressed). *)
+        outsList = Replace[Lookup[b, "Outputs", Automatic], Automatic :> {b["OutputBoxes"]}];
+        outsList = DeleteCases[outsList, _?MissingQ | Null];
+        outsBlock = StringJoin @ Map[
+            (n += 1; imgFile = base <> "-" <> ToString[n] <> ".png";
+                img = UsingFrontEnd @ Rasterize[
+                    Notebook[{Cell[BoxData[#], "Output", Sequence @@ extraOutputOpts[b]]}, LightDark -> $lightDark, StyleDefinitions -> "Default.nb"],
+                    ImageResolution -> 96];
+                writeImageIfChanged[FileNameJoin[{imgDir, imgFile}], img];
+                "\n\n![output](images/" <> imgFile <> ")") &,
+            outsList];
+        fence <> prtBlock <> msgBlock <> outsBlock
     ];
     mdOf[b_] := Switch[b["Type"],
         "Heading", StringRepeat["#", b["Level"]] <> " " <> resolveWebRefs[b["Text"]],
