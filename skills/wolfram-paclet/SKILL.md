@@ -108,8 +108,12 @@ your paclet actually meets - the submission reviewer reads them. Valid set
 ## Code-cell options
 
 `#|` lines at the top of a fenced `wl` cell: `eval`, `file`, `screenshot`, `tear`,
-`flag` (one `key: value` per line). Inline math is `$...$`; to link a documented
-symbol inline, wrap an inferred ref in `<code>`: `<code>[Range]()</code>`.
+`flag`, `boxes` (one `key: value` per line). `#| boxes: true` reads the body as
+a literal box expression (`RowBox`, `GridBox`, `TemplateBox`, `TooltipBox`, ...)
+and splices it into a `Cell[BoxData[…], "Input"]` unchanged - useful for showing
+a hand-built box decoration without round-tripping through evaluation.
+Inline math is `$...$`; to link a documented symbol inline, wrap an inferred ref
+in `<code>`: `<code>[Range]()</code>`.
 
 ## Build and deploy
 

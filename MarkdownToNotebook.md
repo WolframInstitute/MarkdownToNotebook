@@ -173,11 +173,20 @@ MarkdownToNotebook["> A quoted remark,\n> carried across two lines."]
 
 ### Evaluated code cells
 
-A fenced `wl` cell is evaluated and its output kept (then cached); a cell may carry options as `#| key: value` comment lines at the top - `#| eval: false` shows the code without running it, `#| screenshot: true` rasterizes a produced `Notebook` to an inline image, `#| tear: h` adds the torn-paper screenshot edge, `#| flag: …` marks the cell with a build flag, `#| file: path` replaces the body with the contents of a local file or URL. Two cells - one evaluated, one held - put the option syntax visibly in the markdown source:
+A fenced `wl` cell is evaluated and its output kept (then cached); a cell may carry options as `#| key: value` comment lines at the top - `#| eval: false` shows the code without running it, `#| boxes: true` reads the body as a literal box expression (`RowBox`, `GridBox`, `TemplateBox`, `TooltipBox`, ...) and splices it into a `Cell[BoxData[…], "Input"]` unchanged - no parse to RowBoxes, no evaluation; `#| screenshot: true` rasterizes a produced `Notebook` to an inline image, `#| tear: h` adds the torn-paper screenshot edge, `#| flag: …` marks the cell with a build flag, `#| file: path` replaces the body with the contents of a local file or URL. Two cells - one evaluated, one held - put the option syntax visibly in the markdown source:
 
 ```wl
 #| screenshot: true
 MarkdownToNotebook["## Evaluated\n\n```wl\nRange[5]^2\n```\n\n## Held\n\n```wl\n#| eval: false\nRange[5]^2\n```"]
+```
+
+### Box-literal cells
+
+`#| boxes: true` reads the body as a literal box expression - `RowBox`, `StyleBox`, `GridBox`, `TemplateBox`, `TagBox`, `TooltipBox`, ... - and splices it into a `Cell[BoxData[…], "Input"]` unchanged. No front-end reparse to RowBoxes, no evaluation; the rendered cell shows whatever the boxes say. Pair a regular cell (whose body goes through the reparser) with a `boxes` cell to see the difference in the same screenshot:
+
+```wl
+#| screenshot: true
+MarkdownToNotebook["## Reparsed\n\n```wl\nx + y\n```\n\n## Box literal\n\n```wl\n#| boxes: true\nRowBox[{\"x\", StyleBox[\" + \", FontColor -> RGBColor[0.8, 0.043, 0.008]], \"y\"}]\n```"]
 ```
 
 ### Inlining a file

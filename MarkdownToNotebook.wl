@@ -451,7 +451,32 @@ sectionsFrom[blocks_List] := Block[{step, init},
     Fold[step, init, blocks]["acc"]
 ]
 
-executableQ[b_] := b["Type"] === "Code" && MemberQ[{"wl", "wolfram", "mathematica"}, b["Lang"]] && TrueQ[Lookup[b["Options"], "eval", True]]
+(* "#| boxes: true" reads the cell content as a literal box expression
+   (parsed by ToExpression, not evaluated) and splices it directly into
+   BoxData - the author writes raw RowBox / GridBox / TemplateBox /
+   TagBox / TooltipBox and the converter renders those boxes unchanged.
+   A boxes cell is non-executable by definition, so executableQ excludes
+   it the same way "#| eval: false" is excluded - the non-executable
+   rendering path then dispatches in nonExecutableCell to emit a boxed
+   Input cell instead of a Program-styled plain-text cell. *)
+boxesLiteralQ[b_] := TrueQ[Lookup[b["Options"], "boxes", False]]
+
+executableQ[b_] := b["Type"] === "Code" && MemberQ[{"wl", "wolfram", "mathematica"}, b["Lang"]] && TrueQ[Lookup[b["Options"], "eval", True]] && ! boxesLiteralQ[b]
+
+(* parse the cell text as a Wolfram expression with no evaluation and
+   return it as-is for use as box data; on a parse failure fall back to
+   the raw string so the author sees the source rather than nothing. *)
+cellLiteralBoxes[code_String] := With[{e = Quiet @ ToExpression[code, InputForm, HoldComplete]},
+    Replace[e, {HoldComplete[expr_] :> expr, _ :> code}]
+]
+
+(* non-executable code-block rendering: a Program-styled plain-text cell
+   for `#| eval: false`, an Input cell whose BoxData is the literal
+   parsed box expression for `#| boxes: true`. *)
+nonExecutableCell[b_] := If[boxesLiteralQ[b],
+    Cell[BoxData[cellLiteralBoxes[b["Code"]]], "Input"],
+    Cell[b["Code"], "Program"]
+]
 
 sectionCells[sections_, key_] := Cases[Lookup[sections, key, {}], b_ /; executableQ[b]]
 
@@ -1563,7 +1588,7 @@ exampleContent[sectionBlocks_, textStyle_String] := Block[{counter = 0, out = {}
             executableQ[block],
                 counter += 1; out = Join[out, exampleIOFor[block, counter]],
             block["Type"] === "Code",
-                out = Join[out, withCellFlag[block, {Cell[block["Code"], "Program"]}]]
+                out = Join[out, withCellFlag[block, {nonExecutableCell[block]}]]
         ],
         {block, sectionBlocks}
     ];
@@ -2568,7 +2593,7 @@ tutorialBody[blocks_] := Block[{counter = 0},
             "Quote", {quoteCell[block["Text"]]},
             "MathBlock", {mathBlockCell[block["Text"]]},
             "Image", {imageCell[block]},
-            "Code", If[executableQ[block], (counter += 1; exampleIOFor[block, counter]), withCellFlag[block, {Cell[block["Code"], "Program"]}]],
+            "Code", If[executableQ[block], (counter += 1; exampleIOFor[block, counter]), withCellFlag[block, {nonExecutableCell[block]}]],
             _, {}
         ],
         blocks
@@ -2780,7 +2805,7 @@ defaultNotebook[data_] := Block[{counter = 0, cells},
             "Code",
                 If[ executableQ[block],
                     (counter += 1; exampleIOFor[block, counter]),
-                    withCellFlag[block, {Cell[block["Code"], "Program"]}]
+                    withCellFlag[block, {nonExecutableCell[block]}]
                 ],
             _, {}
         ],
@@ -2877,7 +2902,7 @@ essayNotebook[data_] := Block[{meta = data["meta"], counter = 0, header, body,
                     "Code",
                         If[ executableQ[block],
                             counter += 1; exampleIOFor[block, counter],
-                            withCellFlag[block, {Cell[block["Code"], "Program"]}]
+                            withCellFlag[block, {nonExecutableCell[block]}]
                         ],
                     _, {}
                 ]
@@ -3153,7 +3178,7 @@ bookFreeCells[block_, next_String, counterSym_] := Switch[block["Type"],
         If[ executableQ[block],
             $chapterCounter += 1;
             exampleIOFor[block, $chapterCounter],
-            withCellFlag[block, {Cell[block["Code"], "Program"]}]
+            withCellFlag[block, {nonExecutableCell[block]}]
         ],
     "Div",
         bookDivCells[block, counterSym],
