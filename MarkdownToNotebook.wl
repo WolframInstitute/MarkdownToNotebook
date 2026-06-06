@@ -2819,11 +2819,34 @@ rawSlotValue[name_String, opts_List, meta_] := Block[{def = FirstCase[opts, (Def
         "PacletDirectoryType", If[MissingQ[def], "Notebook", def],
         "Context", Lookup[meta, "Context", If[MissingQ[def], "MyPublisherID`MyPaclet`", def]],
         "MainGuidePageString", Lookup[meta, "MainGuide", def],
-        (* the license radio is selected by the cell's "RadioButtonValue" tagging
-           rule, which is the license ID *string* (e.g. "MIT"); the serialized
-           CheckboxData blob is left untouched (Checked stays {}). *)
-        "SelectedLicenseID", If[KeyExistsQ[meta, "License"], meta["License"], def],
-        "SpecifiedLicenseID", def,
+        (* The Paclet template's license control is a radio group with five
+           known IDs ("MIT", "Apache-2.0", "CC0-1.0", "None", "Other") plus a
+           free-text input that activates when "Other" is the selected radio.
+           Frontmatter License: <something> can be any of:
+           - a known-radio ID (MIT / Apache-2.0 / CC0-1.0 / None / Other)
+             -> SelectedLicenseID picks that radio, SpecifiedLicenseID stays
+             at the template's default;
+           - any other string (e.g. "GPL-3.0-or-later", "BSD-3-Clause", a
+             custom phrasing) -> SelectedLicenseID points at the "Other"
+             radio and SpecifiedLicenseID carries the verbatim string, so
+             the free-text input fills correctly in the FE.
+           Without the second branch a non-radio License silently vanishes:
+           SelectedLicenseID gets a string no radio matches (none lights up)
+           and SpecifiedLicenseID is left at its default Null. *)
+        "SelectedLicenseID", If[
+            KeyExistsQ[meta, "License"],
+            If[ MatchQ[meta["License"], "MIT" | "Apache-2.0" | "CC0-1.0" | "None" | "Other"],
+                meta["License"],
+                "Other"
+            ],
+            def
+        ],
+        "SpecifiedLicenseID", Block[{lic = Lookup[meta, "License", Missing[]]},
+            If[ StringQ[lic] && ! MatchQ[lic, "MIT" | "Apache-2.0" | "CC0-1.0" | "None" | "Other"],
+                lic,
+                def
+            ]
+        ],
         _, Lookup[meta, name, def]
     ]
 ]
