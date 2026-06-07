@@ -29,6 +29,8 @@ inline:
 
 <code>[NotebookToMarkdown]()[$nb$, "$file$.md"]</code> writes the markdown to *file* and returns the file path.
 
+<code>[NotebookToMarkdown]()[$nb$, "DocPage" -> True]</code> recovers a *faithful* literate-markdown twin of a shipped DocumentationTools reference page (a `Symbol` / `Guide` / `TechNote` authoring notebook): YAML frontmatter, the verbatim typed Input code, Usage signatures, and the Notes / property tables, ready to rebuild with [MarkdownToNotebook](). A trailing `.md` target writes it.
+
 ## Details & Options
 
 - The *nb* argument can be a [Notebook]() expression, a [NotebookObject]() open in the front end, or a string `".nb"` file path. The file form `Get`s the notebook off disk; the NotebookObject form `NotebookGet`s the live one.
@@ -36,6 +38,10 @@ inline:
 - Standard styles map back as: `Title` / `Section` / `Subsection` / `Subsubsection` to `#` / `##` / `###` / `####` headings; `Text` / `Notes` / `Caption` / `Quote` to prose; `Item` / `ItemNumbered` to markdown lists; `Code` / `Input` to ```` ```wl ... ``` ```` fenced blocks; `Output` / `Message` are skipped (they regenerate on re-conversion).
 - Inline `TextData` is converted back through the same backtick / bold / italic / link rules the forward parser accepts, so the produced markdown re-parses to an equivalent block sequence.
 - The walker does not recover frontmatter or resource-template-specific slots from the rendered cells; the markdown it emits is the rendered body only.
+- **`"DocPage" -> True`** switches to the *faithful doc-page* path, the reverse of MarkdownToNotebook's `Symbol` / `Guide` / `TechNote` authoring (see `docs/doc-pages.md`). Unlike the general walker it recovers: the **frontmatter** (from the `Categorization` / `Keywords` / `SeeAlso` / `MoreAbout` cells); the **verbatim typed Input code** via the front end's `InputText` export (preserving subscripts, `@`, `//`, `[[…]]`, `%`); **Usage signatures** as <code>[Sym]()[…]</code> spans; and the `Notes` / `2ColumnTableMod` / `3ColumnTableMod` cells as a `## Details & Options` section with pipe tables. It **requires a front end** (for `InputText`); the public entry wraps the call in [UsingFrontEnd]().
+- **Round-trip contract for signatures.** Subscripted arguments are emitted as canonical inline math with the base *inside* the math, `$obj_{i}$` — the form MarkdownToNotebook's `mathArgsToTemplate` round-trips to a clean subscript. The looser `*obj*$_i$` form (italic base + a separate `$_i$`) renders fine as raw markdown but round-trips *broken* (the forward parser only templates `$base_sub$` / `base~sub~` / `base<sub>sub</sub>`), so the doc-page path never emits it.
+- **Three nb→md tools, three jobs.** Use the `nb-reader` skill's Python converter for quick *reading / comprehension* of any notebook (no kernel); the plain `NotebookToMarkdown[nb]` walker for an *approximate* body of an arbitrary notebook; and `NotebookToMarkdown[nb, "DocPage" -> True]` for a *faithful, rebuildable* twin of a shipped reference page. Only the last is round-trip-faithful for doc pages.
+- Empty template sections (a placeholder `## Properties & Relations` with no content) are dropped, matching MarkdownToNotebook, which drops empty sections on build.
 
 ## Basic Examples
 

@@ -178,3 +178,419 @@ NotebookToMarkdown[source_, target_String /; StringEndsQ[ToLowerCase[target], ".
     Export[target, md, "Text"];
     target
 ]
+
+(* ============================================================================
+   FAITHFUL DOC-PAGE MODE  (opt-in: NotebookToMarkdown[file, "DocPage" -> True])
+   ----------------------------------------------------------------------------
+   The general walker above recovers an APPROXIMATE markdown body from any
+   notebook. The doc-page mode below recovers a FAITHFUL literate-markdown twin
+   of a shipped DocumentationTools reference page (Symbol / Guide / TechNote):
+     - the exact typed Input code, via the front end's InputText export (feInput);
+     - YAML frontmatter, from the Categorization / Keywords / SeeAlso / MoreAbout cells;
+     - Usage signatures as <code>[Sym]()[...]</code> spans (round-trip-safe, see below);
+     - Notes / property / named-circuit GridBoxes as pipe tables.
+   It REQUIRES a front end (feInput) and is opt-in via the "DocPage" -> True form.
+   See NotebookToMarkdown.md (## Faithful doc-page twin) for the pipeline and the
+   round-trip contract with MarkdownToNotebook.
+
+   The rules below EXTEND the general inlineMd / walkerMath / boxToCode with the
+   richer doc-page behavior. The two generic inlineMd[Cell[BoxData...]] rules are
+   guarded with !decorationCellQ so the general walker's decoration-drop (and its
+   test) is preserved.
+   ============================================================================ *)
+(* --- extend the inline converter for code-styled spans --- *)
+inlineMd[StyleBox[s_, "Code", ___]] := "`" <> boxToCode[s] <> "`"
+(* an inline subscript/superscript placeholder in PROSE -> canonical inline math
+   $base_{sub}$ (base inside the $...$), the round-trip-safe form. The TI-wrapped
+   case is more specific than the generic "TI" rule below, so it wins; without it
+   the subscript falls through to boxToCode and leaks "Subscript[obj, i]". *)
+inlineMd[StyleBox[SubscriptBox[a_, b_], "TI", ___]] := "$" <> walkerMath[a] <> "_{" <> walkerMath[b] <> "}$"
+inlineMd[StyleBox[SuperscriptBox[a_, b_], "TI", ___]] := "$" <> walkerMath[a] <> "^{" <> walkerMath[b] <> "}$"
+inlineMd[StyleBox[s_, "TI", ___]] := "*" <> inlineMd[s] <> "*"
+
+(* The front end's inline-box escape for a styled placeholder string parses, on Get, to
+   DisplayForm[StyleBox[x, TI]] inside the string; convert that to the *x* italic form.
+   (Do NOT put the raw linear-syntax form in this source: Get would parse it into boxes.) *)
+(* A styled placeholder string in the nb is stored as front-end linear-syntax:
+   "<PUA \!\(\*>StyleBox["x", "TI"]<PUA \)>".  The \! \( \* \) markers are private-use
+   characters (codes ~63300-63500), not ASCII. Convert StyleBox["x","TI"] -> *x* and
+   strip the PUA box-marker characters. Also handle the DisplayForm[StyleBox[x, TI]]
+   rendering form as a fallback. *)
+dq[s_String] := StringTrim[StringTrim[StringTrim[s], "\""], "()" | "(" | ")"]
+
+(* === character normalization ===
+   Wolfram FORMAL symbols (\[FormalA]..\[FormalZ] = 0xF800-0xF819, capitals 0xF81A-0xF833)
+   render fine in Mathematica but are INVISIBLE private-use glyphs in a web/markdown view,
+   so a formal placeholder shows as nothing (the empty "**"). Map them to plain letters.
+   FE structural box markers (\! \( \* \), 0xE000-0xF7FF) are pure noise -> drop. *)
+normCharCode[n_Integer] := Which[
+    63488 <= n <= 63513, FromCharacterCode[n - 63488 + 97],   (* formal a..z *)
+    63514 <= n <= 63539, FromCharacterCode[n - 63514 + 65],   (* formal A..Z *)
+    (* Wolfram letter glyphs (script / gothic / double-struck) live in the same PUA
+       band as the FE structural markers but are CONTENT, not noise; map them to plain
+       ASCII (not \mathscr{} - normStr runs on prose too, where a TeX command would not
+       render). Dropping them instead leaves e.g. a subscript base empty, which renders
+       as "_{+}_{+}" -> a KaTeX "double subscript" error. *)
+    63154 <= n <= 63179, FromCharacterCode[n - 63154 + 97],   (* script a..z *)
+    63344 <= n <= 63369, FromCharacterCode[n - 63344 + 65],   (* script A..Z *)
+    63180 <= n <= 63205, FromCharacterCode[n - 63180 + 97],   (* gothic a..z *)
+    63370 <= n <= 63395, FromCharacterCode[n - 63370 + 65],   (* gothic A..Z *)
+    63206 <= n <= 63231, FromCharacterCode[n - 63206 + 97],   (* double-struck a..z *)
+    63396 <= n <= 63421, FromCharacterCode[n - 63396 + 65],   (* double-struck A..Z *)
+    63451 <= n <= 63460, FromCharacterCode[n - 63451 + 48],   (* double-struck 0..9 *)
+    57344 <= n <= 63487, "",                                   (* FE structural box markers -> drop *)
+    True, FromCharacterCode[n]
+]
+normStr[s_String] := StringJoin[normCharCode /@ ToCharacterCode[s]]
+stripStructPUA[s_String] := StringJoin @ DeleteCases[Characters[s],
+    c_ /; With[{n = First @ ToCharacterCode[c]}, 57344 <= n <= 63487]]
+
+(* cleanStr: for an inline STRING, rewrite any serialized box-syntax a placeholder may
+   carry (StyleBox["x","TI"] -> *x*, SubscriptBox -> $_{}$) then normalize characters.
+   Strip the FE \!\(\* wrapper first so the box heads are matchable. *)
+cleanStr[s_String] := normStr @ StringReplace[stripStructPUA[s], {
+    "StyleBox[\"" ~~ Shortest[v__] ~~ "\", \"TI\"]" :> "*" <> v <> "*",
+    "DisplayForm[StyleBox[" ~~ Shortest[v__] ~~ ", TI]]" :> "*" <> v <> "*",
+    "StyleBox[" ~~ Shortest[v__] ~~ ", TI]" :> "*" <> v <> "*",
+    "SubsuperscriptBox[" ~~ Shortest[a__] ~~ ", " ~~ Shortest[b__] ~~ ", " ~~ Shortest[c__] ~~ "]" :> "$" <> dq[a] <> "_{" <> dq[b] <> "}^{" <> dq[c] <> "}$",
+    "SubscriptBox[" ~~ Shortest[a__] ~~ ", " ~~ Shortest[b__] ~~ "]" :> "$" <> dq[a] <> "_{" <> dq[b] <> "}$",
+    "SuperscriptBox[" ~~ Shortest[a__] ~~ ", " ~~ Shortest[b__] ~~ "]" :> "$" <> dq[a] <> "^{" <> dq[b] <> "}$"
+}]
+
+(* route all inline caption strings through the cleaner; plain prose passes unchanged *)
+inlineMd[s_String] := cleanStr[s]
+
+(* Dirac kets/bras that appear in table-description boxes *)
+boxToCode[TemplateBox[{x_}, "Ket"]] := "|" <> boxToCode[x] <> "\[RightAngleBracket]"
+boxToCode[TemplateBox[{x_}, "Bra"]] := "\[LeftAngleBracket]" <> boxToCode[x] <> "|"
+boxToCode[TemplateBox[{x_, y_}, "Braket" | "BraKet"]] :=
+    "\[LeftAngleBracket]" <> boxToCode[x] <> "|" <> boxToCode[y] <> "\[RightAngleBracket]"
+boxToCode[s_String] := normStr[s]
+
+(* === signature serializer (sig) ===
+   Renders a Usage call box to markdown using the hand-authored conventions:
+   - a link button -> [Name]()
+   - an italic (TI) string arg -> *arg*   (TI around a structure: recurse, don't wrap)
+   - a subscript -> $base_{i}$  (canonical inline math: the base lives INSIDE the $...$,
+     so the forward MarkdownToNotebook's mathArgsToTemplate round-trips it to a clean
+     subscript. The older *base*$_i$ form - italic base + a separate $_i$ - renders fine
+     as raw markdown but round-trips BROKEN through MarkdownToNotebook, so it is not used.)
+   - operators / brackets / commas / arrows -> literal (formal chars mapped, PUA dropped) *)
+sig[s_String] := cleanStr[s]
+sig[bb_ButtonBox] := "[" <> cellPlain[bb[[1]]] <> "]()"
+sig[StyleBox[s_String, "TI", ___]] := "*" <> normStr[s] <> "*"
+sig[StyleBox[s_, ___]] := sig[s]
+sig[SubscriptBox[a_, b_]] := "$" <> sigSub[a] <> "_{" <> sigSub[b] <> "}$"
+sig[SuperscriptBox[a_, b_]] := "$" <> sigSub[a] <> "^{" <> sigSub[b] <> "}$"
+sig[SubsuperscriptBox[a_, b_, c_]] := "$" <> sigSub[a] <> "_{" <> sigSub[b] <> "}^{" <> sigSub[c] <> "}$"
+sig[FractionBox[a_, b_]] := sig[a] <> "/" <> sig[b]
+(* a call box "Sym[...]" links its HEAD ([Sym]()) then maps the rest. The head is stored
+   as a bare-identifier String; a quoted named-circuit literal ("\"Fourier\"") is not linked.
+   One rule with an If, so there is no pattern-ordering race with the generic RowBox map. *)
+sig[RowBox[xs_List]] := If[
+    MatchQ[xs, {_String, "[", ___}] && StringMatchQ[First[xs], LetterCharacter ~~ (WordCharacter | "$") ...],
+    "[" <> First[xs] <> "]()" <> StringJoin[sig /@ Rest[xs]],
+    StringJoin[sig /@ xs]]
+sig[f_Symbol] := SymbolName[f]
+sig[other_] := normStr @ boxToCode[other]
+(* subscript/superscript content: strip styling, keep the plain text for the $...$ *)
+sigSub[StyleBox[s_, ___]] := sigSub[s]
+sigSub[s_String] := normStr[s]
+sigSub[RowBox[xs_List]] := StringJoin[sigSub /@ xs]
+sigSub[x_] := walkerMath[x]
+sigBox[x_] := sig[x]
+
+(* does a box tree carry 2D math structure (so it should render as $...$, not `code`)? *)
+mathyQ[b_] := ! FreeQ[b, _SubscriptBox | _SuperscriptBox | _SubsuperscriptBox |
+    _FractionBox | _SqrtBox | _RadicalBox | _OverscriptBox | _UnderscriptBox | _FormBox |
+    TemplateBox[_, "Ket" | "Bra" | "Braket" | "BraKet" | "SuperDagger" | "Dagger" | "Conjugate"]]
+
+(* a non-Link call box (Sym[...], "name"[...], *circ*[...]) is a SIGNATURE, not a
+   formula, so it should render as <code> even without a Link BaseStyle. Guard out
+   heavy-math boxes so a functional-form formula (e.g. Tr[Sqrt[...]]) stays $...$. *)
+sigCallBoxQ[RowBox[{h_, "[", ___}] ? (FreeQ[#, SqrtBox | FractionBox | RadicalBox | UnderoverscriptBox] &)] :=
+    MatchQ[h, _Symbol | _String | StyleBox[_, "TI", ___]]
+sigCallBoxQ[_] := False
+
+(* a FormBox is math by definition: never serialize it as code *)
+boxToCode[FormBox[b_, ___]] := walkerMath[b]
+
+(* extend math-mode serializer (walkerMath) for the box types seen in captions/tables *)
+walkerMath[SubsuperscriptBox[a_, b_, c_]] := walkerMath[a] <> "_{" <> walkerMath[b] <> "}^{" <> walkerMath[c] <> "}"
+walkerMath[RadicalBox[a_, b_]] := "\\sqrt[" <> walkerMath[b] <> "]{" <> walkerMath[a] <> "}"
+walkerMath[UnderscriptBox[a_, b_]] := walkerMath[a] <> "_{" <> walkerMath[b] <> "}"
+walkerMath[OverscriptBox[a_, "_"]] := "\\overline{" <> walkerMath[a] <> "}"
+walkerMath[OverscriptBox[a_, b_]] := "\\overset{" <> walkerMath[b] <> "}{" <> walkerMath[a] <> "}"
+walkerMath[UnderoverscriptBox[a_, b_, c_]] := walkerMath[a] <> "_{" <> walkerMath[b] <> "}^{" <> walkerMath[c] <> "}"
+walkerMath[ButtonBox[n_, ___]] := walkerMath[n]
+boxToCode[OverscriptBox[a_, _]] := boxToCode[a]
+boxToCode[SubsuperscriptBox[a_, b_, c_]] := boxToCode[a] <> "_" <> boxToCode[b] <> "^" <> boxToCode[c]
+walkerMath[TemplateBox[{x_}, "Ket"]] := "|" <> walkerMath[x] <> "\\rangle"
+walkerMath[TemplateBox[{x_}, "Bra"]] := "\\langle " <> walkerMath[x] <> "|"
+walkerMath[TemplateBox[{x_, y_}, "Braket" | "BraKet"]] := "\\langle " <> walkerMath[x] <> "|" <> walkerMath[y] <> "\\rangle"
+walkerMath[TemplateBox[{x_}, "SuperDagger" | "Dagger"]] := walkerMath[x] <> "^\\dagger"
+walkerMath[TemplateBox[{x_}, "Conjugate"]] := walkerMath[x] <> "^*"
+walkerMath[StyleBox[s_, ___]] := walkerMath[s]
+walkerMath[Cell[BoxData[b_], ___]] := walkerMath[b]
+walkerMath[Cell[c_, ___]] := walkerMath[c]
+
+(* math leaf strings: map formal symbols, strip FE PUA *)
+walkerMath[s_String] := normStr[s]
+
+(* robust link: a ButtonBox's first argument is its label (String / StyleBox / RowBox);
+   emit the inferred-link form [label](). Always produces a link, never a raw dump. *)
+buttonLabel[ButtonBox[label_, ___]] := cellPlain[label]
+inlineMd[bb_ButtonBox] := "[" <> buttonLabel[bb] <> "]()"
+
+(* InlineFormula: link signature -> <code>...</code>; bare italic arg -> *arg*;
+   2D math -> $...$; otherwise inline `code`. Also catch styleless math cells. *)
+inlineMd[Cell[BoxData[FormBox[b_, ___]], "InlineFormula", ___]] := "$" <> walkerMath[b] <> "$"
+inlineMd[Cell[BoxData[StyleBox[s_, "TI", ___]], "InlineFormula", ___]] :=
+    If[mathyQ[s], "$" <> walkerMath[s] <> "$", "*" <> boxToCode[s] <> "*"]
+(* a lone Link ButtonBox is a symbol mention, not a call -> [name]() not <code>.
+   The front end often wraps it in a TagBox and gives BaseStyle a Dynamic mouse-over. *)
+inlineMd[Cell[BoxData[ButtonBox[a___]], "InlineFormula", ___]] := inlineMd[ButtonBox[a]]
+inlineMd[Cell[BoxData[TagBox[bb_ButtonBox, ___]], "InlineFormula", ___]] := inlineMd[bb]
+inlineMd[c0 : Cell[BoxData[b_], "InlineFormula", ___]] /; ! decorationCellQ[c0] := Which[
+    ! FreeQ[b, BaseStyle -> "Link" | "Hyperlink"], "<code>" <> sigBox[b] <> "</code>",
+    sigCallBoxQ[b], "<code>" <> sigBox[b] <> "</code>",
+    mathyQ[b], "$" <> walkerMath[b] <> "$",
+    True, With[{c = cleanStr[boxToCode[b]]},
+        (* a styled-string placeholder ("name" with TI) cleans to contain *...*; emit it
+           as bare italic prose, not a backtick code span (asterisks don't render in code) *)
+        If[StringContainsQ[c, "*"], c, "`" <> c <> "`"]]
+]
+inlineMd[c0 : Cell[BoxData[b_], ___]] /; ! decorationCellQ[c0] :=
+    Which[MatchQ[b, _Cell], inlineMd[b], mathyQ[b], "$" <> walkerMath[b] <> "$", True, "`" <> boxToCode[b] <> "`"]
+inlineMd[BoxData[b_]] := If[mathyQ[b], "$" <> walkerMath[b] <> "$", "`" <> boxToCode[b] <> "`"]
+inlineMd[TagBox[x_, ___]] := inlineMd[x]
+inlineMd[InterpretationBox[x_, ___]] := inlineMd[x]
+(* nested cells (a doc table cell can wrap its prose several Cells deep:
+   Cell[TextData[Cell[BoxData[Cell[TextData[...],"TableText"]]]]]). Recurse into the
+   content instead of letting boxToCode ToString-dump the inner Cell:
+   - a BoxData wrapper around a Cell -> unwrapped in the BoxData rule's Which below;
+   - a TEXT cell (TextData / String content) -> unwrap to its content. *)
+inlineMd[c0 : Cell[content : (_TextData | _String), _String, ___]] /; ! decorationCellQ[c0] := inlineMd[content]
+walkerMath[TagBox[x_, ___]] := walkerMath[x]
+walkerMath[InterpretationBox[x_, ___]] := walkerMath[x]
+boxToCode[InterpretationBox[x_, ___]] := boxToCode[x]
+
+(* --- plain text of a TextData / string (for titles, ObjectName) --- *)
+cellPlain[s_String] := normStr[s]
+cellPlain[TextData[xs_List]] := StringJoin[cellPlain /@ xs]
+cellPlain[TextData[x_]] := cellPlain[x]
+cellPlain[Cell[c_, ___]] := cellPlain[c]
+cellPlain[BoxData[b_]] := boxToCode[b]
+cellPlain[StyleBox[s_, ___]] := cellPlain[s]
+cellPlain[ButtonBox[n_String, ___]] := n
+cellPlain[_] := ""
+
+(* --- faithful Input code via FE InputText (call inside UsingFrontEnd) --- *)
+feInput[bd_] := Module[{r},
+    r = MathLink`CallFrontEnd[FrontEnd`ExportPacket[Cell[bd, "Input"], "InputText"]];
+    StringTrim @ If[MatchQ[r, {_String, ___}], First[r], ToString[r]]
+]
+
+(* --- clean caption whitespace (newlines -> space, collapse) --- *)
+tidy[s_String] := StringTrim @ StringReplace[s, {"\n" -> " ", "\r" -> " ", Whitespace -> " "}]
+
+(* --- Usage cell: split the TextData on ModInfo separators into one paragraph per
+   signature, each "<code>sig</code> description." --- *)
+usageMd[TextData[xs_List]] := Module[{groups},
+    groups = Split[DeleteCases[xs, Cell[_, "ModInfo", ___]],
+        (* keep grouping simple: a new ModInfo started a new line, but we removed them,
+           so re-split on a leading-"\n" description following a signature is unreliable;
+           instead split before each InlineFormula that holds a Link button (a signature). *)
+        True &];
+    usageLines[DeleteCases[xs, Cell[_, "ModInfo", ___]]]
+]
+usageMd[other_] := tidy @ inlineMd[other]
+
+(* a signature element: an InlineFormula cell that is a call box (Sym[...]) or carries
+   a Link ButtonBox. usageLines starts a new Usage line at each, so multiple signatures
+   each get their own line even without a Link BaseStyle. *)
+sigQ[Cell[BoxData[b_], "InlineFormula", ___]] := sigCallBoxQ[b] || ! FreeQ[b, BaseStyle -> "Link"]
+sigQ[_] := False
+
+usageLines[elts_List] := Module[{lines = {}, cur = {}},
+    Do[
+        If[ sigQ[e] && cur =!= {},
+            AppendTo[lines, cur]; cur = {e},
+            AppendTo[cur, e]
+        ],
+        {e, elts}
+    ];
+    If[cur =!= {}, AppendTo[lines, cur]];
+    StringRiffle[tidy[StringJoin[inlineMd /@ #]] & /@ lines, "\n\n"]
+]
+
+(* --- section title: ExampleSection wraps the title in an InterpretationBox counter
+   cell; ExampleSubsection/Subsubsection store the title string directly. --- *)
+sectionTitle[content_] := Module[{inner},
+    inner = FirstCase[content, Cell[t_, _String, ___] :> t, $noInner, Infinity];
+    cellPlain @ If[inner === $noInner, content, inner]
+]
+
+(* --- per-cell block --- *)
+ClearAll[blockFor]
+$dropStyles = {
+    "Output", "Message", "Print", "ModInfo", "MoreInfoText", "MoreInfoTextOuter",
+    "Categorization", "CategorizationSection", "Keywords", "KeywordsSection",
+    "Template", "TemplatesSection", "History", "HistoryData",
+    "TechNotesSection", "Tutorials", "RelatedDemonstrations", "RelatedDemonstrationsSection",
+    "RelatedLinks", "RelatedLinksSection", "SeeAlso", "SeeAlsoSection",
+    "MoreAbout", "MoreAboutSection", "ExtendedExamplesSection",
+    "ExamplesInitializationSection", "ExampleInitialization"
+};
+
+blockFor["ObjectName", _] := ""
+blockFor["Usage", c_] := "## Usage\n\n" <> usageMd[c]
+(* The Notes cells are the "Details & Options" section of a doc page; the nb carries
+   no heading cell for it (the template implies it), so emit "## Details & Options"
+   once, before the first Notes block, so the section round-trips through the forward
+   MarkdownToNotebook (which maps that heading back to the Notes slot). *)
+blockFor["Notes", c_] := With[{b = "- " <> tidy @ inlineMd[c]},
+    If[TrueQ[$detailsHeadingDone], b, $detailsHeadingDone = True; "## Details & Options\n\n" <> b]]
+blockFor["2ColumnTableMod" | "3ColumnTableMod" | "TableNotes", BoxData[GridBox[rows_List, ___]]] := gridTable[rows]
+blockFor["2ColumnTableMod" | "3ColumnTableMod", c_] := tidy @ inlineMd[c]
+
+(* GridBox rows -> pipe table; drop ModInfo spacer columns, convert each remaining cell *)
+spacerQ[Cell[s_String, "ModInfo", ___]] := StringMatchQ[s, Whitespace | ""]
+spacerQ[_] := False
+gridCellMd[s_String] := "`" <> StringTrim[s] <> "`"
+gridCellMd[Cell[t_, "TableText", ___]] := tidy @ inlineMd[t]
+gridCellMd[c_] := tidy @ inlineMd[c]
+gridTable[rows_List] := Module[{drows, ncol},
+    drows = Function[r, gridCellMd /@ DeleteCases[r, _?spacerQ]] /@ rows;
+    drows = DeleteCases[drows, {}];
+    If[drows === {}, Return[""]];
+    ncol = Max[Length /@ drows];
+    drows = PadRight[#, ncol, ""] & /@ drows;
+    StringRiffle[
+        Join[
+            {"| " <> StringRiffle[ConstantArray[" ", ncol], " | "] <> " |"},
+            {"|" <> StringRiffle[ConstantArray["---", ncol], "|"] <> "|"},
+            ("| " <> StringRiffle[#, " | "] <> " |") & /@ drows
+        ],
+        "\n"
+    ]
+]
+blockFor["ExampleText" | "CodeText" | "Caption", c_] := tidy @ inlineMd[c]
+blockFor["Input" | "Code" | "ExampleInput" | "Program", BoxData[b_]] :=
+    "```wl\n" <> feInput[BoxData[b]] <> "\n```"
+blockFor["Input" | "Code", c_] := "```wl\n" <> feInput[c] <> "\n```"
+blockFor["PrimaryExamplesSection", _] := "## Basic Examples"
+blockFor["ExampleSection", c_] := "## " <> sectionTitle[c]
+blockFor["ExampleSubsection", c_] := "### " <> sectionTitle[c]
+blockFor["ExampleSubsubsection", c_] := "#### " <> sectionTitle[c]
+blockFor["ExampleDelimiter", _] := "---"
+blockFor[s_String, _] /; MemberQ[$dropStyles, s] := ""
+blockFor[_, _] := ""
+
+(* --- tree walk --- *)
+walkCell[Cell[CellGroupData[inner_List, ___]]] := walkCells[inner]
+walkCell[Cell[content_, style_String, ___]] := blockFor[style, content]
+walkCell[_] := ""
+walkCells[cells_List] := DeleteCases[Flatten[{walkCell /@ cells}], "" | Null]
+
+(* --- frontmatter --- *)
+catList[nb_] := Flatten @ Cases[nb, Cell[c_, "Categorization", ___] :> Cases[{c}, _String, Infinity], Infinity]
+seeAlsoList[nb_] := Cases[nb,
+    Cell[_, "SeeAlso", ___] -> _,
+    Infinity] /. {} -> {};
+linkNames[nb_, style_] := Cases[
+    FirstCase[nb, Cell[td_, style, ___] :> td, TextData[{}], Infinity],
+    ButtonBox[n_String, ___] :> n, Infinity]
+guideIds[nb_, style_] := Cases[
+    FirstCase[nb, Cell[td_, style, ___] :> td, TextData[{}], Infinity],
+    ButtonBox[_, ___, ButtonData -> d_String, ___] :> Last[StringSplit[d, "/"]], Infinity]
+keywordList[nb_] := Cases[nb, Cell[c_, "Keywords", ___] :> Cases[{c}, _String, Infinity], Infinity] // Flatten
+
+frontmatter[nb_, name_] := Module[{cat, paclet, ctx, uri, kw, sa, rg},
+    cat = catList[nb];
+    paclet = If[Length[cat] >= 2, cat[[2]], ""];
+    ctx = If[Length[cat] >= 3, cat[[3]], ""];
+    uri = If[Length[cat] >= 4, cat[[4]], ""];
+    kw = keywordList[nb];
+    sa = linkNames[nb, "SeeAlso"];
+    rg = guideIds[nb, "MoreAbout"];
+    StringJoin[
+        "---\n",
+        "Template: Symbol\n",
+        "Name: ", name, "\n",
+        "Context: ", ctx, "\n",
+        "Paclet: ", paclet, "\n",
+        "URI: ", uri, "\n",
+        "Keywords: [", StringRiffle[kw, ", "], "]\n",
+        "SeeAlso: [", StringRiffle[sa, ", "], "]\n",
+        "RelatedGuides: [", StringRiffle[rg, ", "], "]\n",
+        "---\n"
+    ]
+]
+
+(* --- post-process: drop a heading immediately followed by another heading or EOF --- *)
+(* a HEADING-ONLY block: "## Title" on a single line. A block that bakes content
+   after its heading (e.g. the Usage block "## Usage\n\n<sig>...") contains a newline
+   and is NOT heading-only, so dropEmptySections never mistakes it for an empty section. *)
+headingQ[s_String] := StringMatchQ[s, ("#" ..) ~~ " " ~~ Except["\n"] ...]
+headingLevel[s_String] := StringLength @ First @ StringCases[s, StartOfString ~~ h : ("#" ..) :> h]
+(* a heading is empty only if the next block is a heading of the SAME or HIGHER level
+   (a sibling/parent section), or end of document; a following deeper subsection is content *)
+dropEmptySections[blocks_List] := Module[{i, out = {}},
+    Do[
+        If[ headingQ[blocks[[i]]] &&
+            (i == Length[blocks] ||
+                (headingQ[blocks[[i + 1]]] && headingLevel[blocks[[i + 1]]] <= headingLevel[blocks[[i]]])),
+            Null,
+            AppendTo[out, blocks[[i]]]
+        ],
+        {i, Length[blocks]}
+    ];
+    out
+]
+
+(* strip the front end's structural box-marker / spanning private-use chars (range
+   0xE000-0xF7FF) that survive serialization into prose. Applied ONLY to non-code blocks:
+   code cells come verbatim from the front end and may legitimately carry PUA glyphs
+   (e.g. \[FormalX] at 0xF800+, which is above this band anyway). *)
+stripPUA[s_String] := StringJoin @ DeleteCases[Characters[s],
+    c_ /; With[{n = First @ ToCharacterCode[c]}, 57344 <= n <= 63487]]
+codeBlockQ[s_String] := StringStartsQ[s, "```"]
+
+(* core: a doc-page Notebook -> faithful literate markdown (frontmatter + body).
+   Assumes a front end is available (feInput); the public entry points wrap it
+   in UsingFrontEnd. *)
+docPageMarkdown[nb : Notebook[_List, ___]] := Block[{name, blocks, $detailsHeadingDone = False},
+    name = cellPlain @ FirstCase[nb, Cell[t_, "ObjectName", ___] :> t, "", Infinity];
+    blocks = walkCells[First[nb]];
+    blocks = dropEmptySections[blocks];
+    (* non-code blocks: map formal symbols to plain letters + strip FE structural PUA;
+       code blocks stay verbatim (they may carry \[FormalX] etc. that must round-trip) *)
+    blocks = If[codeBlockQ[#], #, normStr[#]] & /@ blocks;
+    normStr[frontmatter[nb, name]] <> "\n" <> StringRiffle[blocks, "\n\n"] <> "\n"
+]
+convertNb[nbFile_String] := docPageMarkdown[Get[nbFile]]
+
+(* --- batch entry: convert a list of nb paths to md (sibling .md), one FE session --- *)
+convertAll[nbFiles_List] := UsingFrontEnd @ Map[
+    Function[f, Module[{md, out},
+        out = StringReplace[f, ".nb" -> ".md"];
+        md = convertNb[f];
+        Export[out, md, "Text"];
+        Print["wrote ", FileNameTake[out], "  (", StringLength[md], " chars)"];
+        out
+    ]],
+    nbFiles
+]
+
+(* === public doc-page entry (opt-in; requires a front end for feInput) ===
+   NotebookToMarkdown[src, "DocPage" -> True] recovers the FAITHFUL doc-page twin
+   (frontmatter + verbatim code + signatures + tables) instead of the general
+   walker's approximate body. src is a Notebook expression, a NotebookObject, or
+   a .nb file path; a trailing .md target writes the result. *)
+NotebookToMarkdown[nb : Notebook[_List, ___], "DocPage" -> True] := UsingFrontEnd @ docPageMarkdown[nb]
+NotebookToMarkdown[nbo_NotebookObject, "DocPage" -> True] := UsingFrontEnd @ docPageMarkdown[NotebookGet[nbo]]
+NotebookToMarkdown[file_String /; FileExistsQ[file] && StringEndsQ[ToLowerCase[file], ".nb"], "DocPage" -> True] :=
+    UsingFrontEnd @ docPageMarkdown[Get[file]]
+NotebookToMarkdown[src_, "DocPage" -> True, target_String /; StringEndsQ[ToLowerCase[target], ".md"]] := Block[
+    {md = NotebookToMarkdown[src, "DocPage" -> True]}, Export[target, md, "Text"]; target]
