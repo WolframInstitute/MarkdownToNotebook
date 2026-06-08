@@ -611,22 +611,46 @@ outputBoxes[res_, opts_] := Which[
 messageCell[s_String] := Cell[s, "Message", "MSG"]
 messageCell[hf_] := Cell[ToString[hf, InputForm], "Message", "MSG"]
 
-(* Captured Print / Echo output -> a notebook "Print" cell. The kernel's
-   print channel is bypassable in script mode (rebinding $Output does NOT
-   re-route Print under `wl -f`), so we instead Block-override Print and
-   Echo themselves to write the captured text to our stream - a real local
-   binding shadow on the protected symbol. The cell text is the verbatim
-   line that Print/Echo would have written to stdout. *)
-printCell[s_String] := Cell[s, "Print"]
-printCell[hf_] := Cell[ToString[hf, InputForm], "Print"]
+(* Captured Print / Echo output -> a notebook "Print" cell.
+   Print is intercepted by Block-shadowing the symbol (rebinding $Output
+   does NOT re-route Print under `wl -f`: it writes straight to stdout via
+   a hardcoded channel; only a local Block-binding on the Protected symbol
+   intercepts). Each arg is coerced individually: a string splices as a
+   literal box leaf (matching notebook Print's "unquoted strings"
+   semantics), any other expression goes through ToBoxes - so
+   Print[graphic] / Print[image] / Print[dataset] / Print[typeset] all
+   render correctly in the resulting cell instead of collapsing to
+   "-Graphics-" the way a `ToString` round-trip would. *)
+printArgBoxes[s_String] := s
+printArgBoxes[expr_] := ToBoxes[expr]
+
+printCellFromArgs[args_List] := With[{bs = printArgBoxes /@ args},
+    Cell[BoxData[If[Length[bs] === 1, First[bs], RowBox[bs]]], "Print"]
+]
+
+(* Backwards-compat: old cache entries stored Print output as plain text
+   chunks. Wrap any string entries in a Print cell on the way out. *)
+asPrintCell[s_String] := Cell[s, "Print"]
+asPrintCell[c_Cell] := c
+asPrintCell[other_] := Cell[ToString[other, InputForm], "Print"]
 
 (* Plain-text rendering of captured messages / prints for the markdown twin.
-   Both render as blockquotes, one per captured chunk, so what shows up in
-   the twin is exactly what an interactive user would see fire for that cell. *)
+   Messages are always strings (the kernel writes them as text to
+   $Messages). Print cells may be rich - a string-only Print becomes a
+   blockquote, anything richer rasterises to a screenshot image. *)
 messageMd[s_String] := "> " <> StringReplace[StringTrim[s], "\n" -> "\n> "]
 messageMd[_] := ""
-printMd[s_String] := "> " <> StringReplace[StringTrim[s], "\n" -> "\n> "]
-printMd[_] := ""
+
+(* Extract a textual form from a captured Print cell, or Missing if it
+   carries rich content (a GraphicsBox, a Dataset, a TemplateBox, ...).
+   Used by the twin renderer to decide between a blockquote and a
+   rasterised image. *)
+printTextForm[s_String] := s
+printTextForm[Cell[s_String, "Print", ___]] := s
+printTextForm[Cell[BoxData[s_String], "Print", ___]] := s
+printTextForm[Cell[BoxData[RowBox[lst_List]], "Print", ___]] /;
+    AllTrue[lst, StringQ] := StringJoin[lst]
+printTextForm[_] := Missing["Rich"]
 
 (* Capture EVERYTHING a cell's evaluation would produce in a real notebook,
    without relying on the FE-driven NotebookEvaluate (which hangs in headless
@@ -664,20 +688,19 @@ printMd[_] := ""
               "cells" -> {injected cell, ...}|>.
    Failed Get / parse returns "outs" -> {Missing[]} so callers downstream
    still see the failure as a no-output cell rather than a crash. *)
-captureCellRun[code_String, opts_Association : <||>] := Block[{msgFile, prtFile, msgStream, prtStream, stmts, outs, cellsExtra, msgTxt, prtTxt, msgs, prints},
+captureCellRun[code_String, opts_Association : <||>] := Block[{msgFile, msgStream, stmts, outs, cellsExtra, msgTxt, msgs, prints},
     msgFile = CreateFile[];
-    prtFile = CreateFile[];
     msgStream = OpenWrite[msgFile];
-    prtStream = OpenWrite[prtFile];
     stmts = Quiet @ ToExpression[code, InputForm, Hold];
     If[Head[stmts] =!= Hold, stmts = Hold[code]];  (* parse failure: re-run for the message *)
     outs = {};
     cellsExtra = {};
+    prints = {};
     Block[{$Messages = {msgStream}, Print, Echo, CellPrint},
-        Print[args___] := (
-            WriteString[prtStream, StringJoin @@ Map[ToString, {args}]];
-            WriteString[prtStream, "\n\n"]
-        );
+        (* Print accumulates a real Cell built from the args, not a text
+           chunk - so Print[graphics], Print[image], Print[dataset], or
+           Print["count: ", n] each render correctly downstream. *)
+        Print[args___] := (AppendTo[prints, printCellFromArgs[{args}]]; Null);
         Echo[e_] := (Print[">> ", e]; e);
         Echo[e_, label_] := (Print[">> ", label, " ", e]; e);
         Echo[e_, label_, f_] := (Print[">> ", label, " ", f[e]]; e);
@@ -698,15 +721,11 @@ captureCellRun[code_String, opts_Association : <||>] := Block[{msgFile, prtFile,
             {i, Length[stmts]}
         ]
     ];
-    Close[msgStream]; Close[prtStream];
+    Close[msgStream];
     msgTxt = If[FileExistsQ[msgFile], Quiet @ Import[msgFile, "Text"], ""];
-    prtTxt = If[FileExistsQ[prtFile], Quiet @ Import[prtFile, "Text"], ""];
-    Quiet @ DeleteFile[msgFile]; Quiet @ DeleteFile[prtFile];
+    Quiet @ DeleteFile[msgFile];
     msgs = If[StringQ[msgTxt] && StringTrim[msgTxt] =!= "",
         DeleteCases[Map[StringTrim, StringSplit[msgTxt, "\n\n"]], ""],
-        {}];
-    prints = If[StringQ[prtTxt] && StringTrim[prtTxt] =!= "",
-        DeleteCases[Map[StringTrim, StringSplit[prtTxt, "\n\n"]], ""],
         {}];
     <|"outs" -> outs, "msgs" -> msgs, "prints" -> prints, "cells" -> cellsExtra|>
 ]
@@ -1057,7 +1076,7 @@ extraOutputOpts[block_] := If[
    "#| input: false". *)
 exampleIO[code_String, outBoxes_, n_Integer, outOpts_List : {}, msgs_List : {}, hideInput : (True | False) : False, prints_List : {}, extraCells_List : {}, outsList_List : Automatic] := Block[{
     inCell = Cell[BoxData[inputBoxes[code]], "Input", CellLabel -> "In[" <> ToString[n] <> "]:= "],
-    printCells = printCell /@ prints,
+    printCells = asPrintCell /@ prints,
     msgCells = messageCell /@ msgs,
     outputCells, allOuts
 },
@@ -3125,11 +3144,11 @@ styledIOCells[block_, inStyle_String, outStyle_String] := Block[{
     inCell = Cell[BoxData[inputBoxes[code]], inStyle];
     Which[
         MissingQ[outBoxes] || outBoxes === Null,
-            Flatten[{inCell, printCell /@ prints, messageCell /@ msgs}],
+            Flatten[{inCell, asPrintCell /@ prints, messageCell /@ msgs}],
         True,
             outCell = Cell[BoxData[outBoxes], outStyle];
             {Cell[CellGroupData[
-                Flatten[{inCell, printCell /@ prints, messageCell /@ msgs, outCell}],
+                Flatten[{inCell, asPrintCell /@ prints, messageCell /@ msgs, outCell}],
                 Open
             ]]}
     ]
@@ -3762,11 +3781,20 @@ writeImageIfChanged[path_String, img_] := Block[{existing},
     ]
 ]
 
-markdownWithImages[blocks_, meta_, target_String] := Block[{dir, base, imgDir, n = 0, mdOf, codeMd},
+(* Sections whose .nb rendering is input-only (no Output cell shown next
+   to the input): the resource definition cell, the verification tests,
+   the content elements of a Data resource. The .nb still evaluates
+   these cells (the rest of the document needs the resulting bindings),
+   but the published page never shows their outputs - so the twin .md
+   shouldn't either. *)
+$inputOnlyTwinSections = {"definition", "tests", "content"}
+
+markdownWithImages[blocks_, meta_, target_String] := Block[{dir, base, imgDir, n = 0, currentSection = "", mdOf, codeMd},
     dir = DirectoryName[target]; base = FileBaseName[target];
     imgDir = FileNameJoin[{dir, "images"}];
     Quiet @ CreateDirectory[imgDir, CreateIntermediateDirectories -> True];
-    codeMd[b_] := Block[{fence, imgFile, img, msgs, msgBlock, prints, prtBlock, outsList, outsBlock},
+    codeMd[b_] := Block[{fence, imgFile, img, msgs, msgBlock, prints, prtBlock, outsList, outsBlock, suppressOuts},
+        suppressOuts = MemberQ[$inputOnlyTwinSections, currentSection];
         (* twin keeps no "#| key: value" cell options - those are notebook-side
            evaluation directives (file, screenshot, tear, eval, flag) that have
            no rendered meaning. The file include is already expanded into
@@ -3780,15 +3808,33 @@ markdownWithImages[blocks_, meta_, target_String] := Block[{dir, base, imgDir, n
            and any messages, so a `Print["loaded N entries"]` shows up as a
            visible stdout breadcrumb in the twin. *)
         prints = If[KeyExistsQ[b, "Prints"], b["Prints"], {}];
+        (* a textual Print renders as a blockquote (same shape as a
+           message); a rich Print (Print[graphic] / Print[dataset] / ...)
+           rasterises to its own PNG and embeds inline, the same way an
+           Output cell does. *)
         prtBlock = If[prints === {} || MissingQ[prints], "",
-            "\n\n" <> StringRiffle[DeleteCases[printMd /@ prints, ""], "\n\n"]];
+            StringJoin @ Map[
+                With[{tf = printTextForm[#]},
+                    If[ StringQ[tf],
+                        "\n\n" <> messageMd[tf],
+                        n += 1; imgFile = base <> "-" <> ToString[n] <> ".png";
+                        img = UsingFrontEnd @ Rasterize[
+                            Notebook[{# /. Cell[c_, "Print", o___] :> Cell[c, "Output", o]}, LightDark -> $lightDark, StyleDefinitions -> "Default.nb"],
+                            ImageResolution -> 96];
+                        writeImageIfChanged[FileNameJoin[{imgDir, imgFile}], img];
+                        "\n\n![print](images/" <> imgFile <> ")"
+                    ]
+                ] &,
+                prints]];
         msgs = If[KeyExistsQ[b, "Messages"], b["Messages"], {}];
         msgBlock = If[msgs === {} || MissingQ[msgs], "",
             "\n\n" <> StringRiffle[DeleteCases[messageMd /@ msgs, ""], "\n\n"]];
         (* per-statement outputs: a cell with `1+1\n2+2` produces two output
            images, one per non-suppressed value. Empty outsList -> no images
-           (a cell whose only statements were `;`-suppressed). *)
-        outsList = Replace[Lookup[b, "Outputs", Automatic], Automatic :> {b["OutputBoxes"]}];
+           (a cell whose only statements were `;`-suppressed). Suppressed
+           entirely for sections whose .nb is input-only (see
+           $inputOnlyTwinSections). *)
+        outsList = If[suppressOuts, {}, Replace[Lookup[b, "Outputs", Automatic], Automatic :> {b["OutputBoxes"]}]];
         outsList = DeleteCases[outsList, _?MissingQ | Null];
         outsBlock = StringJoin @ Map[
             (n += 1; imgFile = base <> "-" <> ToString[n] <> ".png";
@@ -3800,7 +3846,13 @@ markdownWithImages[blocks_, meta_, target_String] := Block[{dir, base, imgDir, n
             outsList];
         fence <> prtBlock <> msgBlock <> outsBlock
     ];
-    mdOf[b_] := Switch[b["Type"],
+    mdOf[b_] := (
+        (* track the current top-level section so codeMd can suppress
+           output images in sections that are input-only in the .nb. *)
+        If[b["Type"] === "Heading" && b["Level"] <= 2,
+            currentSection = ToLowerCase[b["Text"]]
+        ];
+        Switch[b["Type"],
         "Heading", StringRepeat["#", b["Level"]] <> " " <> resolveWebRefs[b["Text"]],
         "Prose", resolveWebRefs[b["Text"]],
         "List", If[ TrueQ[b["Ordered"]],
@@ -3817,7 +3869,7 @@ markdownWithImages[blocks_, meta_, target_String] := Block[{dir, base, imgDir, n
             StringRiffle[DeleteCases[mdOf /@ b["Blocks"], ""], "\n\n"] <>
             "\n\n:::",
         _, ""
-    ];
+    ]);
     Export[target, serializeFrontmatter[meta] <> "\n" <> StringRiffle[DeleteCases[mdOf /@ blocks, ""], "\n\n"] <> "\n", "Text"];
     target
 ]
