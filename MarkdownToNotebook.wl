@@ -396,8 +396,33 @@ parseBlocks[body_String] := Block[
     blockLoop[lines, {}]
 ]
 
-(* drop HTML/markdown comments (e.g. "<!-- => 21. -->" output annotations) *)
-stripComments[s_String] := StringReplace[s, "<!--" ~~ Shortest[___] ~~ "-->" -> ""]
+(* drop HTML/markdown comments (e.g. "<!-- => 21. -->" output annotations).
+   Only strips from prose segments - content inside fenced code blocks (```)
+   is left untouched, so a string literal in WL source that happens to
+   contain "<!-- ... -->" survives a walker-twin -> rebuild round trip
+   instead of being corrupted by the global regex. *)
+stripComments[s_String] := Module[{lines = StringSplit[s, "\n", All], out = {}, inFence = False, openLen = 0, buf = {}},
+    flushProse[] := If[buf =!= {},
+        AppendTo[out, StringReplace[StringRiffle[buf, "\n"],
+            "<!--" ~~ Shortest[___] ~~ "-->" -> ""]];
+        buf = {}
+    ];
+    Do[
+        Which[
+            ! inFence && fenceQ[line], (* open *)
+                flushProse[]; inFence = True; openLen = fenceLen[line]; AppendTo[out, line],
+            inFence && fenceQ[line] && fenceLen[line] >= openLen, (* close *)
+                AppendTo[out, line]; inFence = False; openLen = 0,
+            inFence, (* inside fence - preserve verbatim *)
+                AppendTo[out, line],
+            True, (* prose line *)
+                AppendTo[buf, line]
+        ],
+        {line, lines}
+    ];
+    flushProse[];
+    StringRiffle[out, "\n"]
+]
 
 litParse[text_String] := Block[{fm = extractFrontmatter[text]},
     <|"Metadata" -> First[fm], "Blocks" -> parseBlocks[stripComments[Last[fm]]]|>
