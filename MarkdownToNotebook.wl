@@ -486,12 +486,19 @@ cellLiteralBoxes[code_String] := With[{e = Quiet @ ToExpression[code, InputForm,
     Replace[e, {HoldComplete[expr_] :> expr, _ :> code}]
 ]
 
-(* non-executable code-block rendering: a Program-styled plain-text cell
-   for `#| eval: false`, an Input cell whose BoxData is the literal
-   parsed box expression for `#| boxes: true`. *)
-nonExecutableCell[b_] := If[boxesLiteralQ[b],
-    Cell[BoxData[cellLiteralBoxes[b["Code"]]], "Input"],
-    Cell[b["Code"], "Program"]
+(* non-executable code-block rendering: an Input cell whose BoxData is the
+   literal parsed box expression for `#| boxes: true`; a non-evaluated
+   Wolfram-language fence keeps the Input style (issue #17 - the spec in
+   docs/formatting.md reads "keep the input cell" for #| eval: false);
+   genuinely foreign-language fences (bash, python, ...) render as a
+   plain-text Program cell. *)
+nonExecutableCell[b_] := Which[
+    boxesLiteralQ[b],
+        Cell[BoxData[cellLiteralBoxes[b["Code"]]], "Input"],
+    MemberQ[{"wl", "wolfram", "mathematica"}, b["Lang"]],
+        Cell[BoxData[inputBoxes[b["Code"]]], "Input"],
+    True,
+        Cell[b["Code"], "Program"]
 ]
 
 sectionCells[sections_, key_] := Cases[Lookup[sections, key, {}], b_ /; executableQ[b]]
