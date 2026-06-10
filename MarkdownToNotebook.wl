@@ -2107,7 +2107,15 @@ texBoxes[math_String] :=
 wolframParserTeX[math_String] :=
     If[ Names["Wolfram`Parser`LaTeXMathParse"] === {},
         $Failed,
-        Module[{r = Quiet @ Check[Symbol["Wolfram`Parser`LaTeXMathParse"][math], $Failed]},
+        Module[{m, r},
+            (* pre-substitute TeX tokens the parser mishandles: \cdot -> · (else
+               it maps to ×, issue #11), \, -> control-space (else literal "\,"
+               leaks, issue #13). The cdot guard rejects \cdots (centered ellipsis). *)
+            m = StringReplace[math, {
+                RegularExpression["\\\\cdot(?![a-zA-Z])"] -> "\[CenterDot]",
+                "\\," -> "\\ "
+            }];
+            r = Quiet @ Check[Symbol["Wolfram`Parser`LaTeXMathParse"][m], $Failed];
             (* Accept whatever boxes the parser returns; only reject its known
                failure shapes. Head is matched by short name so a ParseError from
                the paclet's own context still trips it regardless of how this file
