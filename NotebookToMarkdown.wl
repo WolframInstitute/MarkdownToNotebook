@@ -82,7 +82,12 @@ $mathTeX = <|
     "\[CapitalSigma]" -> "\\Sigma ", "\[CapitalUpsilon]" -> "\\Upsilon ", "\[CapitalPhi]" -> "\\Phi ",
     "\[CapitalPsi]" -> "\\Psi ", "\[CapitalOmega]" -> "\\Omega ",
     "\[Dagger]" -> "\\dagger ", "\[CircleTimes]" -> "\\otimes ", "\[Ellipsis]" -> "\\ldots ",
-    "\[Sum]" -> "\\sum ", "\[ScriptCapitalL]" -> "\\mathcal{L}", "\[PartialD]" -> "\\partial ",
+    "\[Sum]" -> "\\sum ",
+    (* script-capital mappings (issue #15): only L had a rule, so H/E/F leaked
+       as raw U+210B/210E/2131 glyphs into the TeX output. *)
+    "\[ScriptCapitalL]" -> "\\mathcal{L}", "\[ScriptCapitalH]" -> "\\mathcal{H}",
+    "\[ScriptCapitalE]" -> "\\mathcal{E}", "\[ScriptCapitalF]" -> "\\mathcal{F}",
+    "\[PartialD]" -> "\\partial ",
     "\[Times]" -> "\\times ", "\[CenterDot]" -> "\\cdot "
 |>;
 
@@ -242,6 +247,15 @@ mathyQ[b_] := ! FreeQ[b, _SubscriptBox | _SuperscriptBox | _SubsuperscriptBox |
     _FractionBox | _SqrtBox | _RadicalBox | _OverscriptBox | _UnderscriptBox | _FormBox |
     TemplateBox[_, "Ket" | "Bra" | "Braket" | "BraKet" | "SuperDagger" | "Dagger" | "Conjugate"]]
 
+(* a flat formula may have no 2D structure but still carry math-only glyphs -
+   Greek (U+0370..03FF), letterlike script (U+2100..214F), or the Wolfram
+   math-letter / constant PUA band (U+F6B2..F7E4). Treat those as math too,
+   so the InlineFormula dispatch routes them to "$...$" rather than the code
+   fallback (issue #15). *)
+mathCharQ[c_String] := With[{n = First @ ToCharacterCode[c]},
+    880 <= n <= 1023 || 8448 <= n <= 8527 || 63154 <= n <= 63460]
+mathLikeQ[b_] := mathyQ[b] || ! FreeQ[b, s_String /; AnyTrue[Characters[s], mathCharQ]]
+
 (* a non-Link call box (Sym[...], "name"[...], *circ*[...]) is a SIGNATURE, not
    a formula, so it should render as <code> even without a Link BaseStyle.
    Guard out heavy-math boxes so a functional-form formula (e.g. Tr[Sqrt[...]])
@@ -291,13 +305,13 @@ inlineMd[bb_ButtonBox] := "[" <> cellPlain[bb[[1]]] <> "]()"
    code-span as `code`. *)
 inlineMd[Cell[BoxData[FormBox[b_, ___]], "InlineFormula", ___]] := "$" <> walkerMath[b] <> "$"
 inlineMd[Cell[BoxData[StyleBox[s_, "TI", ___]], "InlineFormula", ___]] :=
-    If[mathyQ[s], "$" <> walkerMath[s] <> "$", "*" <> boxToCode[s] <> "*"]
+    If[mathLikeQ[s], "$" <> walkerMath[s] <> "$", "*" <> boxToCode[s] <> "*"]
 inlineMd[Cell[BoxData[ButtonBox[a___]], "InlineFormula", ___]] := inlineMd[ButtonBox[a]]
 inlineMd[Cell[BoxData[TagBox[bb_ButtonBox, ___]], "InlineFormula", ___]] := inlineMd[bb]
 inlineMd[c0 : Cell[BoxData[b_], "InlineFormula", ___]] /; ! decorationCellQ[c0] := Which[
     ! FreeQ[b, BaseStyle -> "Link" | "Hyperlink"], "<code>" <> sigBox[b] <> "</code>",
     sigCallBoxQ[b], "<code>" <> sigBox[b] <> "</code>",
-    mathyQ[b], "$" <> walkerMath[b] <> "$",
+    mathLikeQ[b], "$" <> walkerMath[b] <> "$",
     True, With[{c = cleanStr[boxToCode[b]]},
         (* a styled-string placeholder ("name" with TI) cleans to contain *...*;
            emit as bare italic prose, not a backtick code span (asterisks don't
@@ -311,10 +325,10 @@ inlineMd[c0 : Cell[BoxData[b_], ___]] /; ! decorationCellQ[c0] :=
     Which[
         MatchQ[b, _Cell], inlineMd[b],
         sigCallBoxQ[b], "<code>" <> sigBox[b] <> "</code>",
-        mathyQ[b], "$" <> walkerMath[b] <> "$",
+        mathLikeQ[b], "$" <> walkerMath[b] <> "$",
         True, "`" <> boxToCode[b] <> "`"
     ]
-inlineMd[BoxData[b_]] := If[mathyQ[b], "$" <> walkerMath[b] <> "$", "`" <> boxToCode[b] <> "`"]
+inlineMd[BoxData[b_]] := If[mathLikeQ[b], "$" <> walkerMath[b] <> "$", "`" <> boxToCode[b] <> "`"]
 
 (* TraditionalForm / StandardForm math at the inline level. *)
 inlineMd[FormBox[box_, TraditionalForm | StandardForm, ___]] :=
