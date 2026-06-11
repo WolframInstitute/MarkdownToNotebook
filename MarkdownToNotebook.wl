@@ -882,10 +882,27 @@ $framePackages = {
     "DefinitionNotebookClient`",
     "DocumentationTools`"
 }
-preloadContextPath[ctxPath_List] := Quiet @ Scan[
-    Quiet @ Check[Needs[#], Null] &,
-    DeleteDuplicates @ Select[Join[$framePackages, ctxPath], # =!= "System`" &]
-]
+preloadContextPath[ctxPath_List] := (
+    Quiet @ Scan[
+        Quiet @ Check[Needs[#], Null] &,
+        DeleteDuplicates @ Select[Join[$framePackages, ctxPath], # =!= "System`" &]
+    ];
+    (* A paclet may keep its public symbols in subcontexts of its primary
+       context (see symbolInContextQ); the loader normally prepends those to
+       $ContextPath as it Gets each subpackage, but when the paclet is already
+       loaded the Needs above is a no-op and the example evaluator's
+       Block-scoped $ContextPath never sees them - so bare documented names
+       would parse into the private example context and stay unevaluated.
+       Put every non-Private subcontext of the requested contexts on the path
+       explicitly. *)
+    $ContextPath = DeleteDuplicates @ Join[
+        $ContextPath,
+        Flatten @ Map[
+            Function[ctx, Select[Contexts[ctx <> "*"], ! StringContainsQ[#, "`Private`"] &]],
+            DeleteCases[ctxPath, "System`"]
+        ]
+    ]
+)
 
 (* Install a one-symbol forwarding alias in the per-doc context so example
    cells in a self-referential document can call MarkdownToNotebook
@@ -2081,9 +2098,18 @@ codeInlineCell[inner_String] := Block[{sig, head, url, boxes, unescaped},
     Cell[BoxData @ boxes, "InlineFormula"]
 ]
 
+(* A paclet's public symbols may live in subcontexts of its primary context
+   (an umbrella context whose loader only pushes the subpackages onto
+   $ContextPath), so a documented name also counts when a non-Private
+   subcontext of ctx defines it - e.g.
+   Wolfram`DiagrammaticComputation`Diagram`Diagram for
+   ctx = Wolfram`DiagrammaticComputation` and name = Diagram. *)
 symbolInContextQ[name_String, ctx_String] := ctx =!= "" &&
     StringMatchQ[name, (LetterCharacter | "$") ~~ (WordCharacter | "$") ...] &&
-    Quiet[Names[ctx <> name] =!= {}]
+    Quiet[
+        Names[ctx <> name] =!= {} ||
+        AnyTrue[Names[ctx <> "*`" <> name], ! StringContainsQ[#, "`Private`"] &]
+    ]
 
 (* drop every ButtonBox link wrapper, keeping its content. ParseTextTemplate
    eagerly links any System symbol it recognizes (Notebook, ResourceFunction,
@@ -4275,7 +4301,12 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
        self-referential examples (a doc whose example calls
        MarkdownToNotebook itself) we install a one-symbol forwarding alias
        in the per-doc context below. *)
-    ctxPath = DeleteDuplicates @ Flatten @ {Lookup[meta, "Context", Nothing], "System`"};
+    (* A page whose examples span more than its primary Context can name the
+       extra contexts in a "ContextPath" frontmatter list; they join the
+       evaluation $ContextPath so symbols from them resolve - and render -
+       unqualified. Backward-compatible: absent -> {}. *)
+    ctxPath = DeleteDuplicates @ Flatten @ {
+        Lookup[meta, "Context", Nothing], Lookup[meta, "ContextPath", {}], "System`"};
     installSelfAlias[ctx];
     cached = AssociationThread[hashes -> Map[exampleCacheGet, cacheNames]];
     allHit = hashes =!= {} && AllTrue[cached, ! MissingQ[#] &];
