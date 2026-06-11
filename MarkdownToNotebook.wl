@@ -4233,7 +4233,7 @@ withMarkdownSource[Notebook[cells_, o : OptionsPattern[]], src_String, tmpl_Stri
 ]
 withMarkdownSource[other_, _, _] := other
 
-Options[MarkdownToNotebook] = {"Evaluate" -> True, "PreserveSource" -> False, "EvaluateSeparator" -> Automatic, "MathFont" -> Automatic}
+Options[MarkdownToNotebook] = {"Evaluate" -> True, "PreserveSource" -> False, "EvaluateSeparator" -> Automatic, "MathFont" -> Automatic, "LightDark" -> Automatic}
 
 (* spec is an *optional* second argument (default Automatic). Do not split this
    into a separate 1-argument form that forwards to the 3-argument one: an empty
@@ -4249,12 +4249,15 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
        on an *unbound* symbol binds the local to the symbolic `$convertDepth + 1`,
        which re-expands without end (RecursionLimit on every call). *)
     $convertDepth = If[IntegerQ[$convertDepth], $convertDepth, 0] + 1,
-    (* resolve the "Evaluate" option directly - OptionValue[func, {opts}, name] in a
-       Block initializer mis-binds (it reads "func" as the option name and errors
-       OptionValue::optnf, leaving evalExamples False so nothing is ever evaluated). *)
-    evalExamples = TrueQ[Lookup[Flatten[{opts}], "Evaluate", True]],
-    preserveSource = TrueQ[Lookup[Flatten[{opts}], "PreserveSource", False]],
-    evalSeparator = Lookup[Flatten[{opts}], "EvaluateSeparator", Automatic],
+    evalExamples = TrueQ[OptionValue["Evaluate"]],
+    preserveSource = TrueQ[OptionValue["PreserveSource"]],
+    evalSeparator = OptionValue["EvaluateSeparator"],
+    (* "LightDark" -> "Dark" | "Light" pins the appearance the evaluated
+       outputs (and the markdown twin's rasterizations) are rendered in;
+       Automatic keeps the ambient $lightDark (the load-time default is
+       "Light"). Block-local so nested conversions restore it. *)
+    $lightDark = Replace[OptionValue["LightDark"],
+        Automatic :> If[StringQ[$lightDark], $lightDark, "Light"]],
     src, text, parsed, meta, blocks, sections, tmplName, defCode, ctx, ctxPath,
     orderedCode, hashes, cacheDocName, cacheNames, cached, allHit, outputs, data, filled
 },
@@ -4270,7 +4273,7 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
     $docTemplate = tmplName;
     (* Automatic (default) leaves math in the front end's native math font; a
        family name restyles all LaTeX math to it (see applyMathFont). *)
-    $mathFontFamily = Replace[Lookup[Flatten[{opts}], "MathFont", Automatic], Automatic -> ""];
+    $mathFontFamily = Replace[OptionValue["MathFont"], Automatic -> ""];
 
     (* evaluate every executable cell in document order, threading state in a
        private context (so the document's own code can't clobber the live
