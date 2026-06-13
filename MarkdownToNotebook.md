@@ -672,3 +672,13 @@ VerificationTest[
 ]
 ```
 
+A single-backtick inline code span that reads as a filesystem path, URL, or dotted filename (`` `~/.prime/config.json` ``) is kept verbatim instead of reparsed as Wolfram code - otherwise the front end tokenizes its `/` `.` `~` as operators (ReplaceAll, Dot, ...) and the path renders with stray operator spacing (`config . json`). Genuine WL inline code (`` `Range[5]` ``, `` `x_1` ``) still reparses to boxes:
+
+```wl
+VerificationTest[
+    {inputBoxes["~/.prime/config.json"], inputBoxes["config.json"], Head @ inputBoxes["Range[5]"]},
+    {"~/.prime/config.json", "config.json", RowBox},
+    TestID -> "inline code that reads as a path / filename stays verbatim, real WL still boxes"
+]
+```
+

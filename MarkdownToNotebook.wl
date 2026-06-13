@@ -1101,6 +1101,23 @@ fillCheckbox[property_String, checked_List, type_String : "Function"] := {
     |>]
 }
 
+(* a single whitespace-free token that reads as a filesystem path, a URL, or a
+   dotted filename rather than Wolfram code - `~/.prime/config.json`, `config.json`,
+   `/usr/local/bin`, `./build.wls`, `https://x/y`. Reparsing such a token through
+   the front end tokenises its `/` `.` `~` as WL operators (ReplaceAll, Dot, ...),
+   so it renders with stray operator spacing (`config . json`). These are never
+   meaningful bare WL, so keep them verbatim. A real code cell never matches: it
+   carries whitespace or a call/operator shape, not a lone path token; and a
+   genuine number (`3.14`, `1.5e3`) has no alphabetic extension, so it still
+   reparses. *)
+looksLikeLiteralPathQ[s_String] := StringFreeQ[s, Whitespace] && Or[
+    StringStartsQ[s, "~" | "/" | "./" | "../"],
+    StringMatchQ[s, "." ~~ LetterCharacter ~~ ___],   (* dotfile: .gitignore, .prime *)
+    StringContainsQ[s, "://"],
+    StringContainsQ[s, "/"],
+    StringMatchQ[s, (WordCharacter | "-" | "_" | ".") .. ~~ "." ~~ LetterCharacter ..]
+]
+
 (* literal input boxes for a code string: parse it through the front end the way
    typing it would (ReparseBoxStructurePacket), so the boxes are the *code*.
    ToBoxes[Defer[...]] instead *renders* display heads (Framed, Style, Grid, Row,
@@ -1118,6 +1135,8 @@ inputBoxes[code_String] := Block[{boxes, parsed, trimmed = StringTrim[code]},
     If[StringContainsQ[trimmed, "\\" ~~ LetterCharacter ~~ LetterCharacter],
         Return[trimmed]
     ];
+    (* a path / URL / dotted filename: keep verbatim (see looksLikeLiteralPathQ). *)
+    If[looksLikeLiteralPathQ[trimmed], Return[trimmed]];
     boxes = Quiet @ UsingFrontEnd @ MathLink`CallFrontEnd[FrontEnd`ReparseBoxStructurePacket[trimmed]];
     If[ FreeQ[boxes, $Failed] && (StringQ[boxes] || ! AtomQ[boxes]),
         boxes,
