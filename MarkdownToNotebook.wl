@@ -2853,23 +2853,25 @@ extendedExampleCells[sectionBlocks_] := exampleContent[sectionBlocks, "ExampleTe
 
 (* populate the "More Examples" scaffold: each ExampleSection title is an
    InterpretationBox counter cell (it resets In[]/Out[] numbering). For sections
-   we have content for, wrap the counter cell + content in a CellGroupData; drop
-   the empty ones (incl. the Options group's XXXX ExampleSubsection placeholders),
-   and drop the whole scaffold if nothing is populated. *)
+   we have content for, wrap the counter cell + content in an Open CellGroupData;
+   sections absent from the markdown are kept heading-only (the counter cell in a
+   Closed group) so every standard example section is present and in canonical
+   template order, empty if absent - rather than dropped. The XXXX placeholders
+   the template ships inside each section were already removed upstream (see the
+   XXXX strip in symbolNotebook), so a kept-empty section is just its heading. *)
 fillExtendedExamples[nb_, sections_] := Block[{content},
     content = Association @ Map[
         $extendedTitles[#] -> extendedExampleCells[Lookup[sections, #, {}]] &,
         Select[Keys[$extendedTitles], KeyExistsQ[sections, #] &]
     ];
     content = Select[content, # =!= {} &];
-    If[ content === <||>,
-        Return[ nb /. Cell[CellGroupData[{Cell[_, "ExtendedExamplesSection", ___], ___}, ___], ___] :> Nothing ]
-    ];
     nb /. {
         Cell[CellGroupData[{cnt : Cell[BoxData[InterpretationBox[Cell[title_String, "ExampleSection", ___], _]], "ExampleSection", ___], ___}, _], ___] :>
-            With[{c = Lookup[content, title, {}]}, If[c === {}, Nothing, Cell[CellGroupData[Prepend[c, cnt], Open]]]],
+            With[{c = Lookup[content, title, {}]},
+                If[c === {}, Cell[CellGroupData[{cnt}, Closed]], Cell[CellGroupData[Prepend[c, cnt], Open]]]],
         cnt : Cell[BoxData[InterpretationBox[Cell[title_String, "ExampleSection", ___], _]], "ExampleSection", ___] :>
-            With[{c = Lookup[content, title, {}]}, If[c === {}, Nothing, Cell[CellGroupData[Prepend[c, cnt], Open]]]]
+            With[{c = Lookup[content, title, {}]},
+                If[c === {}, Cell[CellGroupData[{cnt}, Closed]], Cell[CellGroupData[Prepend[c, cnt], Open]]]]
     }
 ]
 
