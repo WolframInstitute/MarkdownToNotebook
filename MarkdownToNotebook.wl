@@ -2182,7 +2182,17 @@ stripLinks[boxes_] := boxes //. ButtonBox[content_, ___] :> content
    "[`Name`]()" / "[Name]()" form (handled by linkInferred) so that a name
    that collides with a WL symbol but means something else in context (a TeX
    environment named "Cases", an English word "Range", a variable "x") is
-   not turned into a ref-page link the author did not ask for. *)
+   not turned into a ref-page link the author did not ask for.
+
+   A path / URL / filename must be a *string-content* InlineCode cell, NOT
+   BoxData: the front end re-parses a bare string inside BoxData when it
+   renders the notebook, tokenising the path's / . ~ back into WL operators
+   (`config . json`) - even though the stored box was a plain string. A
+   string-content Cell renders the characters verbatim and never reparses.
+   (Real WL code is unaffected: inputBoxes returns proper boxes for it, not a
+   bare string, so the FE has nothing to reparse.) *)
+codeToInline[code_String] /; looksLikeLiteralPathQ[StringTrim[code]] :=
+    Cell[StringTrim[code], "InlineCode"]
 codeToInline[code_String] := Cell[BoxData[inputBoxes[code]], "InlineFormula"]
 
 (* double-backtick ``code`` -> the palette's "Code (Inline)": a literal,
