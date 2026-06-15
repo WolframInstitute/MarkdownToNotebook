@@ -670,13 +670,13 @@ VerificationTest[
 ]
 ```
 
-A single-backtick inline code span that reads as a filesystem path, URL, or dotted filename (`` `~/.prime/config.json` ``) is kept verbatim instead of reparsed as Wolfram code - otherwise the front end tokenizes its `/` `.` `~` as operators (ReplaceAll, Dot, ...) and the path renders with stray operator spacing (`config . json`). Genuine WL inline code (`` `Range[5]` ``, `` `x_1` ``) still reparses to boxes:
+A single-backtick inline code span that reads as a filesystem path, URL, dotted filename (`` `~/.prime/config.json` ``), or hyphen-joined identifier (`` `claude-opus-4-7` ``) is kept verbatim instead of reparsed as Wolfram code - otherwise the front end tokenizes its `/` `.` `~` `-` as operators (ReplaceAll, Dot, Subtract, ...) and it renders with stray operator spacing (`config . json`, `claude - opus - 4 - 7`). Genuine WL inline code (`` `Range[5]` ``, `` `x_1` ``) still reparses to boxes:
 
 ```wl
 VerificationTest[
-    {inputBoxes["~/.prime/config.json"], inputBoxes["config.json"], Head @ inputBoxes["Range[5]"]},
-    {"~/.prime/config.json", "config.json", RowBox},
-    TestID -> "inline code that reads as a path / filename stays verbatim, real WL still boxes"
+    {inputBoxes["~/.prime/config.json"], inputBoxes["config.json"], inputBoxes["claude-opus-4-7"], Head @ inputBoxes["Range[5]"]},
+    {"~/.prime/config.json", "config.json", "claude-opus-4-7", RowBox},
+    TestID -> "inline code that reads as a path / id stays verbatim, real WL still boxes"
 ]
 ```
 

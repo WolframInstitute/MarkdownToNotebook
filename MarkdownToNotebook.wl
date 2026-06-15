@@ -1101,21 +1101,26 @@ fillCheckbox[property_String, checked_List, type_String : "Function"] := {
     |>]
 }
 
-(* a single whitespace-free token that reads as a filesystem path, a URL, or a
-   dotted filename rather than Wolfram code - `~/.prime/config.json`, `config.json`,
-   `/usr/local/bin`, `./build.wls`, `https://x/y`. Reparsing such a token through
-   the front end tokenises its `/` `.` `~` as WL operators (ReplaceAll, Dot, ...),
-   so it renders with stray operator spacing (`config . json`). These are never
-   meaningful bare WL, so keep them verbatim. A real code cell never matches: it
-   carries whitespace or a call/operator shape, not a lone path token; and a
-   genuine number (`3.14`, `1.5e3`) has no alphabetic extension, so it still
-   reparses. *)
-looksLikeLiteralPathQ[s_String] := StringFreeQ[s, Whitespace] && Or[
+(* a single whitespace-free token that reads as literal text rather than Wolfram
+   code - a filesystem path / URL / dotted filename (`~/.prime/config.json`,
+   `config.json`, `/usr/local/bin`, `https://x/y`) or a hyphen-joined identifier
+   (`claude-opus-4-7`, `some-package`). Reparsing such a token through the front
+   end tokenises its `/` `.` `~` `-` as WL operators (ReplaceAll, Dot, Subtract,
+   ...), so it renders with stray operator spacing (`config . json`,
+   `claude - opus - 4 - 7`). These are never meaningful bare WL, so keep them
+   verbatim. A real code cell never matches: it carries whitespace or a
+   call/bracket shape, not a lone operator-joined token; a genuine number
+   (`3.14`, `1.5e3`) has no alphabetic extension and no interior hyphen, so it
+   still reparses; and a single symbol (`Range`) has no operator at all. *)
+verbatimInlineQ[s_String] := StringFreeQ[s, Whitespace] && Or[
     StringStartsQ[s, "~" | "/" | "./" | "../"],
     StringMatchQ[s, "." ~~ LetterCharacter ~~ ___],   (* dotfile: .gitignore, .prime *)
     StringContainsQ[s, "://"],
     StringContainsQ[s, "/"],
-    StringMatchQ[s, (WordCharacter | "-" | "_" | ".") .. ~~ "." ~~ LetterCharacter ..]
+    StringMatchQ[s, (WordCharacter | "-" | "_" | ".") .. ~~ "." ~~ LetterCharacter ..],
+    (* hyphen-joined word segments: a kebab identifier or model id, where the
+       interior `-` would otherwise parse as Subtract *)
+    StringMatchQ[s, WordCharacter .. ~~ ("-" ~~ WordCharacter ..) ..]
 ]
 
 (* literal input boxes for a code string: parse it through the front end the way
@@ -1135,8 +1140,8 @@ inputBoxes[code_String] := Block[{boxes, parsed, trimmed = StringTrim[code]},
     If[StringContainsQ[trimmed, "\\" ~~ LetterCharacter ~~ LetterCharacter],
         Return[trimmed]
     ];
-    (* a path / URL / dotted filename: keep verbatim (see looksLikeLiteralPathQ). *)
-    If[looksLikeLiteralPathQ[trimmed], Return[trimmed]];
+    (* a path / URL / dotted filename: keep verbatim (see verbatimInlineQ). *)
+    If[verbatimInlineQ[trimmed], Return[trimmed]];
     boxes = Quiet @ UsingFrontEnd @ MathLink`CallFrontEnd[FrontEnd`ReparseBoxStructurePacket[trimmed]];
     If[ FreeQ[boxes, $Failed] && (StringQ[boxes] || ! AtomQ[boxes]),
         boxes,
@@ -2099,8 +2104,8 @@ mdToTemplateSubs[s_String] := StringReplace[s, {
 templateBox[code_String] := Block[{boxes, prepped = mdToTemplateSubs[StringTrim[code]]},
     (* a path / URL / dotted filename is not a signature - keep it verbatim
        instead of letting ParseTextTemplate tokenise its / . ~ as operators
-       (same guard as inputBoxes; see looksLikeLiteralPathQ). *)
-    If[looksLikeLiteralPathQ[prepped], Return[prepped]];
+       (same guard as inputBoxes; see verbatimInlineQ). *)
+    If[verbatimInlineQ[prepped], Return[prepped]];
     Needs["DocumentationTools`"];
     boxes = Quiet @ UsingFrontEnd @ DocumentationTools`Private`ParseTextTemplate[prepped, $docName];
     (* fall back to a plain parse if the front-end template parse is unavailable *)
@@ -2191,7 +2196,7 @@ stripLinks[boxes_] := boxes //. ButtonBox[content_, ___] :> content
    string-content Cell renders the characters verbatim and never reparses.
    (Real WL code is unaffected: inputBoxes returns proper boxes for it, not a
    bare string, so the FE has nothing to reparse.) *)
-codeToInline[code_String] /; looksLikeLiteralPathQ[StringTrim[code]] :=
+codeToInline[code_String] /; verbatimInlineQ[StringTrim[code]] :=
     Cell[StringTrim[code], "InlineCode"]
 codeToInline[code_String] := Cell[BoxData[inputBoxes[code]], "InlineFormula"]
 
