@@ -1689,7 +1689,26 @@ testsSlot[opts_, sections_] := Block[
     ]
 ]
 
-examplesSlot[opts_, sections_] := Block[{keys, body},
+(* the standard example sections a Function / Paclet resource carries, in
+   canonical order. examplesSlot / exampleNotebookSlot emit all of them so a
+   resource page has the full set in order, each section heading-only (a Closed
+   Subsection) when the markdown does not fill it - matching the Symbol page's
+   kept-empty More-Examples scaffold. *)
+$resourceExampleOrder = {"basic examples", "scope", "generalizations and extensions",
+    "options", "applications", "properties and relations", "possible issues", "neat examples"}
+
+(* one example section as a Subsection group: heading + content, or a Closed
+   heading-only group when the section is absent from the markdown. *)
+exampleSubsectionGroup[sections_, key_] := With[{
+        content = exampleContent[Lookup[sections, key, {}], "Text"],
+        title = Cell[Lookup[$exampleTitle, key, Capitalize[key]], "Subsection"]},
+    If[ content === {},
+        Cell[CellGroupData[{title}, Closed]],
+        Cell[CellGroupData[Prepend[content, title], Open]]
+    ]
+]
+
+examplesSlot[opts_, sections_] := Block[{body},
     (* a document may put everything under a single "## Examples" section (the
        natural shape for an Example Repository resource, whose template has one
        Examples slot rather than the Function template's named example sections);
@@ -1698,18 +1717,7 @@ examplesSlot[opts_, sections_] := Block[{keys, body},
         body = exampleContent[Lookup[sections, "examples", {}], "Text"];
         If[body =!= {}, Return[body]]
     ];
-    keys = Select[$exampleOrder, KeyExistsQ[sections, #] &];
-    If[ keys === {}, Return[slotDefault[opts]] ];
-    Map[
-        key |-> Cell[CellGroupData[
-            Prepend[
-                exampleContent[Lookup[sections, key, {}], "Text"],
-                Cell[Lookup[$exampleTitle, key, Capitalize[key]], "Subsection"]
-            ],
-            Open
-        ]],
-        keys
-    ]
+    exampleSubsectionGroup[sections, #] & /@ $resourceExampleOrder
 ]
 
 (* the cell that separates two examples within a section. The In[]/Out[] counter
@@ -1766,24 +1774,24 @@ exampleContent[sectionBlocks_, textStyle_String] := Block[{counter = 0, out = {}
    slot). Keep the template's ExampleInitialization group (the PacletDirectoryLoad
    + Needs cells, filled from PacletDirectory/Context), then build one Subsection
    group per example section with the markdown's prose and evaluated I/O. *)
-exampleNotebookSlot[opts_, sections_] := Block[{def = slotDefault[opts], initGroup, keys},
-    keys = Select[$exampleOrder, KeyExistsQ[sections, #] && exampleContent[Lookup[sections, #, {}], "Text"] =!= {} &];
-    If[ keys === {}, Return[def] ];
+exampleNotebookSlot[opts_, sections_] := Block[{def = slotDefault[opts], initGroup},
     initGroup = FirstCase[def,
         g : Cell[CellGroupData[{Cell[_, "Subsection", "Excluded", ___], _TemplateSlot, ___}, _], ___] :> g,
         Nothing, Infinity];
+    (* emit every standard example section in canonical order, heading-only when
+       absent (see $resourceExampleOrder); the ExampleInitialization group is
+       kept as the first section's lead-in. *)
     MapIndexed[
         Function[{key, pos},
-            Cell[CellGroupData[
-                Join[
-                    If[First[pos] === 1, Flatten[{initGroup}], {}],
-                    {Cell[Lookup[$exampleTitle, key, Capitalize[key]], "Subsection"]},
-                    exampleContent[Lookup[sections, key, {}], "Text"]
-                ],
-                Open
-            ]]
+            With[{grp = exampleSubsectionGroup[sections, key]},
+                If[ First[pos] === 1,
+                    Replace[grp, Cell[CellGroupData[cells_, st_], o___] :>
+                        Cell[CellGroupData[Join[Flatten[{initGroup}], cells], st], o]],
+                    grp
+                ]
+            ]
         ],
-        keys
+        $resourceExampleOrder
     ]
 ]
 
