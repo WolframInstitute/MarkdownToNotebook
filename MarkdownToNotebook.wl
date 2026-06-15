@@ -1533,6 +1533,22 @@ usageStatement[text_String] := Block[{trimmed = StringTrim[text], m},
     m = StringCases[trimmed,
         StartOfString ~~ "`" ~~ c : Shortest[__] ~~ "`" ~~ rest___ :> {c, StringTrim[rest]}, 1];
     If[m =!= {}, Return[m]];
+    (* inferred-link head form: "[Head]()[args] prose" / "[Head](url)[args] prose"
+       - the head is a markdown link (auto-linked symbol) immediately followed by
+       the bracketed arguments. The line starts with "[", so the prose form below
+       (which needs a letter head) never catches it. *)
+    m = StringCases[trimmed,
+        StartOfString ~~ "[" ~~ name : ((LetterCharacter | "$") ~~ (WordCharacter | "$" | "`") ...) ~~
+            "](" ~~ Shortest[Except[")"] ...] ~~ ")" ~~ args : ("[" ~~ Shortest[Except["\n"] ..] ~~ "]") ~~ rest___ :>
+            {name <> mathArgsToTemplate[args], StringTrim[rest]}, 1];
+    If[m =!= {}, Return[m]];
+    (* italic-head form: "*m*[args] prose" - an object-instance line whose head is
+       an italic variable rather than a symbol (e.g. *m*["prop"]). *)
+    m = StringCases[trimmed,
+        StartOfString ~~ "*" ~~ name : Shortest[Except["*"] ..] ~~ "*" ~~
+            args : ("[" ~~ Shortest[Except["\n"] ..] ~~ "]") ~~ rest___ :>
+            {name <> mathArgsToTemplate[args], StringTrim[rest]}, 1];
+    If[m =!= {}, Return[m]];
     (* prose form: an identifier head, then [ ... ] balanced once, then prose. *)
     StringCases[trimmed,
         StartOfString ~~ name : (LetterCharacter ~~ (WordCharacter | "`") ...) ~~ args : ("[" ~~ Shortest[Except["\n"] ..] ~~ "]") ~~ rest___ :>
