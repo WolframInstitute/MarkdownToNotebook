@@ -1720,11 +1720,12 @@ examplesSlot[opts_, sections_] := Block[{body},
     exampleSubsectionGroup[sections, #] & /@ $resourceExampleOrder
 ]
 
-(* the cell that separates two examples within a section. The In[]/Out[] counter
-   restarts at 1 for each example via the reset in exampleContent (the authored
-   InterpretationBox[..., $Line=0] reset matters only when a reader re-evaluates;
-   we do not embed it because $Line=0 would evaluate at construction). *)
-exampleDelimiterCell := Cell["\t", "ExampleDelimiter"]
+(* the cell that heads each example past the first within a section - the same
+   empty-BoxData ExampleDelimiter a hand-authored / DocumentationBuild-ready ref
+   page uses (NOT a "\t" string cell, which the doc build mis-groups). It is the
+   HEAD of the following example's CellGroupData (see exampleContent), and resets
+   the In[]/Out[] counter. *)
+exampleDelimiterCell := Cell[BoxData[""], "ExampleDelimiter"]
 
 (* shared example-content builder: prose -> a text cell of the given style,
    tables -> a GridBox, executable cells -> evaluated Input/Output. Examples are
@@ -1739,34 +1740,48 @@ exampleSubStyle["ExampleText", 4] = "ExampleSubsubsection"
 exampleSubStyle["ExampleText", _] = "ExampleSubsection"
 exampleSubStyle[_, _] = "Subsubsection"
 
-exampleContent[sectionBlocks_, textStyle_String] := Block[{counter = 0, out = {}},
+(* Build the section as nested example groups, the shape DocumentationBuild
+   expects (matching a hand-authored ref page): the first example's cells sit
+   directly under the section; every later example - introduced by a `---`
+   thematic break or a `### heading` - becomes its own CellGroupData HEADED by
+   the ExampleDelimiter (or the ExampleSubsection heading) cell, holding that
+   example's caption + Input/Output group. Emitting these flat instead made
+   DocumentationBuild re-group by section and scatter the trailing examples onto
+   the next section (basic examples drifting to Related Guides). `flush` closes
+   the current chunk: the first (head None) goes in directly, the rest are
+   wrapped under their boundary cell. *)
+exampleContent[sectionBlocks_, textStyle_String] := Block[{counter = 0, chunks = {}, cur = {}, head = None, flush},
+    flush[] := (
+        AppendTo[chunks, If[head === None, cur, {Cell[CellGroupData[Prepend[cur, head], Open]]}]];
+        cur = {}
+    );
     Do[
         Which[
             block["Type"] === "Heading",
-                AppendTo[out, Cell[TextData @ inlineTextData[block["Text"]], exampleSubStyle[textStyle, block["Level"]]]];
-                counter = 0,
+                flush[]; head = Cell[TextData @ inlineTextData[block["Text"]], exampleSubStyle[textStyle, block["Level"]]]; counter = 0,
             block["Type"] === "Separator",
-                AppendTo[out, exampleDelimiterCell]; counter = 0,
+                flush[]; head = exampleDelimiterCell; counter = 0,
             block["Type"] === "Prose",
-                AppendTo[out, Cell[TextData @ inlineTextData[block["Text"]], textStyle]],
+                AppendTo[cur, Cell[TextData @ inlineTextData[block["Text"]], textStyle]],
             block["Type"] === "Table",
-                AppendTo[out, tableCell[block]],
+                AppendTo[cur, tableCell[block]],
             block["Type"] === "List",
-                out = Join[out, listItemCells[block, "Item"]],
+                cur = Join[cur, listItemCells[block, "Item"]],
             block["Type"] === "Quote",
-                AppendTo[out, quoteCell[block["Text"]]],
+                AppendTo[cur, quoteCell[block["Text"]]],
             block["Type"] === "MathBlock",
-                AppendTo[out, mathBlockCell[block["Text"]]],
+                AppendTo[cur, mathBlockCell[block["Text"]]],
             block["Type"] === "Image",
-                AppendTo[out, imageCell[block]],
+                AppendTo[cur, imageCell[block]],
             executableQ[block],
-                counter += 1; out = Join[out, exampleIOFor[block, counter]],
+                counter += 1; cur = Join[cur, exampleIOFor[block, counter]],
             block["Type"] === "Code",
-                out = Join[out, withCellFlag[block, {nonExecutableCell[block]}]]
+                cur = Join[cur, withCellFlag[block, {nonExecutableCell[block]}]]
         ],
         {block, sectionBlocks}
     ];
-    out
+    flush[];
+    Catenate[chunks]
 ]
 
 (* Paclet "ExampleNotebook" slot: unlike the Function template's "Examples" slot,
@@ -2883,6 +2898,28 @@ fillExtendedExamples[nb_, sections_] := Block[{content},
     }
 ]
 
+(* Wrap PrimaryExamplesSection + the basic examples into one CellGroupData, the
+   shape a hand-authored / DocumentationBuild-ready ref page uses (every other
+   top-level section is already a group; only PrimaryExamplesSection comes flat
+   from the editing template). The More-Examples scaffold stays a sibling group,
+   as in a real source page. Without this the build cannot tell where Basic
+   Examples ends and scatters the trailing examples onto the next section. *)
+sectionGroupQ[c_] := MatchQ[c, Cell[CellGroupData[{Cell[_, s_String /; StringEndsQ[s, "Section"], ___], ___}, _], ___]]
+groupPrimaryExamples[Notebook[cells_List, o___]] := Notebook[groupPrimaryExamples[cells], o]
+groupPrimaryExamples[cells_List] := Module[{i, j, nxt},
+    i = FirstPosition[cells, Cell[_, "PrimaryExamplesSection", ___], Missing[], {1}];
+    If[ MissingQ[i], Return[cells] ];
+    i = First[i];
+    If[ sectionGroupQ[cells[[i]]], Return[cells] ];   (* already grouped *)
+    (* wrap up to just before the next top-level section group (the
+       ExtendedExamplesSection / Metadata group), leaving it a sibling *)
+    nxt = FirstPosition[Drop[cells, i], _?sectionGroupQ, Missing[], {1}];
+    j = If[MissingQ[nxt], Length[cells], i + First[nxt] - 1];
+    If[ j < i, Return[cells] ];
+    Join[cells[[;; i - 1]], {Cell[CellGroupData[cells[[i ;; j]], Open]]}, cells[[j + 1 ;;]]]
+]
+groupPrimaryExamples[other_] := other
+
 symbolNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"], nb, name, usagePairs, notes, basicCells, raw},
     nb = docTemplate["FunctionBaseTemplateExt.nb"];
     name = Lookup[meta, "Name", ""];
@@ -2943,6 +2980,7 @@ symbolNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"]
        drop the empty ones (built pages omit empty sections - leaving the XXXX
        ExampleSubsection placeholders or bare counters makes the build fail). *)
     nb = fillExtendedExamples[nb, sections];
+    nb = groupPrimaryExamples[nb];
     setDocMetadata[fillCategorization[nb, "Symbol", meta], meta, "Symbol"]
 ]
 
