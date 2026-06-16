@@ -1639,10 +1639,15 @@ detailsCells[sections_] := Catenate @ Map[
         "MathBlock", {mathBlockCell[block["Text"]]},
         _, {}
     ],
-    (* sectionKey normalizes " & " to " and ", so the heading
-       "## Details & Options" is stored under "details and options".
-       Look it up via sectionKey to stay robust to the rule (issue #8). *)
-    Lookup[sections, sectionKey["Details & Options"], {}]
+    (* The Notes slot is filled from the "Details" section. Accept both headings
+       authors use for it: "## Details & Options" (the doc-tools title) and
+       "## Details" alone. sectionKey normalizes " & " to " and ", so
+       "Details & Options" is stored under "details and options"; look both up
+       by key and concatenate so a page titled just "## Details" is not
+       silently dropped (issue #8). A standalone "## Options" is deliberately
+       NOT included - in a Symbol page it is an example section (it is in
+       $resourceExampleOrder), so pulling it here would duplicate it. *)
+    Join @@ Lookup[sections, sectionKey /@ {"Details & Options", "Details"}, {}]
 ]
 
 notesSlot[opts_, sections_] := With[{cells = detailsCells[sections]},

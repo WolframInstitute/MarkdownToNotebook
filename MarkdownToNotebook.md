@@ -714,3 +714,14 @@ VerificationTest[
 ]
 ```
 
+A Symbol page's Notes (Details) slot is filled from the Details section whether it is headed `## Details & Options` (the doc-tools title) or just `## Details`; sections are keyed by heading text, so a lone `## Details` must be matched explicitly or its bullets are silently dropped from the built page:
+
+```wl
+VerificationTest[
+    {Length @ Cases[MarkdownToNotebook["---\nTemplate: Symbol\nName: Foo\nContext: P`Q`\nPaclet: P/Q\nURI: P/Q/ref/Foo\n---\n\n## Details\n\n- first note\n- second note\n"], Cell[_, "Notes", ___], Infinity],
+     Length @ Cases[MarkdownToNotebook["---\nTemplate: Symbol\nName: Foo\nContext: P`Q`\nPaclet: P/Q\nURI: P/Q/ref/Foo\n---\n\n## Details & Options\n\n- only note\n"], Cell[_, "Notes", ___], Infinity]},
+    {2, 1},
+    TestID -> "Symbol Details section fills Notes whether titled '## Details' or '## Details & Options'"
+]
+```
+
