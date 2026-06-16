@@ -1510,7 +1510,11 @@ unwrapMarkdownSig[s_String] := StringReplace[s, {
        must not be eaten as if it were a markdown link with label "x, [Exp"). *)
     "[`" ~~ n : ((LetterCharacter | "$") ~~ (WordCharacter | "$" | "`") ...) ~~ "`](" ~~ Shortest[Except[")"] ...] ~~ ")" :> n,
     "[" ~~ n : ((LetterCharacter | "$") ~~ (WordCharacter | "$" | "`") ...) ~~ "](" ~~ Shortest[Except[")"] ...] ~~ ")" :> n,
-    "*" ~~ w : Shortest[Except["*" | " "] ..] ~~ "*" :> w
+    (* strip the *...* italic markers around an argument - ParseTextTemplate
+       italicises the args itself, so a leftover "*" only renders as literal
+       text. Allow spaces inside so a multi-token arg (*{x1, ..., xn}*) is
+       stripped too, not just a single word. *)
+    "*" ~~ w : Shortest[Except["*"] ..] ~~ "*" :> w
 }]
 
 usageStatement[text_String] := Block[{trimmed = StringTrim[text], m},
@@ -1538,16 +1542,16 @@ usageStatement[text_String] := Block[{trimmed = StringTrim[text], m},
        the bracketed arguments. The line starts with "[", so the prose form below
        (which needs a letter head) never catches it. *)
     m = StringCases[trimmed,
-        StartOfString ~~ "[" ~~ name : ((LetterCharacter | "$") ~~ (WordCharacter | "$" | "`") ...) ~~
-            "](" ~~ Shortest[Except[")"] ...] ~~ ")" ~~ args : ("[" ~~ Shortest[Except["\n"] ..] ~~ "]") ~~ rest___ :>
-            {name <> mathArgsToTemplate[args], StringTrim[rest]}, 1];
+        StartOfString ~~ sig : ("[" ~~ ((LetterCharacter | "$") ~~ (WordCharacter | "$" | "`") ...) ~~
+            "](" ~~ Shortest[Except[")"] ...] ~~ ")" ~~ "[" ~~ Shortest[Except["\n"] ..] ~~ "]") ~~ rest___ :>
+            {mathArgsToTemplate[unwrapMarkdownSig[sig]], StringTrim[rest]}, 1];
     If[m =!= {}, Return[m]];
     (* italic-head form: "*m*[args] prose" - an object-instance line whose head is
        an italic variable rather than a symbol (e.g. *m*["prop"]). *)
     m = StringCases[trimmed,
-        StartOfString ~~ "*" ~~ name : Shortest[Except["*"] ..] ~~ "*" ~~
-            args : ("[" ~~ Shortest[Except["\n"] ..] ~~ "]") ~~ rest___ :>
-            {name <> mathArgsToTemplate[args], StringTrim[rest]}, 1];
+        StartOfString ~~ sig : ("*" ~~ Shortest[Except["*"] ..] ~~ "*" ~~
+            "[" ~~ Shortest[Except["\n"] ..] ~~ "]") ~~ rest___ :>
+            {mathArgsToTemplate[unwrapMarkdownSig[sig]], StringTrim[rest]}, 1];
     If[m =!= {}, Return[m]];
     (* prose form: an identifier head, then [ ... ] balanced once, then prose. *)
     StringCases[trimmed,

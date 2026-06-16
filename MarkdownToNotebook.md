@@ -686,7 +686,7 @@ A `## Usage` statement whose head is an inferred link (`[Head]()[args]`) or an i
 VerificationTest[
     {usageStatement["[Manifold]()[*{x1}*] represents a manifold."][[1, 1]],
      usageStatement["*m*[\"prop\"] extracts a property."][[1, 1]]},
-    {"Manifold[*{x1}*]", "m[\"prop\"]"},
+    {"Manifold[{x1}]", "m[\"prop\"]"},
     TestID -> "usage head: inferred-link [Head]()[args] and italic *m*[...] parse into pairs"
 ]
 ```
