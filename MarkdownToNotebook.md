@@ -714,6 +714,19 @@ VerificationTest[
 ]
 ```
 
+A hub guide builds the documentation hierarchy (the collapsible sidebar tree) by pointing at sub-guides. `DocumentationBuild` reads parent→child edges only from `ButtonBox[…, BaseStyle -> "Link", ButtonData -> "paclet:…/guide/…"]` links sitting in `GuideFunctionsSubsection` / `GuideTOCLink` cells - NOT from `TemplateBox` "RefLinkPlain" links or links in `GuideText`/`GuideMoreAbout`. Two authoring channels emit the scanned form: a whole-heading guide link `### [Sub](paclet:…/guide/Sub)` (becomes a `GuideFunctionsSubsection` link) and a `## Guides` index list (each item a `GuideTOCLink`):
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook["---\nTemplate: Guide\nName: Hub\nContext: Pub`Pkg`\nPaclet: Pub/Pkg\nURI: Pub/Pkg/guide/Hub\n---\n\n## Functions\n\n### [Algebra](paclet:Pub/Pkg/guide/Algebra)\n- `Foo` does foo\n\n## Guides\n\n- [NumberTheory](paclet:Pub/Pkg/guide/NumberTheory) primes\n"]},
+        {Cases[nb, Cell[BoxData[ButtonBox[_, ___, ButtonData -> u_, ___]], "GuideFunctionsSubsection", ___] :> u, Infinity],
+         Cases[nb, Cell[c_, "GuideTOCLink", ___] :> First[Cases[c, (ButtonData -> u_) :> u, Infinity], None], Infinity]}
+    ],
+    {{"paclet:Pub/Pkg/guide/Algebra"}, {"paclet:Pub/Pkg/guide/NumberTheory"}},
+    TestID -> "guide hierarchy: ### [Sub](…/guide/Sub) heading and ## Guides index emit nav ButtonBox links"
+]
+```
+
 A Symbol page's Notes (Details) slot is filled from the Details section whether it is headed `## Details & Options` (the doc-tools title) or just `## Details`; sections are keyed by heading text, so a lone `## Details` must be matched explicitly or its bullets are silently dropped from the built page:
 
 ```wl

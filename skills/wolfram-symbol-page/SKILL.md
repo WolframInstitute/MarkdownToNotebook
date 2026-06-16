@@ -49,6 +49,34 @@ RelatedGuides: [GuideName]
 its system ref page, a paclet symbol to the paclet's ref page (the converter
 resolves this). `URI` is the page's `ref/` path.
 
+## Hierarchy (where a symbol sits in the tree)
+
+The documentation hierarchy is a tree of **guides**; symbol reference pages hang off
+it - a symbol's place is "which guide owns it." Two links establish that, in opposite
+directions:
+
+- **Up (symbol → guide):** list the owning topic guide in `RelatedGuides:`. It
+  renders as the page's *Related Guides* section, and `MarkdownToNotebook` emits it as
+  the plain `ButtonBox[…, BaseStyle -> "Link", ButtonData -> "paclet:…/guide/Name"]`
+  link that `DocumentationBuild`'s related-guides harvester reads - a `TemplateBox`
+  "RefLinkPlain" (an inline guide mention) would not be harvested. Point it at the
+  single most specific guide that owns the symbol (e.g. a `Congruence` page uses
+  `RelatedGuides: [ElementaryNumberTheory]`, not the top `PureMath` guide).
+- **Down (guide → symbol):** the owning guide must list the symbol in its
+  `## Functions` section (a `` `SymbolName` `` chip). That is authored on the guide,
+  not here - see the `wolfram-guide-page` skill. A symbol no guide lists is an orphan
+  in the tree.
+
+`SeeAlso:` is lateral, not hierarchy - it links sibling symbols (rendered as typed
+`PackageLink` chips) for peer "see also" cross-references.
+
+The visible sidebar tree (main guide → topic guides → sub-topic guides) is built
+entirely from guide-to-guide links, not from symbol pages - see the *Hierarchy*
+section of the `wolfram-guide-page` skill. Symbol pages do not nest in
+subdirectories: like guides they stay flat in
+`Documentation/English/ReferencePages/Symbols/`, addressed by the flat URI
+`paclet:Publisher/PacletName/ref/Name`.
+
 ## Sections
 
 - `## Usage` - one statement per paragraph. Usage lists only

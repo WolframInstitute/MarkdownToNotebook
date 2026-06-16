@@ -1737,12 +1737,17 @@ examplesSlot[opts_, sections_] := Block[{body},
     exampleSubsectionGroup[sections, #] & /@ $resourceExampleOrder
 ]
 
-(* the cell that heads each example past the first within a section - the same
-   empty-BoxData ExampleDelimiter a hand-authored / DocumentationBuild-ready ref
-   page uses (NOT a "\t" string cell, which the doc build mis-groups). It is the
-   HEAD of the following example's CellGroupData (see exampleContent), and resets
-   the In[]/Out[] counter. *)
-exampleDelimiterCell := Cell[BoxData[""], "ExampleDelimiter"]
+(* the cell that heads each example past the first within a section. The
+   canonical DocumentationTools form (FunctionExample.nb) is an ExampleDelimiter
+   cell whose BoxData is an InterpretationBox wrapping a "\t" delimiter cell with
+   the held interpretation `$Line = 0; Null` - evaluating the delimiter resets
+   the In[]/Out[] line counter so the next example starts at In[1]. (A bare
+   `Cell["\t", "ExampleDelimiter"]` string cell mis-groups in the doc build, and
+   an empty `Cell[BoxData[""], ...]` drops the line-reset.) It is the HEAD of the
+   following example's CellGroupData (see exampleContent).
+   InterpretationBox is HoldAllComplete, so the `$Line = 0` side effect is held,
+   not run, while the converter assembles the cell. *)
+exampleDelimiterCell := Cell[BoxData[InterpretationBox[Cell["\t", "ExampleDelimiter"], $Line = 0; Null]], "ExampleDelimiter"]
 
 (* shared example-content builder: prose -> a text cell of the given style,
    tables -> a GridBox, executable cells -> evaluated Input/Output. Examples are
@@ -3039,6 +3044,59 @@ guideFunctionItem[item_String, paclet_String] := Block[{m = StringCases[item,
     ]
 ]
 
+(* === guide-to-guide links that build the documentation hierarchy ===
+   DocumentationBuild's ComputeLinkTrails assembles the navigation /
+   collapsible-sidebar parent-child graph by scanning each guide notebook
+   (PageLinks) for ButtonBox links whose ButtonData is a "paclet:.../guide/Name"
+   URI - and ONLY inside GuideFunctionsSection / GuideFunctionsSubsection /
+   GuideTOCLink / TOCChapter cells (it deletes GuideText, and in the default
+   include -> None build also GuideMoreAbout / RelatedGuides). A TemplateBox
+   "RefLinkPlain" - what an inline [Name](paclet:.../guide/Name) reference
+   renders as - is NOT a ButtonBox and never registers. So a hub guide that
+   points to sub-guides must emit the scanned ButtonBox-in-kept-cell form, which
+   these helpers build. *)
+guideNavButtonBox[label_String, uri_String] := ButtonBox[label, BaseStyle -> "Link", ButtonData -> uri]
+
+(* parse a leading markdown link to a guide URI; returns {{label, uri, rest}} or {} *)
+guideLinkLeading[text_String] := StringCases[StringTrim[text],
+    StartOfString ~~ "[" ~~ label : Shortest[Except["]"] ..] ~~ "](" ~~
+        uri : Shortest[Except[")"] ..] ~~ ")" ~~ rest___ /;
+        StringMatchQ[uri, "paclet:" ~~ ___ ~~ "guide/" ~~ ___] :> {label, uri, StringTrim[rest]}, 1]
+
+(* a "## Functions" "### heading": a whole-heading guide link
+   "### [Sub](paclet:.../guide/Sub)" becomes a ButtonBox(Link)
+   GuideFunctionsSubsection that DocumentationBuild reads as a parent->child
+   edge; a plain heading (or one with trailing prose) stays plain text. *)
+guideSubsectionHead[text_String] := With[{m = guideLinkLeading[text]},
+    If[m === {} || m[[1, 3]] =!= "",
+        Cell[text, "GuideFunctionsSubsection"],
+        Cell[BoxData[guideNavButtonBox[m[[1, 1]], m[[1, 2]]]], "GuideFunctionsSubsection"]
+    ]
+]
+
+(* one "## Guides" index entry: a guide-link list item
+   "- [Sub](paclet:.../guide/Sub) blurb" -> a GuideTOCLink cell carrying the
+   ButtonBox(Link) (+ optional blurb). GuideTOCLink is a scanned cell style, so
+   the edge registers; a non-guide-link item falls back to plain TOC text. *)
+guideIndexCell[item_String] := With[{m = guideLinkLeading[item]},
+    If[m === {},
+        Cell[TextData @ inlineTextData[item], "GuideTOCLink"],
+        With[{label = m[[1, 1]], uri = m[[1, 2]], desc = stripLeadingDash[m[[1, 3]]]},
+            Cell[TextData @ If[desc === "",
+                {Cell[BoxData[guideNavButtonBox[label, uri]], "InlineFormula"]},
+                Join[{Cell[BoxData[guideNavButtonBox[label, uri]], "InlineFormula"], " \[LongDash] "}, inlineTextData[desc]]
+            ], "GuideTOCLink"]
+        ]
+    ]
+]
+
+guideIndexCells[sections_, paclet_String] := If[paclet === "", {},
+    Catenate @ Map[
+        b |-> If[b["Type"] === "List", guideIndexCell /@ b["Items"], {}],
+        Lookup[sections, "guides", {}]
+    ]
+]
+
 (* walk the "## Functions" section in order so a Level-3 "###" heading becomes a
    GuideFunctionsSubsection divider above the function-link cells in its group
    instead of being dropped (issue #21).
@@ -3057,7 +3115,7 @@ guideFunctionCells[sections_, paclet_String] := Block[{out = {}, cur = {}, head 
     If[ paclet === "", Return[{}] ];
     flush[] := If[head === None,
         out = Join[out, cur],
-        AppendTo[out, Cell[CellGroupData[Prepend[cur, Cell[head, "GuideFunctionsSubsection"]], Open]]]
+        AppendTo[out, Cell[CellGroupData[Prepend[cur, guideSubsectionHead[head]], Open]]]
     ];
     Do[
         Which[
@@ -3072,19 +3130,30 @@ guideFunctionCells[sections_, paclet_String] := Block[{out = {}, cur = {}, head 
     out
 ]
 
-guideNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"], nb, title, abstract, fnCells},
+guideNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"], nb, title, abstract, paclet, fnCells, guideCells, sectionCells},
     nb = docTemplate["GuideBaseTemplateExt.nb"];
     title = Lookup[meta, "Name", Lookup[meta, "Title", ""]];
+    paclet = Lookup[meta, "Paclet", ""];
     abstract = sectionText[sections, "abstract"];
     If[ abstract === "", abstract = Lookup[meta, "Description", ""] ];
     nb = fillDocString[nb, "GuideTitle", title];
     nb = fillDocString[nb, "GuideAbstract", abstract];
     (* the Functions section: replace the GuideText / InlineGuideFunctionListing
-       placeholders with one GuideText chip-led cell per "## Functions" item *)
-    fnCells = guideFunctionCells[sections, Lookup[meta, "Paclet", ""]];
-    If[ fnCells =!= {},
+       placeholders with one GuideText chip-led cell per "## Functions" item.
+       A "## Guides" section (a curated index of sub-guides) follows as its own
+       "Guides" subsection of GuideTOCLink entries - those links build the
+       documentation hierarchy / sidebar tree (see guideIndexCells). *)
+    fnCells = guideFunctionCells[sections, paclet];
+    guideCells = guideIndexCells[sections, paclet];
+    sectionCells = Join[
+        fnCells,
+        If[ guideCells === {}, {},
+            {Cell[CellGroupData[Prepend[guideCells, Cell["Guides", "GuideFunctionsSubsection"]], Open]]}
+        ]
+    ];
+    If[ sectionCells =!= {},
         nb = nb /. Cell[CellGroupData[{sec : Cell[_, "GuideFunctionsSection", ___], ___}, st_], go___] :>
-            Cell[CellGroupData[Prepend[fnCells, sec], st], go]
+            Cell[CellGroupData[Prepend[sectionCells, sec], st], go]
     ];
     (* Related Guides are guide links *)
     With[{paclet = Lookup[meta, "Paclet", ""]},
@@ -3713,7 +3782,7 @@ bookFreeCells[block_, next_String, counterSym_] := Switch[block["Type"],
     "Div",
         bookDivCells[block, counterSym],
     "Separator",
-        {Cell["", "ExampleDelimiter"]},
+        {exampleDelimiterCell},
     _, {}
 ]
 

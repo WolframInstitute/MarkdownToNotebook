@@ -61,6 +61,53 @@ Group functions under `### Subheadings` if the guide has sections of related
 functions. Keep the page a concise overview, not full documentation - the symbol
 reference pages (the `wolfram-symbol-page` skill) carry the detail.
 
+## Hierarchy (the sidebar tree)
+
+Guides form a hierarchy through guide-to-guide **links**, not through folders.
+Every guide lives flat in `Documentation/English/Guides/` and is addressed by the
+flat URI `paclet:Publisher/PacletName/guide/Name` - there is no nested
+`guide/Topic/Name` URI, and no shipped paclet puts guides in subdirectories.
+`DocumentationBuild` builds the collapsible navigation tree by scanning each
+guide for links **down** to its sub-guides, so a hub guide becomes a parent
+simply by pointing at them. (Verified against `DocumentationBuild`Navigation`:
+`ComputeLinkTrails` reads the parent→child graph from the source guides.)
+
+Only one link form registers in the tree: a guide link that becomes a
+`ButtonBox` with `ButtonData -> "paclet:.../guide/Name"` inside a
+`GuideFunctionsSubsection` or `GuideTOCLink` cell. A plain inline
+`[Name](paclet:.../guide/Name)` reference in body prose, and the
+`RelatedGuides:` / Related-Guides section, do **not** count. `MarkdownToNotebook`
+emits the registering form for these two authoring patterns - use either or both:
+
+1. **Linked subsection heading** - make a `## Functions` subsection point at a
+   fuller sub-guide by writing the `###` heading itself as a guide link:
+
+   ```
+   ## Functions
+
+   ### [NumberTheory](paclet:WolframInstitute/PureMath/guide/NumberTheory)
+   - `Congruence` modular arithmetic
+   - `QuadraticResidues` reciprocity and residues
+   ```
+
+   The whole heading must be the link (no trailing prose), or it stays plain text.
+
+2. **Dedicated `## Guides` index** - a curated list of sub-guides, separate from
+   the function listing; each item becomes a `GuideTOCLink`:
+
+   ```
+   ## Guides
+
+   - [NumberTheory](paclet:WolframInstitute/PureMath/guide/NumberTheory) primes, congruences, Diophantine equations
+   - [GeometryTopology](paclet:WolframInstitute/PureMath/guide/GeometryTopology) curvature, manifolds, knots
+   ```
+
+Nest deeper by giving each sub-guide its own down-links (NumberTheory's guide
+links to ElementaryNumberTheory / AnalyticNumberTheory, and so on). The paclet's
+`MainGuide` is the root of the tree. Keep every guide `.nb` flat in
+`Documentation/English/Guides/`; the tree is the link graph, not the folder
+layout.
+
 ## Build
 
 ```
