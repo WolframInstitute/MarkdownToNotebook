@@ -691,3 +691,26 @@ VerificationTest[
 ]
 ```
 
+The "Double Usage Line" style is named for the new line it puts after the code: the signature and its description sit on separate lines, joined by a `\[LineSeparator]` (soft line break) - exactly what the palette's `DoubleUsageLinesInsert` writes. A plain space would squish the description onto the signature's line:
+
+```wl
+VerificationTest[
+    MemberQ[usageLineItems[{"Foo[x]", "does a thing"}], "\[LineSeparator]"],
+    True,
+    TestID -> "Double Usage Line: signature and description separated by \\[LineSeparator]"
+]
+```
+
+A Guide's `### subsection` under `## Functions` becomes a `GuideFunctionsSubsection` that *heads its own `CellGroupData` group* (heading + its function cells). A flat subsection cell among sibling function cells renders in the desktop FE but is silently dropped by `DocumentationBuild`, so the built guide loses every subsection divider:
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook["---\nTemplate: Guide\nName: G\nContext: Pub`Pkg`\nPaclet: Pub/Pkg\nURI: Pub/Pkg/guide/G\n---\n\n## Functions\n\n### Group A\n- `Foo` does foo\n\n### Group B\n- `Bar` does bar\n"]},
+        {Length @ Cases[nb, Cell[_, "GuideFunctionsSubsection", ___], Infinity],
+         Length @ Cases[nb, Cell[CellGroupData[{Cell[_, "GuideFunctionsSubsection", ___], ___}, _], ___], Infinity]}
+    ],
+    {2, 2},
+    TestID -> "guide ### subsections each head their own CellGroupData group"
+]
+```
+

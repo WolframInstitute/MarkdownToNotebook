@@ -1564,11 +1564,19 @@ usageStatement[text_String] := Block[{trimmed = StringTrim[text], m},
    InlineFormula signature + the prose description. The signature goes through
    codeInlineCell (the <code>...</code> handler) so the head gets its
    paclet-ref ButtonBox link while ParseTextTemplate's auto-linking of
-   incidental System symbols inside the args is stripped. *)
+   incidental System symbols inside the args is stripped.
+
+   The separator between the signature and its description is
+   \[LineSeparator] (U+2028, a soft line break) - NOT a plain space. This is
+   what the palette's "Double Usage Line" template inserts
+   (TextData[{Cell[..,"ModInfo"], Cell[..,"InlineFormula"],
+   "\[LineSeparator]XXXX", "\n"}]) and is exactly why the style is "double":
+   the description wraps onto its own line below the code. Plain "\n" is
+   reserved for separating distinct usage statements (see usageMultiCell). *)
 usageLineItems[{code_String, desc_String}] := Block[{trimmedDesc = StringTrim[desc]},
     Join[
         {Cell["   ", "ModInfo"], codeInlineCell[code]},
-        If[trimmedDesc === "", {}, Prepend[inlineTextData[trimmedDesc], " "]]
+        If[trimmedDesc === "", {}, Prepend[inlineTextData[trimmedDesc], "\[LineSeparator]"]]
     ]
 ]
 
@@ -3028,20 +3036,34 @@ guideFunctionItem[item_String, paclet_String] := Block[{m = StringCases[item,
 
 (* walk the "## Functions" section in order so a Level-3 "###" heading becomes a
    GuideFunctionsSubsection divider above the function-link cells in its group
-   instead of being dropped (issue #21). A bare Functions section with no
-   "###" groups still produces one flat run of GuideText cells, same as before. *)
-guideFunctionCells[sections_, paclet_String] := Block[{out = {}, blocks},
+   instead of being dropped (issue #21).
+
+   Each "###" subsection must HEAD its own CellGroupData group (heading cell +
+   the function cells beneath it), matching the canonical guide shape. A flat
+   GuideFunctionsSubsection cell sitting among sibling GuideText cells renders
+   in the desktop FE but is SILENTLY DROPPED by DocumentationBuild - the built
+   guide loses the subsection dividers entirely. Wrapping each subsection in its
+   own group is what makes the build keep them.
+
+   A bare Functions section with no "###" groups still produces one flat run of
+   GuideText cells directly under the Functions section, same as before. *)
+guideFunctionCells[sections_, paclet_String] := Block[{out = {}, cur = {}, head = None, blocks, flush},
     blocks = Lookup[sections, "functions", {}];
     If[ paclet === "", Return[{}] ];
+    flush[] := If[head === None,
+        out = Join[out, cur],
+        AppendTo[out, Cell[CellGroupData[Prepend[cur, Cell[head, "GuideFunctionsSubsection"]], Open]]]
+    ];
     Do[
         Which[
             b["Type"] === "Heading" && b["Level"] === 3,
-                AppendTo[out, Cell[b["Text"], "GuideFunctionsSubsection"]],
+                flush[]; head = b["Text"]; cur = {},
             b["Type"] === "List",
-                out = Join[out, Map[guideFunctionItem[#, paclet] &, b["Items"]]]
+                cur = Join[cur, Map[guideFunctionItem[#, paclet] &, b["Items"]]]
         ],
         {b, blocks}
     ];
+    flush[];
     out
 ]
 
