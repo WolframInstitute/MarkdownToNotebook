@@ -85,7 +85,7 @@ emits the registering form for these two authoring patterns - use either or both
    ```
    ## Functions
 
-   ### [NumberTheory](paclet:WolframInstitute/PureMath/guide/NumberTheory)
+   ### [NumberTheory](paclet:Wolfram/MyPaclet/guide/NumberTheory)
    - `Congruence` modular arithmetic
    - `QuadraticResidues` reciprocity and residues
    ```
@@ -98,8 +98,8 @@ emits the registering form for these two authoring patterns - use either or both
    ```
    ## Guides
 
-   - [NumberTheory](paclet:WolframInstitute/PureMath/guide/NumberTheory) primes, congruences, Diophantine equations
-   - [GeometryTopology](paclet:WolframInstitute/PureMath/guide/GeometryTopology) curvature, manifolds, knots
+   - [NumberTheory](paclet:Wolfram/MyPaclet/guide/NumberTheory) primes, congruences, Diophantine equations
+   - [GeometryTopology](paclet:Wolfram/MyPaclet/guide/GeometryTopology) curvature, manifolds, knots
    ```
 
 Nest deeper by giving each sub-guide its own down-links (NumberTheory's guide

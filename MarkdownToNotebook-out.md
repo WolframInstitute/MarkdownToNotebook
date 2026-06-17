@@ -3919,9 +3919,9 @@ markdownWithImages[blocks_, meta_, target_String] := Block[{dir, base, imgDir, n
 $cacheLocation = "Local"
 
 (* Sanitise a doc name for use in a PersistentObject path.  The frontmatter
-   "Name" is the canonical identifier ("Wolfram/PureMath", "ReverseAddSequence",
+   "Name" is the canonical identifier ("Wolfram/MyPaclet", "ReverseAddSequence",
    ...); we keep "/", "-", ".", "_" and word characters so the namespace path
-   is hierarchical (a publisher-prefixed name like "Wolfram/PureMath" maps to a
+   is hierarchical (a publisher-prefixed name like "Wolfram/MyPaclet" maps to a
    nested namespace) and replace anything else with "_".  Empty or all-special
    names fall back to "unnamed". *)
 sanitiseDocNameForCache[s_String] := With[{
@@ -3936,8 +3936,8 @@ sanitiseDocNameForCache[_] := "unnamed"
 
        MarkdownToNotebook/ExampleOutput/<DocName>/<NNN>-<hashB36>
 
-   PersistentObjects["MarkdownToNotebook/ExampleOutput/Wolfram/PureMath/*",
-   "Local"] returns every entry for the PureMath doc; cell-001/cell-002 sort
+   PersistentObjects["MarkdownToNotebook/ExampleOutput/Wolfram/MyPaclet/*",
+   "Local"] returns every entry for that doc; cell-001/cell-002 sort
    lexicographically so the entries enumerate in evaluation order.  The
    hashB36 suffix preserves the content-addressing - changing a cell's code
    yields a new hash and a fresh entry; the previous stale entry orphans
@@ -4040,7 +4040,7 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
     hashes = cumulativeHashes[evalSeparator, orderedCode];
     (* build a per-cell PersistentObject name keyed by (DocName, cellIndex, hash).
        The doc name comes from the frontmatter Name when present (e.g.
-       "Wolfram/PureMath") and falls back to the source's file basename;
+       "Wolfram/MyPaclet") and falls back to the source's file basename;
        cellIndex is 1-based in evaluation order; the hash preserves
        content-addressing.  See exampleCacheName for the layout. *)
     cacheDocName = If[$docName === "", src["Name"], $docName];

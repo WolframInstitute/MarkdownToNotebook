@@ -61,7 +61,7 @@ directions:
   link that `DocumentationBuild`'s related-guides harvester reads - a `TemplateBox`
   "RefLinkPlain" (an inline guide mention) would not be harvested. Point it at the
   single most specific guide that owns the symbol (e.g. a `Congruence` page uses
-  `RelatedGuides: [ElementaryNumberTheory]`, not the top `PureMath` guide).
+  `RelatedGuides: [ElementaryNumberTheory]`, not the top-level paclet guide).
 - **Down (guide → symbol):** the owning guide must list the symbol in its
   `## Functions` section (a `` `SymbolName` `` chip). That is authored on the guide,
   not here - see the `wolfram-guide-page` skill. A symbol no guide lists is an orphan
