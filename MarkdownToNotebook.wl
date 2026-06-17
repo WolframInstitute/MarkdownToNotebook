@@ -2971,6 +2971,12 @@ symbolNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"]
     If[ KeyExistsQ[meta, "Context"],
         nb = nb /. Cell[_, "ExampleInitialization", o___] :> Cell[BoxData[inputBoxes["Needs[\"" <> meta["Context"] <> "\"]"]], "ExampleInitialization", o]
     ];
+    (* Collapse the Examples-Initialization section (the doc-center default). Left
+       Open, it renders its own separator directly above the Examples separator, so
+       every symbol page shows two stacked delimiter lines between Details and
+       Examples; Closed it folds into a single, subtle bar. *)
+    nb = nb /. Cell[CellGroupData[{h : Cell[___, "ExamplesInitializationSection", ___], rest___}, _], o___] :>
+               Cell[CellGroupData[{h, rest}, Closed], o];
     (* walk Basic Examples block-by-block so per-cell `:`-terminated
        captions become ExampleText cells, `---` thematic breaks become
        ExampleDelimiter cells (resetting the In[]/Out[] counter), and
