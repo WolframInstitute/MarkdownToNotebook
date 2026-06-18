@@ -132,6 +132,12 @@ cellOptionLine[line_String] := Block[{parts = StringSplit[StringReplace[StringTr
 
 parseCellOptions[lines_List] := Association @ Map[cellOptionLine, Select[lines, StringContainsQ[#, ":"] &]]
 
+(* a top-level "#| key: value" line - written inline, or recovered by
+   stripComments from a "<!-- #| ... -->" metadata comment - is a cell directive
+   that binds to the NEXT block (see attachDirectives). Inside a fenced code
+   block #| lines are the code cell's own options and are handled by codeBlock. *)
+directiveLineQ[line_String] := StringStartsQ[StringTrim[line], "#|"]
+
 codeBlock[info_String, bodyLines_List] := Block[{optLines, codeLines},
     optLines = TakeWhile[bodyLines, StringMatchQ[StringTrim[#], "#|" ~~ ___] &];
     codeLines = Drop[bodyLines, Length[optLines]];
@@ -351,6 +357,9 @@ blockLoop[lines_List, acc_] := Block[{line = First[lines], rest = Rest[lines], s
         StringTrim[line] === "",
             blockLoop[rest, acc]
         ,
+        directiveLineQ[line],
+            blockLoop[rest, Prepend[acc, <|"Type" -> "Directive", "Options" -> parseCellOptions[{line}]|>]]
+        ,
         fenceQ[line],
             split = fenceSplit[rest, fenceLen[line]];
             blockLoop[Last[split], Prepend[acc, codeBlock[StringReplace[StringTrim[line], StartOfString ~~ ("`" ..) -> ""], First[split]]]]
@@ -400,6 +409,40 @@ blockLoop[lines_List, acc_] := Block[{line = First[lines], rest = Rest[lines], s
     ]
 ]
 
+(* Resolve "Directive" blocks (stand-alone "#| key: value" lines) into the block
+   stream. A directive run that carries cell CONTENT ("file" or "boxes" - e.g. a
+   saved Output cell) becomes its OWN code block; a content-free run (just style /
+   tags) is a MODIFIER folded into the "Options" of the block that follows it,
+   overriding same-named options. A trailing modifier-only run is dropped. *)
+contentDirectiveQ[opts_] := KeyExistsQ[opts, "file"] || KeyExistsQ[opts, "boxes"]
+
+attachDirectives[blocks_List] := Module[{out = {}, pend = <||>, flush},
+    flush[] := (
+        If[contentDirectiveQ[pend],
+            AppendTo[out, <|"Type" -> "Code", "Lang" -> "wl", "Options" -> pend, "Code" -> ""|>]];
+        pend = <||>
+    );
+    Do[
+        If[ b["Type"] === "Directive",
+            (* a key that repeats inside a content-bearing run starts a NEW
+               standalone cell (consecutive Output runs are separated only by a
+               blank line, which blockLoop drops) - flush the current one first *)
+            If[ contentDirectiveQ[pend] && AnyTrue[Keys[b["Options"]], KeyExistsQ[pend, #] &],
+                flush[]];
+            pend = Join[pend, b["Options"]],
+            If[ contentDirectiveQ[pend],
+                flush[]; AppendTo[out, b],
+                AppendTo[out, If[pend === <||>, b,
+                    Append[b, "Options" -> Join[Lookup[b, "Options", <||>], pend]]]];
+                pend = <||>
+            ]
+        ],
+        {b, blocks}
+    ];
+    flush[];
+    out
+]
+
 (* blockLoop and its sibling splitters (fenceSplit, paraSplit, listSplit, ...)
    recurse once per source line, and Wolfram does not tail-call optimize -
    the default $RecursionLimit of 1024 trips on any document longer than
@@ -412,7 +455,7 @@ blockLoop[lines_List, acc_] := Block[{line = First[lines], rest = Rest[lines], s
 parseBlocks[body_String] := Block[
     {lines = StringSplit[body, "\n"], $RecursionLimit},
     $RecursionLimit = Max[10000, 8 * Length[lines], Replace[$RecursionLimit, Except[_Integer] -> 0]];
-    blockLoop[lines, {}]
+    attachDirectives[blockLoop[lines, {}]]
 ]
 
 (* drop HTML/markdown comments (e.g. "<!-- => 21. -->" output annotations).
@@ -423,7 +466,8 @@ parseBlocks[body_String] := Block[
 stripComments[s_String] := Module[{lines = StringSplit[s, "\n", All], out = {}, inFence = False, openLen = 0, buf = {}},
     flushProse[] := If[buf =!= {},
         AppendTo[out, StringReplace[StringRiffle[buf, "\n"],
-            "<!--" ~~ Shortest[___] ~~ "-->" -> ""]];
+            "<!--" ~~ inner : Shortest[___] ~~ "-->" :>
+                If[StringStartsQ[StringTrim[inner], "#|"], StringTrim[inner], ""]]];
         buf = {}
     ];
     Do[
@@ -475,6 +519,14 @@ resolveSource[input_String] := Which[
    imports its image (file or URL) relative to the document. Both resolutions
    happen here because the document base is known. *)
 resolveBlock[b_Association, base_String] := Which[
+    (* a ".wxf" include is raw box data (a saved Output cell's BoxData), not text:
+       import the boxes and mark the cell boxes-literal so it renders unevaluated
+       through the box path (the "#| style: Output" directive then makes it an
+       Output cell). This is the large-output counterpart of inline "#| boxes". *)
+    b["Type"] === "Code" && KeyExistsQ[b["Options"], "file"] &&
+        StringEndsQ[ToLowerCase[b["Options"]["file"]], ".wxf"],
+        Join[b, <|"Boxes" -> Quiet @ Import[joinSource[base, b["Options"]["file"]], "WXF"],
+                  "Options" -> Append[b["Options"], "boxes" -> True]|>],
     b["Type"] === "Code" && KeyExistsQ[b["Options"], "file"],
         Append[b, "Code" -> Import[joinSource[base, b["Options"]["file"]], "Text"]],
     b["Type"] === "Image",
@@ -519,7 +571,10 @@ sectionsFrom[blocks_List] := Block[{step, init},
    it the same way "#| eval: false" is excluded - the non-executable
    rendering path then dispatches in nonExecutableCell to emit a boxed
    Input cell instead of a Program-styled plain-text cell. *)
-boxesLiteralQ[b_] := TrueQ[Lookup[b["Options"], "boxes", False]]
+(* "#| boxes: true" takes the fence body as the box expression; "#| boxes: <expr>"
+   carries the expression in the option value itself (used by the comment carrier,
+   which has no fence body - e.g. a small Output cell inlined in a metadata comment). *)
+boxesLiteralQ[b_] := With[{v = Lookup[b["Options"], "boxes", False]}, TrueQ[v] || StringQ[v]]
 
 executableQ[b_] := b["Type"] === "Code" && MemberQ[{"wl", "wolfram", "mathematica"}, b["Lang"]] && TrueQ[Lookup[b["Options"], "eval", True]] && ! boxesLiteralQ[b]
 
@@ -536,13 +591,25 @@ cellLiteralBoxes[code_String] := With[{e = Quiet @ ToExpression[code, InputForm,
    docs/formatting.md reads "keep the input cell" for #| eval: false);
    genuinely foreign-language fences (bash, python, ...) render as a
    plain-text Program cell. *)
-nonExecutableCell[b_] := Which[
-    boxesLiteralQ[b],
-        Cell[BoxData[cellLiteralBoxes[b["Code"]]], "Input"],
-    MemberQ[{"wl", "wolfram", "mathematica"}, b["Lang"]],
-        Cell[BoxData[inputBoxes[b["Code"]]], "Input"],
-    True,
-        Cell[b["Code"], "Program"]
+(* box data for a boxes-literal cell: imported ".wxf" boxes when present (large
+   output), else the "#| boxes: <expr>" option value, else the fence body. *)
+cellBoxesOf[b_] := With[{v = Lookup[b["Options"], "boxes", False]},
+    Which[
+        KeyExistsQ[b, "Boxes"], b["Boxes"],
+        StringQ[v], cellLiteralBoxes[v],
+        True, cellLiteralBoxes[b["Code"]]
+    ]]
+
+nonExecutableCell[b_] := applyCellMeta[
+    Which[
+        boxesLiteralQ[b],
+            Cell[BoxData[cellBoxesOf[b]], "Input"],
+        MemberQ[{"wl", "wolfram", "mathematica"}, b["Lang"]],
+            Cell[BoxData[inputBoxes[b["Code"]]], "Input"],
+        True,
+            Cell[b["Code"], "Program"]
+    ],
+    Lookup[b, "Options", <||>]
 ]
 
 sectionCells[sections_, key_] := Cases[Lookup[sections, key, {}], b_ /; executableQ[b]]
@@ -1404,18 +1471,38 @@ firstCodeOf[sections_, key_] := FirstCase[Lookup[sections, key, {}], b_ /; codeB
 (* All executable WL blocks in a section, in order. *)
 allCodeOf[sections_, key_] := Cases[Lookup[sections, key, {}], b_ /; codeBlockQ[b]]
 
+(* Cell metadata carried by a block's #| directives (attachDirectives put them in
+   "Options"): "#| style: S" overrides the cell's inferred style, "#| tags: a, b"
+   sets CellTags. Applied to each cell a block produces, so a non-standard styled
+   or tagged cell round-trips (NotebookToMarkdown re-emits these directives). *)
+cellTagList[v_] := DeleteCases[StringTrim /@ StringSplit[ToString[v], ","], ""]
+
+(* Idempotent: re-applying the same options is a no-op (existing CellTags are
+   replaced, not duplicated), so a cell may pass through applyCellMeta more than
+   once - e.g. nonExecutableCell metas an Output block, then a wrapping builder
+   metas it again. *)
+applyCellMeta[Cell[c_, st_String, rest___], opts_Association] := Module[{r = {rest}},
+    If[KeyExistsQ[opts, "tags"],
+        r = Append[DeleteCases[r, CellTags -> _], CellTags -> cellTagList[opts["tags"]]]];
+    Cell[c, Lookup[opts, "style", st], Sequence @@ r]
+]
+applyCellMeta[other_, _] := other
+
+applyBlockMeta[cells_List, b_] := With[{o = Lookup[b, "Options", <||>]},
+    If[KeyExistsQ[o, "style"] || KeyExistsQ[o, "tags"], applyCellMeta[#, o] & /@ cells, cells]]
+
 (* All prose / list / quote / table blocks of a section, in order, as ordinary
    Text cells - the format the Demonstration template's Caption / Details /
    References slots expect. *)
 proseBlockCells[blocks_, style_String : "Text"] := Catenate @ Map[
-    b |-> Switch[b["Type"],
+    b |-> applyBlockMeta[Switch[b["Type"],
         "Prose", {Cell[TextData @ inlineTextData[b["Text"]], style]},
         "List",  listItemCells[b, style],
         "Table", {tableCell[b]},
         "Quote", {quoteCell[b["Text"]]},
         "MathBlock", {mathBlockCell[b["Text"]]},
         _, {}
-    ],
+    ], b],
     blocks
 ]
 
@@ -3399,7 +3486,7 @@ $headingStyleMap = <|1 -> "Title", 2 -> "Section", 3 -> "Subsection", 4 -> "Subs
 
 defaultNotebook[data_] := Block[{counter = 0, cells},
     cells = Catenate @ Map[
-        block |-> Switch[block["Type"],
+        block |-> applyBlockMeta[Switch[block["Type"],
             "Heading", {Cell[headingText[block["Text"]], Lookup[$headingStyleMap, block["Level"], "Subsubsection"]]},
             "Prose", {Cell[TextData @ inlineTextData[block["Text"]], "Text"]},
             "List", listItemCells[block, "Item"],
@@ -3413,7 +3500,7 @@ defaultNotebook[data_] := Block[{counter = 0, cells},
                     withCellFlag[block, {nonExecutableCell[block]}]
                 ],
             _, {}
-        ],
+        ], block],
         data["blocks"]
     ];
     Notebook[cells, StyleDefinitions -> "Default.nb"]

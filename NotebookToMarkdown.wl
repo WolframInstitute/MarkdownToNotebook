@@ -487,7 +487,104 @@ $dropStyles = {
     "ExtendedExamplesSection", "ExamplesInitializationSection"
 }
 
+(* ====================================================================== *)
+(* Round-trip metadata emission (mirrors MarkdownToNotebook's read side).   *)
+(*                                                                          *)
+(*   "Metadata":                                                            *)
+(*     Automatic (default) - emit "#| style:"/"#| tags:" only for cells     *)
+(*       that are NOT a doc template's own default/scaffolding cells, so a   *)
+(*       built template notebook recovers cleanly while a hand-authored     *)
+(*       custom style/tag still round-trips. Comment carrier.               *)
+(*     "Comment" - ALWAYS emit (every non-standard style + every real tag); *)
+(*       directives written as "<!-- #| k: v -->" (GitHub-invisible).       *)
+(*     "Inline"  - ALWAYS emit; directives as bare "#| k: v" lines.         *)
+(*     None      - never emit cell metadata.                                *)
+(*   One directive per line (the reader splits a line on its first colon).  *)
+(* ====================================================================== *)
+Options[NotebookToMarkdown] = {
+    "Metadata" -> Automatic,        (* Automatic | "Comment" | "Inline" | None *)
+    "PreserveOutputs" -> False,     (* emit Output cells (else dropped, regenerated on re-run) *)
+    "OutputInlineLimit" -> 2048     (* WXF bytes: <= inline "#| boxes", > spill to a ".wxf" sidecar *)
+};
+
+$metadataCarrier  = Automatic;
+$preserveOutputs  = False;
+$outputInlineLimit = 2048;
+$n2mAssetDir   = None;   (* directory for ".wxf" sidecars; None (in-memory) forces inline *)
+$n2mAssetBase  = "cell";
+$n2mOutCounter = 0;
+
+(* styles whose markdown form round-trips to the same style - no "#| style:" *)
+$knownBlockStyles = {
+    "Title", "Section", "Subsection", "Subsubsection", "ObjectName",
+    "Usage", "UsageDescription", "Notes",
+    "2ColumnTableMod", "3ColumnTableMod", "TableNotes",
+    "Text", "Quote", "Caption", "ExampleText", "CodeText",
+    "Item", "Item1", "Item2", "Bullet", "ItemNumbered", "ItemNumbered1",
+    "Input", "Code", "ExampleInput", "Program",
+    "PrimaryExamplesSection", "ExampleSection", "ExampleSubsection",
+    "ExampleSubsubsection", "ExampleDelimiter", "InlineFormula"
+};
+(* DocumentationTools scaffolding a template fills in by default: a cell with such
+   a style / tag is a template default cell, skipped under Automatic (not authored
+   content) but force-emitted under "Comment"/"Inline". *)
+$templateStyles = {"UsageInputs", "InlineCode", "RelatedSymbol", "TableText"};
+$internalTags = {"DefaultContent"};   (* M2N-managed scraper marker: never emitted *)
+allCellTags[opts_List] := Flatten[Cases[opts, (CellTags -> t_) :> Flatten[{t}]]]
+
+(* structural template markers - a cell carrying any of these is part of the doc
+   template's own scaffolding (section groups, metadata cells, MoreInfo/
+   Compatibility fields), so none of its style/tags are authored content. *)
+templateMarkerQ[tag_String] :=
+    StringStartsQ[tag, "Template"] || StringStartsQ[tag, "SectionMoreInfo"] ||
+    StringStartsQ[tag, "Compatibility"] ||
+    MemberQ[{"Name", "Title", "Description", "Documentation", "ScrapeDefault",
+             "TabNext", "Source & Additional Information"}, tag]
+templateDefaultCellQ[style_, opts_List] :=
+    MemberQ[$templateStyles, style] || AnyTrue[allCellTags[opts], templateMarkerQ]
+
+directiveOne[k_, v_] := If[$metadataCarrier === "Inline",
+    "#| " <> k <> ": " <> v,
+    "<!-- #| " <> k <> ": " <> v <> " -->"]
+directiveBlock[dirs_List] := StringRiffle[directiveOne @@@ dirs, "\n"]
+
+(* prepend a cell's style/tags directives (when needed) to its rendered body.
+   Automatic skips a template's own default cells whole; "Comment"/"Inline"
+   force-include. A non-standard style emits "#| style:"; CellTags (minus the
+   M2N-managed scraper marker) emit "#| tags:". *)
+withCellMeta[body_, style_, opts_List] := Module[{mode = $metadataCarrier, dirs = {}, tags},
+    If[body === "" || mode === None, Return[body]];
+    If[mode === Automatic && templateDefaultCellQ[style, opts], Return[body]];
+    If[! MemberQ[$knownBlockStyles, style] && ! MemberQ[$dropStyles, style],
+        AppendTo[dirs, {"style", style}]];
+    tags = DeleteCases[allCellTags[opts], Alternatives @@ $internalTags];
+    If[tags =!= {}, AppendTo[dirs, {"tags", StringRiffle[tags, ", "]}]];
+    If[dirs === {}, body, directiveBlock[dirs] <> "\n" <> body]
+]
+
+(* a preserved Output cell: serialize its BoxData. Small (<= limit) inlines the
+   boxes as "#| boxes: <InputForm>"; large spills to a ".wxf" sidecar referenced
+   by "#| file:". Graphics/raster outputs are left to the image-twin path. *)
+boxOneLine[boxes_] := ToString[boxes, InputForm, PageWidth -> Infinity]
+preserveOutputBlock[BoxData[boxes_]] := preserveOutputBlock[boxes]
+preserveOutputBlock[boxes_] := Module[{ba, ref},
+    ba = Quiet @ ExportByteArray[boxes, "WXF"];
+    If[ $n2mAssetDir =!= None && ByteArrayQ[ba] && Length[ba] > $outputInlineLimit,
+        $n2mOutCounter += 1;
+        ref = $n2mAssetBase <> "-out-" <> ToString[$n2mOutCounter] <> ".wxf";
+        Quiet @ Export[FileNameJoin[{$n2mAssetDir, ref}], boxes, "WXF"];
+        directiveBlock[{{"style", "Output"}, {"file", ref}}],
+        directiveBlock[{{"style", "Output"}, {"boxes", boxOneLine[boxes]}}]
+    ]
+]
+
 ClearAll[blockFor]
+(* A preserved Output cell ("PreserveOutputs" -> True) round-trips its boxes via
+   #| directives; defined first so it wins for Output cells. Graphics/raster
+   outputs fall through to the drop below (the twin renders them as images). *)
+blockFor["Output", c_] /; ($preserveOutputs && FreeQ[c, GraphicsBox | Graphics3DBox | RasterBox]) :=
+    preserveOutputBlock[c]
+
 (* Image cells (raster or vector graphics in BoxData) are evaluation output, not
    source - the markdown twin embeds them as ![]() but the source markdown that
    produced them is the WL Input cell that evaluated to them. Drop. The TagBox
@@ -561,7 +658,7 @@ blockFor[_String, c_] := tidy @ inlineMd[c]
 
 (* === tree walk === *)
 walkCell[Cell[CellGroupData[inner_List, ___]]] := walkCells[inner]
-walkCell[Cell[content_, style_String, opts___]] := blockFor[style, content]
+walkCell[Cell[content_, style_String, opts___]] := withCellMeta[blockFor[style, content], style, {opts}]
 walkCell[_] := ""
 walkCells[cells_List] := DeleteCases[Flatten[{walkCell /@ cells}], "" | Null]
 
@@ -643,7 +740,11 @@ dropEmptySections[blocks_List] := Module[{i, out = {}},
    up as bare `## Title` blocks with no following content, which we drop.
    For an arbitrary notebook a trailing heading IS authored content, so the
    drop pass only runs when a doc-page frontmatter is being emitted. *)
-markdownOfNb[nb : Notebook[_List, ___]] := Block[{name, blocks, fm, $detailsHeadingDone = False},
+markdownOfNb[nb : Notebook[_List, ___], opts : OptionsPattern[NotebookToMarkdown]] := Block[
+    {name, blocks, fm, $detailsHeadingDone = False,
+     $metadataCarrier   = OptionValue[NotebookToMarkdown, {opts}, "Metadata"],
+     $preserveOutputs   = TrueQ @ OptionValue[NotebookToMarkdown, {opts}, "PreserveOutputs"],
+     $outputInlineLimit = OptionValue[NotebookToMarkdown, {opts}, "OutputInlineLimit"]},
     name = cellPlain @ FirstCase[nb, Cell[t_, "ObjectName", ___] :> t, "", Infinity];
     blocks = walkCells[First[nb]];
     fm = frontmatter[nb, name];
@@ -660,13 +761,20 @@ markdownOfNb[nb : Notebook[_List, ___]] := Block[{name, blocks, fm, $detailsHead
    entries plain; the feInput call site itself catches a missing FE and
    falls back to boxToCode, so a no-FE session degrades gracefully without
    needing the wrap here. *)
-NotebookToMarkdown[nb : Notebook[_List, ___]] := markdownOfNb[nb]
-NotebookToMarkdown[nbo_NotebookObject] := markdownOfNb[NotebookGet[nbo]]
-NotebookToMarkdown[file_String /; FileExistsQ[file] && StringEndsQ[ToLowerCase[file], ".nb"]] :=
-    markdownOfNb[Get[file]]
-NotebookToMarkdown[source_, "String"] := NotebookToMarkdown[source]
-NotebookToMarkdown[source_, target_String /; StringEndsQ[ToLowerCase[target], ".md"]] := Block[
-    {md = NotebookToMarkdown[source]},
-    Export[target, md, "Text"];
-    target
+NotebookToMarkdown[nb : Notebook[_List, ___], opts : OptionsPattern[]] := markdownOfNb[nb, opts]
+NotebookToMarkdown[nbo_NotebookObject, opts : OptionsPattern[]] := markdownOfNb[NotebookGet[nbo], opts]
+NotebookToMarkdown[file_String /; FileExistsQ[file] && StringEndsQ[ToLowerCase[file], ".nb"], opts : OptionsPattern[]] :=
+    markdownOfNb[Get[file], opts]
+NotebookToMarkdown[source_, "String", opts : OptionsPattern[]] := NotebookToMarkdown[source, opts]
+(* The ".md" target entry also fixes the sidecar directory for ".wxf" outputs
+   (siblings of the .md, named "<base>-out-N.wxf"); the nested conversion sees it
+   via dynamic scope. In-memory conversions leave $n2mAssetDir = None, so output
+   preservation there always inlines the boxes (no file is written). *)
+NotebookToMarkdown[source_, target_String /; StringEndsQ[ToLowerCase[target], ".md"], opts : OptionsPattern[]] := Block[
+    {$n2mAssetDir = Replace[DirectoryName[target], "" -> Directory[]],
+     $n2mAssetBase = FileBaseName[target], $n2mOutCounter = 0},
+    With[{md = NotebookToMarkdown[source, opts]},
+        Export[target, md, "Text"];
+        target
+    ]
 ]

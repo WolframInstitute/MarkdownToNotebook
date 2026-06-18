@@ -74,7 +74,11 @@ WCAGContrastRatio[Black, White]
 
 ### Cell options (`#|`)  [done]
 
-Quarto-style option lines at the top of a cell:
+Quarto-style option lines bind to the block that follows them. Inside a fenced
+code cell they sit at the top of the body; on **any other** block (a paragraph,
+heading, ...) write them just above it - either as bare `#|` lines, or, to keep
+the rendered markdown clean on GitHub, inside an HTML comment (one directive per
+line, since a line is split on its first colon):
 
 ````
 ```wl
@@ -82,12 +86,26 @@ Quarto-style option lines at the top of a cell:
 #| file: Kernel/MyFunction.wl
 SomeCode
 ```
+
+<!-- #| style: TheoremText -->
+<!-- #| tags: thm-1, key -->
+A custom-styled, tagged paragraph.
 ````
 
 | Option | Effect |
 |---|---|
-| `file: path` | replace the cell body with the contents of that file or URL (the **include** mechanism), resolved relative to the document |
+| `file: path` | replace the cell body with the contents of that file or URL (the **include** mechanism), resolved relative to the document; a `.wxf` path loads raw box data (a saved `Output` cell) instead of text |
 | `eval: false` | keep the input cell, do not evaluate / no `Output` |
+| `boxes: true` | read the cell body as a literal box expression (`RowBox`/`GridBox`/...) spliced into `BoxData`, unevaluated |
+| `boxes: <expr>` | same, but the box expression is carried in the option value (for a cell with no fenced body, e.g. a small output inlined in a comment) |
+| `style: Name` | override the cell's style - `style: Output` together with `boxes`/`file` makes an `Output` cell; any other name sets a custom `CellStyle` |
+| `tags: a, b` | set the cell's `CellTags` |
+
+These directives are what lets a non-standard cell round-trip: `NotebookToMarkdown`
+emits them (see its `"Metadata"` / `"PreserveOutputs"` options) and the forward
+path reads them back. A directive run carrying `file:`/`boxes:` becomes its **own**
+cell (e.g. a preserved `Output`); a run with only `style:`/`tags:` decorates the
+block that follows.
 
 ## Caching  [done]
 
