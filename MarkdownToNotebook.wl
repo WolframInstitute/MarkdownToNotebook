@@ -2293,7 +2293,7 @@ codeInlineCell[inner_String] := Block[{sig, head, url, boxes, unescaped},
        markdown viewer renders as just "*" but the notebook would show the
        backslash. Backticked spans skip this because backticks freeze content
        by design - "\*" in `` `code` `` is meant to be literal. *)
-    unescaped = unescapeMarkdownPunctuation[inner];
+    unescaped = decodeEntities @ unescapeMarkdownPunctuation[inner];
     sig = mathArgsToTemplate @ unwrapMarkdownSig @ unescaped;
     head = First[StringCases[sig,
         StartOfString ~~ h : ((LetterCharacter | "$") ~~ (WordCharacter | "$" | "`") ...) :> h, 1], ""];
@@ -2730,6 +2730,23 @@ linkInferred[name_String] := Block[{url = inferURL[name]},
    box back at its original position. *)
 $inlineLinkBoxes = {}
 
+(* Decode HTML/XML character references in prose: numeric refs - decimal
+   "&#9673;" and hex "&#x25C9;" - become the literal Unicode glyph; a small set
+   of named entities is mapped too (an unrecognised "&word;" is left untouched).
+   Applied to plain-text runs (after span/emphasis splitting, so a decoded "<" or
+   "_" from "&lt;" / "&#95;" can no longer spawn markup) and to <code> content. *)
+$namedEntities = <|
+    "amp" -> "&", "lt" -> "<", "gt" -> ">", "quot" -> "\"", "apos" -> "'",
+    "nbsp" -> "\[NonBreakingSpace]", "ndash" -> "\[Dash]", "mdash" -> "\[LongDash]",
+    "hellip" -> "\[Ellipsis]", "times" -> "\[Times]", "deg" -> "\[Degree]",
+    "rarr" -> "\[RightArrow]", "larr" -> "\[LeftArrow]", "harr" -> "\[LeftRightArrow]"
+|>;
+decodeEntities[s_String] := StringReplace[s, {
+    "&#x" ~~ h : (HexadecimalCharacter ..) ~~ ";" :> FromCharacterCode[FromDigits[h, 16]],
+    "&#" ~~ d : (DigitCharacter ..) ~~ ";" :> FromCharacterCode[FromDigits[d, 10]],
+    "&" ~~ name : (LetterCharacter ..) ~~ ";" :> Lookup[$namedEntities, name, "&" <> name <> ";"]
+}]
+
 inlineTextData[text_String] := Block[{$inlineLinkBoxes = {}}, inlineTextDataCore[text]]
 
 inlineTextDataCore[text_String] := Module[{prep, stash},
@@ -2801,7 +2818,7 @@ inlineTextDataCore[text_String] := Module[{prep, stash},
         ],
         (* a literal "..." in prose should be the single ellipsis character (the
            notebook analysis flags three dots); only the plain-text runs are touched. *)
-        s_String :> StringReplace[s, "..." -> "\[Ellipsis]"],
+        s_String :> decodeEntities @ StringReplace[s, "..." -> "\[Ellipsis]"],
         {1}
     ]
 ]

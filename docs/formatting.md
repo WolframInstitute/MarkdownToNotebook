@@ -185,3 +185,12 @@ blank line before the table.
 matching the palette's Traditional Math button. `$$math$$` on its own line (or
 fenced across lines) -> a centered `DisplayFormula` cell, the standard style for a
 displayed equation.
+
+## HTML entities  [done]
+
+A numeric character reference in prose - decimal `&#9673;` or hex `&#x25C9;` -
+decodes to the literal Unicode glyph (here ◉), as do a handful of named entities
+(`&amp;` `&lt;` `&gt;` `&quot;` `&nbsp;` `&mdash;` `&times;` `&rarr;` ...). An
+unrecognised `&word;` is left untouched. Decoding runs on plain prose and inside
+`<code>` spans *after* markup is parsed, so an escaped `&lt;code&gt;` stays literal
+text instead of turning into a code span.
