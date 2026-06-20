@@ -2308,7 +2308,7 @@ codeInlineCell[inner_String] := Block[{sig, head, url, boxes, unescaped},
                 RowBox[{pacletLinkBox[s, url], rest}]
         }]
     ];
-    Cell[BoxData @ boxes, "InlineFormula"]
+    Cell[BoxData @ boxes, "InlineFormula", FontSize -> $inlineFontSize]
 ]
 
 (* A paclet's public symbols may live in subcontexts of its primary context
@@ -2346,7 +2346,7 @@ stripLinks[boxes_] := boxes //. ButtonBox[content_, ___] :> content
    bare string, so the FE has nothing to reparse.) *)
 codeToInline[code_String] /; verbatimInlineQ[StringTrim[code]] :=
     Cell[StringTrim[code], "InlineCode"]
-codeToInline[code_String] := Cell[BoxData[inputBoxes[code]], "InlineFormula"]
+codeToInline[code_String] := Cell[BoxData[inputBoxes[code]], "InlineFormula", FontSize -> $inlineFontSize]
 
 (* double-backtick ``code`` -> the palette's "Code (Inline)": a literal,
    non-linkified monospace span (InlineCode), unlike Template Input. *)
@@ -2537,17 +2537,17 @@ texBoxesViaImport[math_String] :=
     ]
 
 (* InlineFormula in Default.nb resolves to 1.05*Inherited, which lands inline
-   math about 1.1x the surrounding Text height (issue #29). Pin a relative
-   factor that cancels the inline magnification while tracking whatever the
-   host Text style resolves to (so it is not tied to an absolute point size);
-   it scales the cell uniformly, keeping sub/superscripts and templates in
-   proportion. Display math (mathBlockCell -> DisplayFormula) keeps its own
-   prominent size. *)
-$inlineMathFontSize = 0.9 Inherited
+   math AND inline code about 1.1x the surrounding Text height (issues #29, #30).
+   Pin a relative factor that cancels the inline magnification while tracking
+   whatever the host Text style resolves to (so it is not tied to an absolute
+   point size); it scales the cell uniformly, keeping sub/superscripts and
+   templates in proportion. Display math (mathBlockCell -> DisplayFormula) keeps
+   its own prominent size. *)
+$inlineFontSize = 0.9 Inherited
 mathInline[math_String] := Block[{boxes = texBoxes[math]},
     If[ boxes === $Failed,
-        Cell[BoxData[FormBox[inputBoxes[math], TraditionalForm]], "InlineFormula", FontSize -> $inlineMathFontSize],
-        Cell[BoxData[boxes], "InlineFormula", FontSize -> $inlineMathFontSize]
+        Cell[BoxData[FormBox[inputBoxes[math], TraditionalForm]], "InlineFormula", FontSize -> $inlineFontSize],
+        Cell[BoxData[boxes], "InlineFormula", FontSize -> $inlineFontSize]
     ]
 ]
 
@@ -3179,7 +3179,7 @@ guideLinkLeading[text_String] := StringCases[StringTrim[text],
    edge; a plain heading (or one with trailing prose) stays plain text. *)
 guideSubsectionHead[text_String] := With[{m = guideLinkLeading[text]},
     If[m === {} || m[[1, 3]] =!= "",
-        Cell[text, "GuideFunctionsSubsection"],
+        Cell[TextData @ inlineTextData[text], "GuideFunctionsSubsection"],
         Cell[BoxData[guideNavButtonBox[m[[1, 1]], m[[1, 2]]]], "GuideFunctionsSubsection"]
     ]
 ]

@@ -44,16 +44,37 @@ decorationCellQ[_] := False
    same PUA band as the FE structural box markers (the box-escape lead-ins,
    0xE000-0xF7FF) - the markers themselves are pure noise -> drop, but the
    letters / constants are content -> map to ASCII so they survive the drop. *)
+(* Wolfram stores script / gothic / double-struck letters in a PUA band; keep
+   their *style* (issue #31) by mapping to the real Unicode mathematical-
+   alphanumeric glyph (for prose / headings) and to \mathcal / \mathfrak /
+   \mathbb in math.  Each row is {PUAstart, count, ASCIIstart, UnicodeBase,
+   <|holeIndex -> codepoint|>, texCommand}; the Mathematical Alphanumeric blocks
+   are contiguous except for letters unified into the Letterlike Symbols block,
+   listed as holes. *)
+$mathAlpha = {
+    {63396, 26, 65, 16^^1D538, <|2 -> 16^^2102, 7 -> 16^^210D, 13 -> 16^^2115, 15 -> 16^^2119, 16 -> 16^^211A, 17 -> 16^^211D, 25 -> 16^^2124|>, "mathbb"},
+    {63206, 26, 97, 16^^1D552, <||>, "mathbb"},
+    {63451, 10, 48, 16^^1D7D8, <||>, "mathbb"},
+    {63344, 26, 65, 16^^1D49C, <|1 -> 16^^212C, 4 -> 16^^2130, 5 -> 16^^2131, 7 -> 16^^210B, 8 -> 16^^2110, 11 -> 16^^2112, 12 -> 16^^2133, 17 -> 16^^211B|>, "mathcal"},
+    {63154, 26, 97, 16^^1D4B6, <|4 -> 16^^212F, 6 -> 16^^210A, 14 -> 16^^2134|>, "mathcal"},
+    {63370, 26, 65, 16^^1D504, <|2 -> 16^^212D, 7 -> 16^^210C, 8 -> 16^^2111, 17 -> 16^^211C, 25 -> 16^^2128|>, "mathfrak"},
+    {63180, 26, 97, 16^^1D51E, <||>, "mathfrak"}
+};
+(* PUA codepoint -> canonical Unicode glyph (prose, normCharCode) *)
+$puaAlphaGlyph = Association @ Flatten @ Table[
+    With[{r = $mathAlpha[[k]]},
+        Table[(r[[1]] + i) -> FromCharacterCode[Lookup[r[[5]], i, r[[4]] + i]], {i, 0, r[[2]] - 1}]],
+    {k, Length[$mathAlpha]}];
+(* canonical Unicode glyph (what normStr produces) -> TeX command (math, $mathTeX) *)
+$mathAlphaTeX = Association @ Flatten @ Table[
+    With[{r = $mathAlpha[[k]]},
+        Table[FromCharacterCode[Lookup[r[[5]], i, r[[4]] + i]] -> "\\" <> r[[6]] <> "{" <> FromCharacterCode[r[[3]] + i] <> "}", {i, 0, r[[2]] - 1}]],
+    {k, Length[$mathAlpha]}];
+
 normCharCode[n_Integer] := Which[
     63488 <= n <= 63513, FromCharacterCode[n - 63488 + 97],   (* formal a..z *)
     63514 <= n <= 63539, FromCharacterCode[n - 63514 + 65],   (* formal A..Z *)
-    63154 <= n <= 63179, FromCharacterCode[n - 63154 + 97],   (* script a..z *)
-    63344 <= n <= 63369, FromCharacterCode[n - 63344 + 65],   (* script A..Z *)
-    63180 <= n <= 63205, FromCharacterCode[n - 63180 + 97],   (* gothic a..z *)
-    63370 <= n <= 63395, FromCharacterCode[n - 63370 + 65],   (* gothic A..Z *)
-    63206 <= n <= 63231, FromCharacterCode[n - 63206 + 97],   (* double-struck a..z *)
-    63396 <= n <= 63421, FromCharacterCode[n - 63396 + 65],   (* double-struck A..Z *)
-    63451 <= n <= 63460, FromCharacterCode[n - 63451 + 48],   (* double-struck 0..9 *)
+    KeyExistsQ[$puaAlphaGlyph, n], $puaAlphaGlyph[n],         (* script/gothic/double-struck -> Unicode glyph *)
     (* \[CapitalDifferentialD] \[DifferentialD] \[ExponentialE] \[ImaginaryI] \[ImaginaryJ] *)
     63307 <= n <= 63311, FromCharacterCode @ {68, 100, 101, 105, 106}[[n - 63306]],
     57344 <= n <= 63487, "",                                   (* FE structural box markers -> drop *)
@@ -68,7 +89,7 @@ stripStructPUA[s_String] := StringJoin @ DeleteCases[Characters[s],
    (KaTeX renders an italic glyph at best, fails entirely for an operator). Map
    on the math leaf (walkerMath / sigSub / mathDq), never in normStr, so the
    same glyph in prose is left as the readable Unicode character. *)
-$mathTeX = <|
+$mathTeX = Join[<|
     "\[Alpha]" -> "\\alpha ", "\[Beta]" -> "\\beta ", "\[Gamma]" -> "\\gamma ",
     "\[Delta]" -> "\\delta ", "\[Epsilon]" -> "\\epsilon ", "\[CurlyEpsilon]" -> "\\varepsilon ",
     "\[Zeta]" -> "\\zeta ", "\[Eta]" -> "\\eta ", "\[Theta]" -> "\\theta ",
@@ -82,14 +103,27 @@ $mathTeX = <|
     "\[CapitalSigma]" -> "\\Sigma ", "\[CapitalUpsilon]" -> "\\Upsilon ", "\[CapitalPhi]" -> "\\Phi ",
     "\[CapitalPsi]" -> "\\Psi ", "\[CapitalOmega]" -> "\\Omega ",
     "\[Dagger]" -> "\\dagger ", "\[CircleTimes]" -> "\\otimes ", "\[Ellipsis]" -> "\\ldots ",
-    "\[Sum]" -> "\\sum ",
-    (* script-capital mappings (issue #15): only L had a rule, so H/E/F leaked
-       as raw U+210B/210E/2131 glyphs into the TeX output. *)
-    "\[ScriptCapitalL]" -> "\\mathcal{L}", "\[ScriptCapitalH]" -> "\\mathcal{H}",
-    "\[ScriptCapitalE]" -> "\\mathcal{E}", "\[ScriptCapitalF]" -> "\\mathcal{F}",
-    "\[PartialD]" -> "\\partial ",
-    "\[Times]" -> "\\times ", "\[CenterDot]" -> "\\cdot "
-|>;
+    "\[Sum]" -> "\\sum ", "\[Product]" -> "\\prod ", "\[Integral]" -> "\\int ",
+    "\[PartialD]" -> "\\partial ", "\[Del]" -> "\\nabla ", "\[Infinity]" -> "\\infty ",
+    "\[Times]" -> "\\times ", "\[CenterDot]" -> "\\cdot ", "\[Divide]" -> "\\div ",
+    (* operators that previously leaked as raw Unicode (issue #31); script /
+       gothic / double-struck letters are handled by $mathAlphaTeX, merged below *)
+    "\[CirclePlus]" -> "\\oplus ", "\[CircleMinus]" -> "\\ominus ", "\[CircleDot]" -> "\\odot ",
+    "\[TildeTilde]" -> "\\approx ", "\[TildeEqual]" -> "\\simeq ", "\[Tilde]" -> "\\sim ",
+    "\[Congruent]" -> "\\equiv ", "\[Proportional]" -> "\\propto ",
+    "\[LeftAngleBracket]" -> "\\langle ", "\[RightAngleBracket]" -> "\\rangle ",
+    "\[LessEqual]" -> "\\le ", "\[GreaterEqual]" -> "\\ge ", "\[NotEqual]" -> "\\ne ",
+    "\[PlusMinus]" -> "\\pm ", "\[MinusPlus]" -> "\\mp ",
+    "\[Element]" -> "\\in ", "\[NotElement]" -> "\\notin ",
+    "\[Subset]" -> "\\subset ", "\[SubsetEqual]" -> "\\subseteq ",
+    "\[Superset]" -> "\\supset ", "\[SupersetEqual]" -> "\\supseteq ",
+    "\[Union]" -> "\\cup ", "\[Intersection]" -> "\\cap ", "\[EmptySet]" -> "\\emptyset ",
+    "\[ForAll]" -> "\\forall ", "\[Exists]" -> "\\exists ",
+    "\[And]" -> "\\wedge ", "\[Or]" -> "\\vee ", "\[Not]" -> "\\neg ",
+    "\[LeftArrow]" -> "\\leftarrow ", "\[LeftRightArrow]" -> "\\leftrightarrow ",
+    "\[Implies]" -> "\\implies ", "\[RightTeeArrow]" -> "\\mapsto ",
+    "\[Angle]" -> "\\angle ", "\[Degree]" -> "^\\circ "
+|>, $mathAlphaTeX];
 
 (* === math-mode serializer ===
    walkerMath produces the body of a "$...$" span (or, for FormBox /
@@ -196,7 +230,11 @@ emWrap[s_String, mark_String] := Which[
    back into boxes. *)
 dq[s_String] := StringTrim[StringTrim[StringTrim[s], "\""], "()" | "(" | ")"]
 mathDq[x_String] := StringReplace[dq[x], Normal @ $mathTeX]
-cleanStr[s_String] := normStr @ StringReplace[stripStructPUA[s], {
+(* normStr FIRST (not stripStructPUA): it maps the script/gothic/double-struck
+   PUA letters to their Unicode glyphs and only then drops the remaining FE
+   structural markers, so styled letters survive instead of being scrubbed with
+   the markers (issue #31). *)
+cleanStr[s_String] := normStr @ StringReplace[normStr[s], {
     "StyleBox[\"" ~~ Shortest[v__] ~~ "\", \"TI\"]" :> "*" <> v <> "*",
     "DisplayForm[StyleBox[" ~~ Shortest[v__] ~~ ", TI]]" :> "*" <> v <> "*",
     "StyleBox[" ~~ Shortest[v__] ~~ ", TI]" :> "*" <> v <> "*",
