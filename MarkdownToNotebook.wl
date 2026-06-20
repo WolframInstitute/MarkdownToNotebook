@@ -29,7 +29,7 @@ Needs["GeneralUtilities`"]
    one. When the .wl was fetched standalone (no submodule on disk), install
    the published paclet - but skip the install when an adequate version is
    already present. *)
-$parserVersion = "0.2.2"
+$parserVersion = "0.2.3"
 pacletInstalledQ[paclet_String, version_String] := AnyTrue[
     Through[PacletFind[paclet]["Version"]],
     ResourceFunction["VersionOrder"][#, version] <= 0 &
