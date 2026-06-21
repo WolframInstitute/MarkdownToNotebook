@@ -101,8 +101,22 @@ subdirectories: like guides they stay flat in
   rewrites `$x_i$` to the template form `x$i` before handing the reconstructed
   signature to DocumentationTools' usage template-parser. Bare backtick /
   prose / hybrid forms still work as fallbacks.
-- `## Details & Options` - bullets become `Notes` cells; pipe tables become grids
-  (use one for an options table). Link another symbol inline by wrapping its
+- `## Details & Options` - bullets become `Notes` cells; pipe tables become grids.
+  **Always document a symbol's options as a GitHub pipe table here, in `## Details
+  & Options` - never as prose bullets, and never deferred to a separate `## Options`
+  example section.** Use three columns - the option name, its default, and the
+  effect - wrapping the name and default each in `<code>…</code>`:
+
+      | option | default | effect |
+      |---|---|---|
+      | <code>"OptionName"</code> | <code>Default</code> | what the option does |
+
+  `MarkdownToNotebook` turns this into the `3ColumnTableMod` options grid (the same
+  cell the palette's *Options Table* button inserts, `Options[Symbol]`-keyed). Put it
+  after the notes bullets, optionally with a one-line lead-in; if the symbol takes no
+  options, omit the table. A lower `## Options` section (among the example sections)
+  is only for *demonstrating* options with example cells - never the reference table
+  itself. Link another symbol inline by wrapping its
   *actual* name in the inferred-link form, e.g. `<code>[Range]()</code>` to
   link `Range`, `<code>[WCAGContrastRatio]()</code>` to link a paclet symbol -
   the literal name goes between the brackets, never the word "Symbol". Two
