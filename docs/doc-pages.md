@@ -267,6 +267,10 @@ One paragraph.
 The `## Functions` list (the palette's *Inline Listing*) renders one `GuideText`
 cell per `- `` `Symbol` `` description` item: the leading inline-code symbol
 becomes a linked `InlineGuideFunction` chip and the rest is its description.
+An item may lead with several comma-separated symbols
+(`- `` `A` ``, `` `B` ``, `` `C` `` description`) — each becomes its own chip and
+the ` — ` separator lands after the last one, so a single line can cover a group
+of related symbols (e.g. a family of `…Q` predicates).
 
 ## TechNote (Tutorial)
 

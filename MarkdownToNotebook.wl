@@ -3143,14 +3143,36 @@ stripLeadingDash[s0_String] := Block[{s = StringTrim[s0]},
     ]
 ]
 
-guideFunctionItem[item_String, paclet_String] := Block[{m = StringCases[item,
-        StartOfString ~~ WhitespaceCharacter ... ~~ "`" ~~ s : Shortest[__] ~~ "`" ~~ r___ :> {s, r}, 1]},
-    If[ m === {},
-        Cell[TextData @ inlineTextData[item], "GuideText"],
-        Cell[TextData @ Join[
-            {guideFnChip[First @ First @ m, paclet], " \[LongDash] "},
-            inlineTextData[stripLeadingDash[Last @ First @ m]]
-        ], "GuideText"]
+(* split a "## Functions" item into its leading run of comma-separated `Sym`
+   spans and the trailing description: "`Sym` desc" -> {{"Sym"}, " desc"};
+   an enumeration "`A`, `B`, `C` desc" -> {{"A","B","C"}, " desc"}. A comma only
+   extends the run when another `code` span follows it, so a description that
+   itself starts with ", ..." or carries an embedded code span is left intact. *)
+guideLeadingSymbols[item_String] := Block[{rest = StringTrim[item], syms, m},
+    m = StringCases[rest,
+        StartOfString ~~ "`" ~~ s : Shortest[__] ~~ "`" ~~ t___ :> {s, t}, 1];
+    If[m === {}, Return[{{}, item}]];
+    syms = {m[[1, 1]]}; rest = m[[1, 2]];
+    While[
+        (m = StringCases[rest,
+            StartOfString ~~ WhitespaceCharacter ... ~~ "," ~~ WhitespaceCharacter ... ~~
+                "`" ~~ s : Shortest[__] ~~ "`" ~~ t___ :> {s, t}, 1]) =!= {},
+        AppendTo[syms, m[[1, 1]]]; rest = m[[1, 2]]
+    ];
+    {syms, rest}
+]
+
+guideFunctionItem[item_String, paclet_String] := Block[{syms, rest, desc, chips},
+    {syms, rest} = guideLeadingSymbols[item];
+    If[ syms === {},
+        Return @ Cell[TextData @ inlineTextData[item], "GuideText"]
+    ];
+    desc  = stripLeadingDash[rest];
+    chips = Riffle[guideFnChip[#, paclet] & /@ syms, ", "];
+    Cell[
+        TextData @ If[desc === "", chips,
+            Join[chips, {" \[LongDash] "}, inlineTextData[desc]]],
+        "GuideText"
     ]
 ]
 
