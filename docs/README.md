@@ -82,6 +82,7 @@ docs/update-screenshots.wls` after changing the converter or the example docs.
 | `Name` | symbol / page / resource name | all |
 | `Description` | one-line summary | Guide, resources (not Symbol; its summary is the `## Usage` line) |
 | `Context` | `Pub`AccessibleColors`` (loads paclet symbols for examples) | doc pages |
+| `ContextPath` | extra contexts to load before examples run, e.g. `[Other`Pkg`, Third`Pkg`]` | doc pages |
 | `Paclet` | `Pub/Name` (link base, metadata) | doc pages, Paclet |
 | `PacletDirectory` | path to the paclet source (directory tagging rule) | Paclet |
 | `URI` | `Pub/Name/ref/Symbol` (build metadata) | doc pages |

@@ -212,3 +212,21 @@ VerificationTest[
     TestID -> "code signature in FormBox renders as <code>, not $math$"
 ]
 ```
+
+An "Annotate" annotation (the palette's *Annotate (and arrows)* button) lives in a cell's `CellFrameLabels` as a `"TextAnnotation"` frame label plus a matching `"TextAnnotation"` CellTag. NotebookToMarkdown lifts the note text into a dedicated `#| annotation:` directive (its date prefix kept verbatim) and suppresses the now-redundant `TextAnnotation` tag, so the editorial note survives the round-trip instead of being dropped:
+
+```wl
+VerificationTest[
+    With[{md = NotebookToMarkdown @ Notebook[{
+        Cell["body", "Text", CellTags -> "TextAnnotation",
+            CellFrameLabels -> {{Inherited, Inherited}, {Inherited,
+                Cell[TextData[{"26.06.22: review me ", "\n\n",
+                    Cell[BoxData[ButtonBox["x", BaseStyle -> "TextAnnotationRemoveButton"]]], "\n"}],
+                    "TextAnnotation", CellSize -> {590, Inherited}]}}]
+    }]},
+        StringContainsQ[md, "#| annotation: 26.06.22: review me"] && ! StringContainsQ[md, "tags: TextAnnotation"]
+    ],
+    True,
+    TestID -> "annotation -> #| annotation: directive (TextAnnotation tag not leaked)"
+]
+```

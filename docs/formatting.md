@@ -100,6 +100,7 @@ A custom-styled, tagged paragraph.
 | `boxes: <expr>` | same, but the box expression is carried in the option value (for a cell with no fenced body, e.g. a small output inlined in a comment) |
 | `style: Name` | override the cell's style - `style: Output` together with `boxes`/`file` makes an `Output` cell; any other name sets a custom `CellStyle` |
 | `tags: a, b` | set the cell's `CellTags` |
+| `annotation: text` | reattach an editorial annotation to the block - the note the palette's *Annotate (and arrows)* button writes (a `TextAnnotation` frame label + tag), round-tripped as a real, removable annotation; the leading date is part of the text |
 
 These directives are what lets a non-standard cell round-trip: `NotebookToMarkdown`
 emits them (see its `"Metadata"` / `"PreserveOutputs"` options) and the forward

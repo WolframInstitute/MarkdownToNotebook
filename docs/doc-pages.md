@@ -48,7 +48,11 @@ Symbol skill uses `$x_i$` for subscripted args; `*x_i*` works for that too.)
 
 - **No `Needs[…]`.** MTN reads the frontmatter `Context:` and loads the
   paclet automatically before evaluating any cell, so an example never needs
-  <code>Needs[\"Publisher\`PacletName\`\"]</code>.
+  <code>Needs[\"Publisher\`PacletName\`\"]</code>. If a page's examples span
+  more than the primary context, list the extra ones in a `ContextPath:`
+  frontmatter list (e.g. `ContextPath: [Other\`Pkg\`, Third\`Pkg\`]`); they are
+  loaded too - both at build time and in the page's `ExampleInitialization`
+  cell, so a reader running the examples gets every needed context.
 - **One output per cell.** Never pack two computations into one cell to save
   a paragraph - split them into two captioned demonstrations (see
   [docs/examples.md](examples.md) for the rule and the nuance around lists
@@ -210,6 +214,7 @@ WCAGContrastRatio[Black, White]
 | `## Details & Options` prose | Details & Options / Note | `Notes` |
 | `## Basic Examples` + `wl` cells | Insert Text + Input | `PrimaryExamplesSection`, `ExampleText`, `Input`/`Output` |
 | `Context:` | (load paclet) | `ExamplesInitializationSection` -> `Needs["Context`"]` |
+| `ContextPath: [..]` | (load extra paclets) | one extra `Needs["…`"]` per entry in the same `ExampleInitialization` cell (and on the build-time eval path) |
 | `SeeAlso: [..]` | Links ▸ Link to Function Page | `SeeAlsoSection` with `paclet:Pub/Name/ref/X` links |
 | `RelatedGuides: [..]` | Links ▸ Link to Guide | `MoreAboutSection` |
 | `URI:` / `Keywords:` | Metadata / Keywords sections | build metadata + `Keywords` |

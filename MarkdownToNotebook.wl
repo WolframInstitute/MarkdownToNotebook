@@ -1477,19 +1477,48 @@ allCodeOf[sections_, key_] := Cases[Lookup[sections, key, {}], b_ /; codeBlockQ[
    or tagged cell round-trips (NotebookToMarkdown re-emits these directives). *)
 cellTagList[v_] := DeleteCases[StringTrim /@ StringSplit[ToString[v], ","], ""]
 
+(* the Edit / annotator / Delete chrome DocumentationTools' AnnotationRemove /
+   AnnotationSearch match against ($AnnotationCellPattern); rebuilt verbatim so a
+   round-tripped "#| annotation:" stays a real, removable annotation. Self-
+   contained box literals - no DocumentationTools dependency. The annotator name
+   is left empty (not carried by the directive); the FE shows just the label. *)
+annotationButtonsCell[] := Cell[BoxData[GridBox[
+    {{
+        Cell[BoxData[ButtonBox[DynamicBox[FEPrivate`FrontEndResource["DocumentationToolsStrings", "Edit"]],
+            BaseStyle -> "TextAnnotationButton"]]],
+        StyleBox[RowBox[{DynamicBox[FEPrivate`FrontEndResource["DocumentationToolsStrings", "LastAnnotator"]], ""}],
+            "TextAnnotator"],
+        Cell[BoxData[ButtonBox[DynamicBox[FEPrivate`FrontEndResource["DocumentationToolsStrings", "Delete"]],
+            BaseStyle -> "TextAnnotationRemoveButton"]]],
+        ""
+    }},
+    GridBoxAlignment -> {"Columns" -> {Left, Left, Right, Right}, "Rows" -> {{Automatic}}},
+    GridBoxItemSize -> {"Columns" -> {Scaled[0.15], Scaled[0.68], Scaled[0.15], Scaled[0.02]}}]]]
+
+(* the CellFrameLabels an "Annotate" annotation lives in: the note (its date
+   prefix kept verbatim from the directive) over the Edit/Delete chrome. *)
+annotationFrameLabels[note_String] := CellFrameLabels -> {{Inherited, Inherited}, {Inherited,
+    Cell[TextData[{note, "\n\n", annotationButtonsCell[], "\n"}], "TextAnnotation", CellSize -> {590, Inherited}]}}
+
 (* Idempotent: re-applying the same options is a no-op (existing CellTags are
    replaced, not duplicated), so a cell may pass through applyCellMeta more than
    once - e.g. nonExecutableCell metas an Output block, then a wrapping builder
    metas it again. *)
-applyCellMeta[Cell[c_, st_String, rest___], opts_Association] := Module[{r = {rest}},
-    If[KeyExistsQ[opts, "tags"],
-        r = Append[DeleteCases[r, CellTags -> _], CellTags -> cellTagList[opts["tags"]]]];
+applyCellMeta[Cell[c_, st_String, rest___], opts_Association] := Module[{r = {rest}, tags},
+    tags = If[KeyExistsQ[opts, "tags"], cellTagList[opts["tags"]], {}];
+    (* an annotation also carries the "TextAnnotation" CellTag that marks the cell *)
+    If[KeyExistsQ[opts, "annotation"], tags = Append[tags, "TextAnnotation"]];
+    If[KeyExistsQ[opts, "tags"] || KeyExistsQ[opts, "annotation"],
+        r = Append[DeleteCases[r, CellTags -> _], CellTags -> DeleteDuplicates[tags]]];
+    If[KeyExistsQ[opts, "annotation"],
+        r = Append[DeleteCases[r, CellFrameLabels -> _], annotationFrameLabels[opts["annotation"]]]];
     Cell[c, Lookup[opts, "style", st], Sequence @@ r]
 ]
 applyCellMeta[other_, _] := other
 
 applyBlockMeta[cells_List, b_] := With[{o = Lookup[b, "Options", <||>]},
-    If[KeyExistsQ[o, "style"] || KeyExistsQ[o, "tags"], applyCellMeta[#, o] & /@ cells, cells]]
+    If[KeyExistsQ[o, "style"] || KeyExistsQ[o, "tags"] || KeyExistsQ[o, "annotation"],
+        applyCellMeta[#, o] & /@ cells, cells]]
 
 (* All prose / list / quote / table blocks of a section, in order, as ordinary
    Text cells - the format the Demonstration template's Caption / Details /
@@ -2151,9 +2180,9 @@ docLinkCell[name_String, uri_String] :=
    carries the paclet name verbatim, slash preserved (issue #23). *)
 linkURI[name_String, paclet_String, kind_String] := Block[{pkg = packagePath[paclet, $docContext]},
     Which[
-        kind === "ref" && symbolInContextQ[name, "System`"] && ! symbolInContextQ[name, $docContext],
+        kind === "ref" && symbolInContextQ[name, "System`"] && ! symbolInDocQ[name],
             "ref/" <> name,
-        kind === "guide" && symbolInContextQ[name, "System`"] && ! symbolInContextQ[name, $docContext] && pkg === "",
+        kind === "guide" && symbolInContextQ[name, "System`"] && ! symbolInDocQ[name] && pkg === "",
             "guide/" <> name,
         pkg =!= "",
             pkg <> "/" <> kind <> "/" <> name,
@@ -2191,13 +2220,44 @@ guideButtonCell[name_String, paclet_String, kind_String] := Cell[BoxData[
     ButtonBox[name, BaseStyle -> "Link", ButtonData -> "paclet:" <> linkURI[name, paclet, kind]]
 ], "InlineFormula"]
 
+(* a See Also / Related Symbols entry written as ResourceFunction["Name"] is a
+   Wolfram Function Repository function, not a paclet symbol: it has no paclet
+   ref page, so a paclet:.../ref/ResourceFunction[...] target is dead. Detect it
+   and link the resource name to its repository page instead. Returns the
+   resource name, or None when the entry is an ordinary symbol. *)
+resourceFnName[entry_String] := Replace[
+    StringCases[StringTrim[entry],
+        StartOfString ~~ "ResourceFunction[" ~~ ("\"" | "'") ~~
+            n : Shortest[Except["\"" | "'"] ..] ~~ ("\"" | "'") ~~ "]" ~~ EndOfString :> n, 1],
+    {{n_} :> n, _ -> None}
+]
+
+resourceFnURL[name_String] :=
+    "https://resources.wolframcloud.com/FunctionRepository/resources/" <> name <> "/"
+
+(* the resource name as a code-styled hyperlink to its Function Repository page,
+   shaped like the other See Also entries (InlineFormula BoxData cell).
+
+   ButtonData is the bare URL *string*, NOT the usual {URL[url], None} pair:
+   DocumentationBuild harvests every See Also ButtonData (GetSeeAlsoSectionList)
+   and feeds it to ToPacletURI for the anchor-bar nav, and ToPacletURI errors on
+   a non-string ({URL[...], None}) - it just prepends "paclet:" to a string. The
+   "Hyperlink" style's ButtonFunction is NotebookLocate[#2], which opens a URL
+   string in the browser, so a string target still clicks through to the web. *)
+resourceFnLinkCell[name_String] := With[{url = resourceFnURL[name]},
+    Cell[BoxData[
+        ButtonBox[name, BaseStyle -> "Hyperlink", ButtonData -> url, ButtonNote -> url]
+    ], "InlineFormula"]
+]
+
 linkRowCell[names_List, style_String, paclet_String, kind_String] := Cell[
     TextData @ Riffle[
         Map[
-            If[ style === "MoreAbout",
-                guideButtonCell[#, paclet, kind],
-                docLinkCell[#, linkURI[#, paclet, kind]]
-            ] &,
+            With[{rf = resourceFnName[#]}, Which[
+                rf =!= None,           resourceFnLinkCell[rf],
+                style === "MoreAbout", guideButtonCell[#, paclet, kind],
+                True,                  docLinkCell[#, linkURI[#, paclet, kind]]
+            ]] &,
             names
         ],
         " \[FilledVerySmallSquare] "
@@ -2228,6 +2288,22 @@ $docName = ""
 $docPaclet = ""
 $docContext = ""
 $docTemplate = ""
+
+(* the contexts a page loads before its example code runs: the primary "Context"
+   followed by any extra "ContextPath" entries (a frontmatter list), deduped and
+   stripped of empties / System`. Single source of truth for both the build-time
+   evaluation $ContextPath (preloadContextPath Needs each) and the runtime
+   ExampleInitialization cell (the reader's load). "Context" stays the single
+   PRIMARY context ($docContext, PrimaryContext, Categorization); "ContextPath"
+   carries the rest, so a page whose examples span several packages loads them
+   all. *)
+docContextList[meta_] := DeleteDuplicates @ DeleteCases[
+    Flatten @ {Lookup[meta, "Context", Nothing], Lookup[meta, "ContextPath", {}]},
+    "" | "System`"]
+
+(* the ExampleInitialization cell body: one Needs[] per documented context *)
+exampleInitCode[meta_] := StringRiffle[
+    ("Needs[\"" <> # <> "\"]") & /@ docContextList[meta], "\n"]
 
 (* the font LaTeX math (LaTeXMathParse output) is restyled to, so authored math
    renders in a Computer-Modern-like face like LaTeX/MaTeX rather than the front
@@ -2323,6 +2399,19 @@ symbolInContextQ[name_String, ctx_String] := ctx =!= "" &&
         Names[ctx <> name] =!= {} ||
         AnyTrue[Names[ctx <> "*`" <> name], ! StringContainsQ[#, "`Private`"] &]
     ]
+
+(* the paclet's primary context derived from its name, e.g.
+   "Wolfram/DiagrammaticComputation" -> "Wolfram`DiagrammaticComputation`". *)
+docPacletContext[] := If[$docPaclet === "", "", StringReplace[$docPaclet, "/" -> "`"] <> "`"]
+
+(* whether a bare name is a documented symbol of THIS paclet: it counts when it
+   resolves in the document's own Context or in the paclet's primary context (or a
+   non-Private subcontext of either, via symbolInContextQ). A subpackage page whose
+   Context is e.g. Wolfram`DiagrammaticComputation`Rewriting` therefore also links
+   the paclet's main-context symbols - the doc-build mirror of the subpackage
+   PackageImport-ing its parent paclet at load. *)
+symbolInDocQ[name_String] := symbolInContextQ[name, $docContext] ||
+    With[{primary = docPacletContext[]}, primary =!= $docContext && symbolInContextQ[name, primary]]
 
 (* drop every ButtonBox link wrapper, keeping its content. ParseTextTemplate
    eagerly links any System symbol it recognizes (Notebook, ResourceFunction,
@@ -2640,8 +2729,8 @@ linkInline[text_String, url_String] := Which[
    paclet's context links to its paclet ref page, a System symbol to its system
    ref page; anything else does not resolve. *)
 inferURL[name_String] := With[{pkg = packagePath[$docPaclet, $docContext]}, Which[
-    symbolInContextQ[name, $docContext] && pkg =!= "", "paclet:" <> pkg <> "/ref/" <> name, (* issue #23 *)
-    symbolInContextQ[name, $docContext], "paclet:ref/" <> name,
+    symbolInDocQ[name] && pkg =!= "", "paclet:" <> pkg <> "/ref/" <> name, (* issue #23 *)
+    symbolInDocQ[name], "paclet:ref/" <> name,
     symbolInContextQ[name, "System`"], "paclet:ref/" <> name,
     True, None
 ]]
@@ -2650,7 +2739,7 @@ inferURL[name_String] := With[{pkg = packagePath[$docPaclet, $docContext]}, Whic
    GitHub-renderable twin: paclet symbols point at their PacletRepository page, System
    symbols at the Wolfram Language reference site. *)
 inferWebURL[name_String] := Which[
-    symbolInContextQ[name, $docContext] && $docPaclet =!= "",
+    symbolInDocQ[name] && $docPaclet =!= "",
         "https://resources.wolframcloud.com/PacletRepository/resources/" <> $docPaclet <> "/ref/" <> name,
     symbolInContextQ[name, "System`"],
         "https://reference.wolfram.com/language/ref/" <> name <> ".html",
@@ -3071,9 +3160,10 @@ symbolNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"]
     If[ notes =!= {},
         nb = nb /. Cell[_, "Notes", ___] :> Sequence @@ notes
     ];
-    (* load the documented paclet so a reader can run the examples *)
-    If[ KeyExistsQ[meta, "Context"],
-        nb = nb /. Cell[_, "ExampleInitialization", o___] :> Cell[BoxData[inputBoxes["Needs[\"" <> meta["Context"] <> "\"]"]], "ExampleInitialization", o]
+    (* load every documented context (Context + ContextPath) so a reader can run
+       the examples - matches the build-time evaluation $ContextPath *)
+    If[ docContextList[meta] =!= {},
+        nb = nb /. Cell[_, "ExampleInitialization", o___] :> Cell[BoxData[inputBoxes[exampleInitCode[meta]]], "ExampleInitialization", o]
     ];
     (* Collapse the Examples-Initialization section (the doc-center default). Left
        Open, it renders its own separator directly above the Examples separator, so
@@ -3264,7 +3354,9 @@ guideFunctionCells[sections_, paclet_String] := Block[{out = {}, cur = {}, head 
 
 guideNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"], nb, title, abstract, paclet, fnCells, guideCells, sectionCells},
     nb = docTemplate["GuideBaseTemplateExt.nb"];
-    title = Lookup[meta, "Name", Lookup[meta, "Title", ""]];
+    (* the visible header is the human-readable Title (e.g. "Category Theory");
+       fall back to Name ("CategoryTheory") only when no Title is given. *)
+    title = Lookup[meta, "Title", Lookup[meta, "Name", ""]];
     paclet = Lookup[meta, "Paclet", ""];
     abstract = sectionText[sections, "abstract"];
     If[ abstract === "", abstract = Lookup[meta, "Description", ""] ];
@@ -4740,9 +4832,12 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
     (* A page whose examples span more than its primary Context can name the
        extra contexts in a "ContextPath" frontmatter list; they join the
        evaluation $ContextPath so symbols from them resolve - and render -
-       unqualified. Backward-compatible: absent -> {}. *)
+       unqualified. Backward-compatible: absent -> {}. The paclet's primary context
+       is included too, so a subpackage page (Context a subcontext of it) evaluates
+       against the main-context symbols its subpackage imports. *)
     ctxPath = DeleteDuplicates @ Flatten @ {
-        Lookup[meta, "Context", Nothing], Lookup[meta, "ContextPath", {}], "System`"};
+        Lookup[meta, "Context", Nothing], Lookup[meta, "ContextPath", {}],
+        docPacletContext[] /. "" -> Nothing, "System`"};
     installSelfAlias[ctx];
     cached = AssociationThread[hashes -> Map[exampleCacheGet, cacheNames]];
     allHit = hashes =!= {} && AllTrue[cached, ! MissingQ[#] &];

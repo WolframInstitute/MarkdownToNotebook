@@ -525,7 +525,7 @@ VerificationTest[
             Missing[],
             Infinity
         ],
-        Cell[TextData[{"A ", Cell[BoxData["foo"], "InlineFormula"], " heading"}], "Section"]
+        Cell[TextData[{"A ", Cell[BoxData["foo"], "InlineFormula", ___], " heading"}], "Section"]
     ],
     True,
     TestID -> "headings parse inline markup (backticks -> InlineFormula)"
@@ -735,6 +735,33 @@ VerificationTest[
      Length @ Cases[MarkdownToNotebook["---\nTemplate: Symbol\nName: Foo\nContext: P`Q`\nPaclet: P/Q\nURI: P/Q/ref/Foo\n---\n\n## Details & Options\n\n- only note\n"], Cell[_, "Notes", ___], Infinity]},
     {2, 1},
     TestID -> "Symbol Details section fills Notes whether titled '## Details' or '## Details & Options'"
+]
+```
+
+A `#| annotation:` directive reconstructs a real "Annotate" annotation on its cell: the cell regains the `"TextAnnotation"` CellTag and a `CellFrameLabels` note (its date prefix kept verbatim) whose Edit/Delete chrome matches the shape `DocumentationTools`AnnotationRemove` looks for, so a round-tripped annotation stays a removable annotation rather than an orphan note:
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook["---\nTitle: T\n---\n\n<!-- #| annotation: 26.06.22: review me -->\nbody text\n"]},
+        ! FreeQ[nb, CellTags -> ({___, "TextAnnotation", ___} | "TextAnnotation")] &&
+        ! FreeQ[nb, Cell[TextData[{"26.06.22: review me", ___}], "TextAnnotation", ___]]
+    ],
+    True,
+    TestID -> "#| annotation: rebuilds the TextAnnotation tag + CellFrameLabels note"
+]
+```
+
+A page whose examples span more than its primary `Context:` lists the extra contexts in a `ContextPath:` frontmatter list; the page's `ExampleInitialization` cell then `Needs[]` every one (the primary context first), so a reader who runs the examples loads them all - not just the primary context:
+
+```wl
+VerificationTest[
+    With[{ei = FirstCase[
+        MarkdownToNotebook["---\nTemplate: Symbol\nName: Foo\nContext: A`Pkg`\nContextPath: [B`Extra`, C`More`]\nPaclet: A/Pkg\nURI: A/Pkg/ref/Foo\n---\n\n## Usage\n\n`Foo[x]` does.\n\n## Basic Examples\n\n```wl\nFoo[1]\n```\n", "Evaluate" -> False],
+        Cell[BoxData[b_], "ExampleInitialization", ___] :> b, $Failed, Infinity]},
+        {! FreeQ[ei, "\"A`Pkg`\""], ! FreeQ[ei, "\"B`Extra`\""], ! FreeQ[ei, "\"C`More`\""]}
+    ],
+    {True, True, True},
+    TestID -> "ContextPath: each context Needs[]'d in the ExampleInitialization cell"
 ]
 ```
 

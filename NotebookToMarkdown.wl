@@ -567,7 +567,9 @@ $knownBlockStyles = {
    a style / tag is a template default cell, skipped under Automatic (not authored
    content) but force-emitted under "Comment"/"Inline". *)
 $templateStyles = {"UsageInputs", "InlineCode", "RelatedSymbol", "TableText"};
-$internalTags = {"DefaultContent"};   (* M2N-managed scraper marker: never emitted *)
+(* M2N-managed markers never emitted as #| tags: "DefaultContent" is the scraper
+   marker; "TextAnnotation" rides the dedicated "#| annotation:" directive. *)
+$internalTags = {"DefaultContent", "TextAnnotation"};
 allCellTags[opts_List] := Flatten[Cases[opts, (CellTags -> t_) :> Flatten[{t}]]]
 
 (* structural template markers - a cell carrying any of these is part of the doc
@@ -586,17 +588,33 @@ directiveOne[k_, v_] := If[$metadataCarrier === "Inline",
     "<!-- #| " <> k <> ": " <> v <> " -->"]
 directiveBlock[dirs_List] := StringRiffle[directiveOne @@@ dirs, "\n"]
 
-(* prepend a cell's style/tags directives (when needed) to its rendered body.
-   Automatic skips a template's own default cells whole; "Comment"/"Inline"
-   force-include. A non-standard style emits "#| style:"; CellTags (minus the
-   M2N-managed scraper marker) emit "#| tags:". *)
-withCellMeta[body_, style_, opts_List] := Module[{mode = $metadataCarrier, dirs = {}, tags},
+(* the note text of an "Annotate" annotation: the first string in the cell's
+   bottom-right "TextAnnotation" CellFrameLabels (the rest of that frame label is
+   the Edit/Delete chrome). Returns Missing[] for an un-annotated cell. *)
+annotationNoteOf[opts_List] := FirstCase[opts,
+    (CellFrameLabels -> {{_, _}, {_, Cell[TextData[{note_String, ___}], "TextAnnotation", ___]}}) :>
+        StringTrim[note],
+    Missing[]]
+
+(* prepend a cell's style/tags/annotation directives (when needed) to its
+   rendered body. Automatic skips a template's own default cells whole;
+   "Comment"/"Inline" force-include. A non-standard style emits "#| style:";
+   CellTags (minus M2N-managed markers) emit "#| tags:"; an Annotate annotation
+   emits "#| annotation:". An annotation is always authored content, so it is
+   emitted even on a template-default cell (which contributes no style/tags). *)
+withCellMeta[body_, style_, opts_List] := Module[
+    {mode = $metadataCarrier, dirs = {}, tags, note = annotationNoteOf[opts], isDefault},
     If[body === "" || mode === None, Return[body]];
-    If[mode === Automatic && templateDefaultCellQ[style, opts], Return[body]];
-    If[! MemberQ[$knownBlockStyles, style] && ! MemberQ[$dropStyles, style],
-        AppendTo[dirs, {"style", style}]];
-    tags = DeleteCases[allCellTags[opts], Alternatives @@ $internalTags];
-    If[tags =!= {}, AppendTo[dirs, {"tags", StringRiffle[tags, ", "]}]];
+    isDefault = (mode === Automatic && templateDefaultCellQ[style, opts]);
+    If[isDefault && MissingQ[note], Return[body]];
+    If[! isDefault,
+        If[! MemberQ[$knownBlockStyles, style] && ! MemberQ[$dropStyles, style],
+            AppendTo[dirs, {"style", style}]];
+        tags = DeleteCases[allCellTags[opts], Alternatives @@ $internalTags];
+        If[tags =!= {}, AppendTo[dirs, {"tags", StringRiffle[tags, ", "]}]]
+    ];
+    If[! MissingQ[note],
+        AppendTo[dirs, {"annotation", StringReplace[note, ("\r" | "\n") .. -> " "]}]];
     If[dirs === {}, body, directiveBlock[dirs] <> "\n" <> body]
 ]
 
