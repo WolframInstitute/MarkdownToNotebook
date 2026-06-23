@@ -1195,27 +1195,61 @@ verbatimInlineQ[s_String] := StringFreeQ[s, Whitespace] && Or[
    ToBoxes[Defer[...]] instead *renders* display heads (Framed, Style, Grid, Row,
    RGBColor, ...) into frames/swatches, corrupting the Input cell. Fall back to
    the Defer parse, then the raw string, if the front end is unavailable. *)
+(* the four inert box-structure tokens of linear syntax (the ASCII form
+   NotebookToMarkdown emits) mapped to the active PUA codes the front end writes
+   when content is typeset (issue #35); ReparseBoxStructurePacket does not
+   reactivate them inside a string literal, so a typeset PlotLabel / ket label
+   would otherwise rebuild as literal ASCII instead of a subscript. *)
+$linearSyntaxReactivate = {
+    "\\!" -> FromCharacterCode[63425], "\\(" -> FromCharacterCode[63433],
+    "\\*" -> FromCharacterCode[63432], "\\)" -> FromCharacterCode[63424]};
+(* the inert box lead-in, assembled from pieces so the converter's own source
+   carries no literal run of it to self-match. *)
+$linearSyntaxLeadIn = StringJoin["\\", "!", "\\", "(", "\\", "*"];
+(* a cell whose ENTIRE source is one string literal carrying that inert lead-in is
+   a typeset string label (a PlotLabel, a ket, a TableHeadings entry). Reactivation
+   is restricted to such a whole-string-literal cell, so ordinary code that merely
+   mentions the tokens - including this converter's own source and its tests - is
+   never rewritten. *)
+stringLabelQ[s_String] := StringStartsQ[s, "\""] && StringEndsQ[s, "\""] &&
+    StringContainsQ[s, $linearSyntaxLeadIn]
+
 inputBoxes[code_String] := Block[{boxes, parsed, trimmed = StringTrim[code]},
-    (* LaTeX-style "\command" sequences (\left, \right, \sqrt, \to, \notin, ...)
-       collide with Wolfram's string-escape syntax: the front end's reparser
-       interprets "\r" / "\n" / "\t" / "\b" / "\f" as their control-character
-       escapes, so "\right" gets tokenised as "\r" + "ight". For inputs containing
-       backslash + two-or-more-letter commands - never valid bare WL, but the
-       normal shape of inline LaTeX - skip the reparse and emit the raw string
-       so it renders verbatim. "\[Name]" Wolfram named characters are unaffected
-       because they have "[" (not a letter) after the backslash. *)
-    If[StringContainsQ[trimmed, "\\" ~~ LetterCharacter ~~ LetterCharacter],
-        Return[trimmed]
+    If[ stringLabelQ[trimmed],
+        (* a typeset string label is WL box syntax, not LaTeX: reactivate its inert
+           tokens so it renders, and skip the guards below (its own escaped newline
+           must not trip the LaTeX guard). *)
+        trimmed = StringReplace[trimmed, $linearSyntaxReactivate],
+        (* LaTeX-style "\command" sequences (\left, \right, \sqrt, \to, \notin, ...)
+           collide with Wolfram's string-escape syntax: the front end's reparser
+           interprets "\r" / "\n" / "\t" / "\b" / "\f" as their control-character
+           escapes, so "\right" gets tokenised as "\r" + "ight". For inputs
+           containing backslash + two-or-more-letter commands - never valid bare
+           WL, but the normal shape of inline LaTeX - skip the reparse and emit the
+           raw string so it renders verbatim. "\[Name]" Wolfram named characters
+           are unaffected because they have "[" (not a letter) after the backslash. *)
+        If[StringContainsQ[trimmed, "\\" ~~ LetterCharacter ~~ LetterCharacter],
+            Return[trimmed]
+        ];
+        (* a path / URL / dotted filename: keep verbatim (see verbatimInlineQ). *)
+        If[verbatimInlineQ[trimmed], Return[trimmed]]
     ];
-    (* a path / URL / dotted filename: keep verbatim (see verbatimInlineQ). *)
-    If[verbatimInlineQ[trimmed], Return[trimmed]];
     boxes = Quiet @ UsingFrontEnd @ MathLink`CallFrontEnd[FrontEnd`ReparseBoxStructurePacket[trimmed]];
     If[ FreeQ[boxes, $Failed] && (StringQ[boxes] || ! AtomQ[boxes]),
-        boxes,
+        fixBlankHead[boxes],
         parsed = Quiet @ ToExpression[code, StandardForm, Defer];
         If[parsed === $Failed, code, ToBoxes[parsed]]
     ]
 ]
+
+(* The FE reparser splits a Blank from a NAMED-character head: an underscore
+   followed by a Wolfram named character comes back as a 2-element RowBox meaning
+   Times[Blank[], head] (matches nothing), even though an ASCII head stays joined
+   (issue #39). A genuine Times[Blank[], h] keeps its space (a 3-element RowBox),
+   so a 2-element split is the broken Blank-with-head: re-join it into one leaf,
+   which parses as Blank[head]. *)
+fixBlankHead[boxes_] := boxes /.
+    RowBox[{"_", h_String /; StringLength[h] == 1 && StringMatchQ[h, LetterCharacter]}] :> "_" <> h
 
 (* extra options for an example's Output cell, from the code cell's "#|" options.
    "#| background: papertear" sets BackgroundAppearance -> "PaperTear", the cell

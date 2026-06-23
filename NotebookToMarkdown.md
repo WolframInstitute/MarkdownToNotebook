@@ -230,3 +230,57 @@ VerificationTest[
     TestID -> "annotation -> #| annotation: directive (TextAnnotation tag not leaked)"
 ]
 ```
+
+In math, letterlike / operator glyphs that have no 2D box structure (`ℏ`, the n-ary `⋁`, the much-greater `≫`) map to their TeX command instead of leaking as raw Unicode, and ASCII relational / arrow operators typed literally into `TraditionalForm` (`<=`, `=!=`, `->`) become `\le` / `\not\equiv` / `\to` with normalized spacing (issue #32):
+
+```wl
+VerificationTest[
+    {walkerMath["E=" <> FromCharacterCode[16^^210F]], walkerMath["0 <= x"], walkerMath["a =!= b"]},
+    {"E=\\hbar ", "0 \\le x", "a \\not\\equiv b"},
+    TestID -> "math glyphs/operators -> TeX (hbar, <=, =!=)"
+]
+```
+
+A handful of *content* glyphs (the `\[LeftBracketingBar]` / `\[RightBracketingBar]` Abs/Norm bars, `\[LongEqual]`, `\[ImplicitPlus]`, `\[Limit]`) live inside the front-end structural-PUA band but are not box-structure markers, so they survive the drop instead of vanishing from the formula (issue #37):
+
+```wl
+VerificationTest[
+    walkerMath[SuperscriptBox[RowBox[{"\[LeftBracketingBar]", SubscriptBox["c", "j"], "\[RightBracketingBar]"}], "2"]],
+    "|c_{j}|^{2}",
+    TestID -> "Abs/Norm bars survive in math (content PUA, issue #37)"
+]
+```
+
+Structural math boxes that previously dumped their raw box tree or fused with a neighbour now map to TeX: a `GridBox` wrapped in delimiters becomes a `pmatrix` / `bmatrix` / `vmatrix`, the `Norm` / `Abs` templates become `\lVert..\rVert` / `\lvert..\rvert`, and a ket keeps a trailing space so the next token can't fuse into `\rangle` (issue #33):
+
+```wl
+VerificationTest[
+    {walkerMath[RowBox[{"(", GridBox[{{"a", "b"}, {"c", "d"}}], ")"}]],
+     walkerMath[TemplateBox[{"v"}, "Norm"]],
+     walkerMath[RowBox[{TemplateBox[{"\[Psi]"}, "Ket"], "dt"}]]},
+    {"\\begin{pmatrix}a & b \\\\ c & d\\end{pmatrix}", "\\lVert v\\rVert ", "|\\psi \\rangle dt"},
+    TestID -> "structural math: pmatrix, Norm, ket spacing (issue #33)"
+]
+```
+
+An inline call-form (`Sym[...]`, a `sigCallBoxQ` box) renders as the `<code>[Sym]()[...]</code>` signature DSL only on a documentation page (an `ObjectName` cell, where MTN round-trips it); in a narrative notebook it becomes real inline math with the head upright via `\mathrm` (issue #38):
+
+```wl
+VerificationTest[
+    {StringContainsQ[NotebookToMarkdown[Notebook[{Cell[TextData[{Cell[BoxData[RowBox[{"Tr", "[", SubscriptBox["A", "i"], "]"}]], "InlineFormula"]}], "Text"]}]], "$\\mathrm{Tr}[A_{i}]$"],
+     StringContainsQ[NotebookToMarkdown[Notebook[{Cell["Tr", "ObjectName"], Cell[TextData[{Cell[BoxData[RowBox[{"Tr", "[", SubscriptBox["A", "i"], "]"}]], "InlineFormula"]}], "Text"]}]], "<code>[Tr]()"]},
+    {True, True},
+    TestID -> "call-form: narrative -> $math$, doc page -> <code> DSL (issue #38)"
+]
+```
+
+A standalone graphic whose cell IS the graphic (an `Input`/`Code` cell holding only a `GraphicsBox` - a hand-pasted figure) is exported to a `.png` beside the `.md` and emitted as `![]()`, instead of being dropped like regenerable output (issue #34):
+
+```wl
+VerificationTest[
+    Block[{$n2mAssetDir = $TemporaryDirectory, $n2mAssetBase = "vt-fig", $n2mFigCounter = 0},
+        StringMatchQ[blockFor["Input", BoxData[ToBoxes[Graphics[{Disk[]}]]]], "![](" ~~ ___ ~~ ".png)"]],
+    True,
+    TestID -> "authored figure in Input cell -> image, not dropped (issue #34)"
+]
+```

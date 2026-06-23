@@ -765,3 +765,25 @@ VerificationTest[
 ]
 ```
 
+A `Blank` immediately followed by a named-character head (`_\[FormalS]`, delivered by a fence as the literal ten-character escape) rebuilds as a single `Blank` leaf with that head - the front-end reparser otherwise splits it into `Times[Blank[], \[FormalS]]`, which matches nothing (issue #39):
+
+```wl
+VerificationTest[
+    MatchQ[\[FormalS][1], ReleaseHold @ ToExpression[inputBoxes["_\\[FormalS]"], StandardForm, Hold]],
+    True,
+    TestID -> "_\\[Name] rebuilds as Blank with a named-character head (issue #39)"
+]
+```
+
+A `\!\(...\)` linear-syntax box (a typeset subscript inside a string label) is reactivated: the four inert ASCII tokens `\!` `\(` `\*` `\)` map back to the active PUA codes, so the cell shows a rendered subscript instead of the literal escaped ASCII (issue #35):
+
+```wl
+VerificationTest[
+    With[{b = inputBoxes["\"x \\!\\(\\*SubscriptBox[\\(CO\\), \\(2\\)]\\)\""]},
+        {! FreeQ[b, _String?(StringContainsQ[#, FromCharacterCode[63425]] &)],
+           FreeQ[b, _String?(StringContainsQ[#, "\\!\\("] &)]}],
+    {True, True},
+    TestID -> "\\!\\(...\\) linear syntax reactivated to PUA markers (issue #35)"
+]
+```
+

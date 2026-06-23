@@ -77,6 +77,12 @@ normCharCode[n_Integer] := Which[
     KeyExistsQ[$puaAlphaGlyph, n], $puaAlphaGlyph[n],         (* script/gothic/double-struck -> Unicode glyph *)
     (* \[CapitalDifferentialD] \[DifferentialD] \[ExponentialE] \[ImaginaryI] \[ImaginaryJ] *)
     63307 <= n <= 63311, FromCharacterCode @ {68, 100, 101, 105, 106}[[n - 63306]],
+    (* content glyphs that live inside the FE structural band but are NOT markers
+       (issue #37): keep them instead of dropping them with the box noise *)
+    n === 16^^F603 || n === 16^^F604, "|",   (* Left/RightBracketingBar (Abs/Norm) *)
+    n === 16^^F7D9, "=",                       (* LongEqual *)
+    n === 16^^F39E, "+",                       (* ImplicitPlus *)
+    n === 16^^F438, "lim",                     (* Limit *)
     57344 <= n <= 63487, "",                                   (* FE structural box markers -> drop *)
     True, FromCharacterCode[n]
 ]
@@ -123,7 +129,28 @@ $mathTeX = Join[<|
     "\[LeftArrow]" -> "\\leftarrow ", "\[LeftRightArrow]" -> "\\leftrightarrow ",
     "\[Implies]" -> "\\implies ", "\[RightTeeArrow]" -> "\\mapsto ",
     "\[Angle]" -> "\\angle ", "\[Degree]" -> "^\\circ "
-|>, $mathAlphaTeX];
+|>, $mathAlphaTeX, <|
+    (* letterlike / operator glyphs that otherwise leak as raw Unicode (issue #32),
+       keyed by codepoint so the source stays ASCII *)
+    FromCharacterCode[16^^210F] -> "\\hbar ",
+    FromCharacterCode[16^^226B] -> "\\gg ", FromCharacterCode[16^^226A] -> "\\ll ",
+    FromCharacterCode[16^^2218] -> "\\circ ", FromCharacterCode[16^^25E6] -> "\\circ ",
+    FromCharacterCode[16^^22C1] -> "\\bigvee ", FromCharacterCode[16^^22C0] -> "\\bigwedge ",
+    FromCharacterCode[16^^200B] -> ""    (* zero-width space -> drop *)
+|>];
+
+(* ASCII relational / arrow operators typed literally into TraditionalForm math
+   (issue #32) - map to TeX, longest-first so "=!="/"===" beat "==" and "<->"
+   beats "<="/"->". Applied before the single-glyph $mathTeX pass. *)
+$mathAsciiOps = {
+    WhitespaceCharacter ... ~~ "=!=" ~~ WhitespaceCharacter ... -> " \\not\\equiv ",
+    WhitespaceCharacter ... ~~ "===" ~~ WhitespaceCharacter ... -> " \\equiv ",
+    WhitespaceCharacter ... ~~ "<->" ~~ WhitespaceCharacter ... -> " \\leftrightarrow ",
+    WhitespaceCharacter ... ~~ "<=" ~~ WhitespaceCharacter ... -> " \\le ",
+    WhitespaceCharacter ... ~~ ">=" ~~ WhitespaceCharacter ... -> " \\ge ",
+    WhitespaceCharacter ... ~~ "!=" ~~ WhitespaceCharacter ... -> " \\ne ",
+    WhitespaceCharacter ... ~~ "->" ~~ WhitespaceCharacter ... -> " \\to ",
+    WhitespaceCharacter ... ~~ "==" ~~ WhitespaceCharacter ... -> " = "};
 
 (* === math-mode serializer ===
    walkerMath produces the body of a "$...$" span (or, for FormBox /
@@ -146,7 +173,7 @@ walkerMath["}"] := "\\}"
 walkerMath["\[Rule]"] := "\\to "
 walkerMath["\[RightArrow]"] := "\\to "
 walkerMath[s_String /; s =!= "" && StringMatchQ[s, Whitespace]] := "\\, "
-walkerMath[s_String] := StringReplace[normStr[s], Normal @ $mathTeX]
+walkerMath[s_String] := StringReplace[StringReplace[normStr[s], $mathAsciiOps], Normal @ $mathTeX]
 (* a multi-letter italic identifier in math (StyleBox[s, "TI"]) needs
    \mathit{} or TeX would render it as a product of single letters
    (output -> o u t p u t, issue #14). Single letters / Greek fall
@@ -155,28 +182,56 @@ walkerMath[StyleBox[s_String, "TI", ___]] /; StringMatchQ[s, RegularExpression["
     "\\mathit{" <> s <> "}"
 walkerMath[StyleBox[s_, ___]] := walkerMath[s]
 walkerMath[FractionBox[a_, b_]] := walkerMath[a] <> "/" <> walkerMath[b]
-walkerMath[SubscriptBox[a_, b_]] := walkerMath[a] <> "_{" <> walkerMath[b] <> "}"
-walkerMath[SuperscriptBox[a_, b_]] := walkerMath[a] <> "^{" <> walkerMath[b] <> "}"
-walkerMath[SubsuperscriptBox[a_, b_, c_]] := walkerMath[a] <> "_{" <> walkerMath[b] <> "}^{" <> walkerMath[c] <> "}"
+(* a script base with any trailing spacing glue (the "\," walkerMath emits for a
+   whitespace leaf) stripped, so a script never lands on a glue node - KaTeX errors
+   "Got group of unknown type: 'internal'" on "U\, ^{\dagger}" (issue #33). An
+   empty base becomes "{}" so the script still has a valid base. *)
+scriptBase[box_] := Replace[
+    StringReplace[walkerMath[box], ("\\," | " ") .. ~~ EndOfString -> ""], "" -> "{}"]
+walkerMath[SubscriptBox[a_, b_]] := scriptBase[a] <> "_{" <> walkerMath[b] <> "}"
+walkerMath[SuperscriptBox[a_, b_]] := scriptBase[a] <> "^{" <> walkerMath[b] <> "}"
+walkerMath[SubsuperscriptBox[a_, b_, c_]] := scriptBase[a] <> "_{" <> walkerMath[b] <> "}^{" <> walkerMath[c] <> "}"
 walkerMath[SqrtBox[a_]] := "\\sqrt{" <> walkerMath[a] <> "}"
 walkerMath[RadicalBox[a_, b_]] := "\\sqrt[" <> walkerMath[b] <> "]{" <> walkerMath[a] <> "}"
 walkerMath[UnderscriptBox[a_, b_]] := walkerMath[a] <> "_{" <> walkerMath[b] <> "}"
 walkerMath[OverscriptBox[a_, "^"]] := "\\hat{" <> walkerMath[a] <> "}"
 walkerMath[OverscriptBox[a_, "_"]] := "\\overline{" <> walkerMath[a] <> "}"
+(* vector / harpoon accent -> \vec (issue #33: a raw harpoon as \overset arg is
+   untypesettable) *)
+walkerMath[OverscriptBox[a_, "\[RightVector]" | "\[RightArrow]"]] := "\\vec{" <> walkerMath[a] <> "}"
 walkerMath[OverscriptBox[a_, b_]] := "\\overset{" <> walkerMath[b] <> "}{" <> walkerMath[a] <> "}"
 walkerMath[UnderoverscriptBox[a_, b_, c_]] := walkerMath[a] <> "_{" <> walkerMath[b] <> "}^{" <> walkerMath[c] <> "}"
 walkerMath[ButtonBox[n_, ___]] := walkerMath[n]
+(* GridBox -> a TeX matrix environment (issue #33: a bare grid hit the catch-all
+   and dumped its box tree). The author's own delimiters sit OUTSIDE the grid as
+   sibling RowBox tokens, so a wrapping ( ) / [ ] / | | promotes matrix ->
+   pmatrix / bmatrix / vmatrix; a leading \[Piecewise] column -> cases. (These
+   specific patterns auto-sort ahead of the generic GridBox / RowBox rules.) *)
+gridRows[GridBox[rows_List, ___]] := StringRiffle[
+    Function[row, StringRiffle[walkerMath /@ row, " & "]] /@ rows, " \\\\ "]
+walkerMath[GridBox[{{"\[Piecewise]", inner_GridBox}}, ___]] :=
+    "\\begin{cases}" <> gridRows[inner] <> "\\end{cases}"
+walkerMath[RowBox[{"(", g_GridBox, ")"}]] := "\\begin{pmatrix}" <> gridRows[g] <> "\\end{pmatrix}"
+walkerMath[RowBox[{"[", g_GridBox, "]"}]] := "\\begin{bmatrix}" <> gridRows[g] <> "\\end{bmatrix}"
+walkerMath[RowBox[{"|", g_GridBox, "|"}]] := "\\begin{vmatrix}" <> gridRows[g] <> "\\end{vmatrix}"
+walkerMath[g_GridBox] := "\\begin{matrix}" <> gridRows[g] <> "\\end{matrix}"
 walkerMath[RowBox[xs_List]] := StringJoin[walkerMath /@ xs]
 walkerMath[FormBox[box_, ___]] := walkerMath[box]
 walkerMath[TagBox[x_, ___]] := walkerMath[x]
 walkerMath[InterpretationBox[x_, ___]] := walkerMath[x]
 walkerMath[Cell[BoxData[b_], ___]] := walkerMath[b]
 walkerMath[Cell[c_, ___]] := walkerMath[c]
-walkerMath[TemplateBox[{x_}, "Ket"]] := "|" <> walkerMath[x] <> "\\rangle"
+(* close-delimiters keep a trailing space so the next RowBox token can't fuse into
+   the control word (issue #33: "\rangledt", "\dagger2") *)
+walkerMath[TemplateBox[{x_}, "Ket"]] := "|" <> walkerMath[x] <> "\\rangle "
 walkerMath[TemplateBox[{x_}, "Bra"]] := "\\langle " <> walkerMath[x] <> "|"
-walkerMath[TemplateBox[{x_, y_}, "Braket" | "BraKet"]] := "\\langle " <> walkerMath[x] <> "|" <> walkerMath[y] <> "\\rangle"
-walkerMath[TemplateBox[{x_}, "SuperDagger" | "Dagger"]] := walkerMath[x] <> "^\\dagger"
+walkerMath[TemplateBox[{x_, y_}, "Braket" | "BraKet"]] := "\\langle " <> walkerMath[x] <> "|" <> walkerMath[y] <> "\\rangle "
+walkerMath[TemplateBox[{x_}, "SuperDagger" | "Dagger"]] := walkerMath[x] <> "^\\dagger "
 walkerMath[TemplateBox[{x_}, "Conjugate"]] := walkerMath[x] <> "^*"
+(* Norm / Abs templates -> \lVert..\rVert / \lvert..\rvert (issue #33: no rule, so
+   the template was dumped by the catch-all) *)
+walkerMath[TemplateBox[{x_}, "Norm"]] := "\\lVert " <> walkerMath[x] <> "\\rVert "
+walkerMath[TemplateBox[{x_}, "Abs"]] := "\\lvert " <> walkerMath[x] <> "\\rvert "
 walkerMath[other_] := ToString[other, InputForm]
 
 (* === code-mode serializer ===
@@ -284,6 +339,21 @@ sigSub[RowBox[xs_List]] := StringJoin[sigSub /@ xs]
 sigSub[x_] := walkerMath[x]
 sigBox[x_] := sig[x]
 
+(* a call-form rendered as inline math, for a narrative (non-doc) notebook
+   (issue #38): the head goes upright via \mathrm so a multi-letter name is not an
+   italic product, and the arguments walk as ordinary math. The <code>[Sym]()[...]
+   signature DSL is kept only on a doc page (an ObjectName cell), where MTN's
+   forward parser round-trips it. *)
+callFormHead[s_String] := If[
+    StringLength[s] > 1 && StringMatchQ[s, (LetterCharacter | DigitCharacter) ..],
+    "\\mathrm{" <> s <> "}", walkerMath[s]]
+callFormHead[StyleBox[s_, ___]] := callFormHead[s]
+callFormHead[s_Symbol] := callFormHead[SymbolName[s]]
+callFormHead[h_] := walkerMath[h]
+callFormMath[FormBox[b_, ___]] := callFormMath[b]
+callFormMath[RowBox[{h_, rest___}]] := callFormHead[h] <> StringJoin[walkerMath /@ {rest}]
+callFormMath[other_] := walkerMath[other]
+
 (* does a box tree carry 2D math structure (so it should render as $...$, not `code`)? *)
 mathyQ[b_] := ! FreeQ[b, _SubscriptBox | _SuperscriptBox | _SubsuperscriptBox |
     _FractionBox | _SqrtBox | _RadicalBox | _OverscriptBox | _UnderscriptBox | _FormBox |
@@ -352,7 +422,8 @@ inlineMd[Cell[BoxData[ButtonBox[a___]], "InlineFormula", ___]] := inlineMd[Butto
 inlineMd[Cell[BoxData[TagBox[bb_ButtonBox, ___]], "InlineFormula", ___]] := inlineMd[bb]
 inlineMd[c0 : Cell[BoxData[b_], "InlineFormula", ___]] /; ! decorationCellQ[c0] := Which[
     ! FreeQ[b, BaseStyle -> "Link" | "Hyperlink"], "<code>" <> sigBox[b] <> "</code>",
-    sigCallBoxQ[b], "<code>" <> sigBox[b] <> "</code>",
+    sigCallBoxQ[b] && ($docPageQ || MatchQ[b, _FormBox]), "<code>" <> sigBox[b] <> "</code>",
+    sigCallBoxQ[b], "$" <> callFormMath[b] <> "$",
     mathLikeQ[b], "$" <> walkerMath[b] <> "$",
     True, With[{c = cleanStr[boxToCode[b]]},
         (* a styled-string placeholder ("name" with TI) cleans to contain *...*;
@@ -366,7 +437,8 @@ inlineMd[c0 : Cell[BoxData[b_], "InlineFormula", ___]] /; ! decorationCellQ[c0] 
 inlineMd[c0 : Cell[BoxData[b_], ___]] /; ! decorationCellQ[c0] :=
     Which[
         MatchQ[b, _Cell], inlineMd[b],
-        sigCallBoxQ[b], "<code>" <> sigBox[b] <> "</code>",
+        sigCallBoxQ[b] && ($docPageQ || MatchQ[b, _FormBox]), "<code>" <> sigBox[b] <> "</code>",
+        sigCallBoxQ[b], "$" <> callFormMath[b] <> "$",
         mathLikeQ[b], "$" <> walkerMath[b] <> "$",
         True, "`" <> boxToCode[b] <> "`"
     ]
@@ -551,6 +623,7 @@ $outputInlineLimit = 2048;
 $n2mAssetDir   = None;   (* directory for ".wxf" sidecars; None (in-memory) forces inline *)
 $n2mAssetBase  = "cell";
 $n2mOutCounter = 0;
+$n2mFigCounter = 0;      (* authored-figure ".png" counter (issue #34) *)
 
 (* styles whose markdown form round-trips to the same style - no "#| style:" *)
 $knownBlockStyles = {
@@ -640,6 +713,23 @@ ClearAll[blockFor]
    outputs fall through to the drop below (the twin renders them as images). *)
 blockFor["Output", c_] /; ($preserveOutputs && FreeQ[c, GraphicsBox | Graphics3DBox | RasterBox]) :=
     preserveOutputBlock[c]
+
+(* A standalone graphic whose cell IS the graphic (BoxData holds only the
+   GraphicsBox, not code) and whose style is an Input/Code cell is an AUTHORED
+   figure - a hand-pasted picture, not regenerable output. Export it to a ".png"
+   beside the ".md" and emit ![]() instead of dropping it (issue #34). With no
+   asset dir (in-memory conversion) there is nowhere to write it, so fall back to
+   the drop. These specific (style + graphic) rules out-sort the generic drops. *)
+figureMd[g_] := If[$n2mAssetDir === None, "",
+    Module[{ref},
+        $n2mFigCounter += 1;
+        ref = $n2mAssetBase <> "-fig-" <> ToString[$n2mFigCounter] <> ".png";
+        Quiet @ Export[FileNameJoin[{$n2mAssetDir, ref}], RawBoxes[g], "PNG"];
+        "![](" <> ref <> ")"]]
+blockFor["Input" | "Code" | "ExampleInput" | "Program",
+    BoxData[g : (GraphicsBox | Graphics3DBox | RasterBox)[___]]] := figureMd[g]
+blockFor["Input" | "Code" | "ExampleInput" | "Program",
+    BoxData[TagBox[g : (GraphicsBox | Graphics3DBox | RasterBox)[___], ___]]] := figureMd[g]
 
 (* Image cells (raster or vector graphics in BoxData) are evaluation output, not
    source - the markdown twin embeds them as ![]() but the source markdown that
@@ -744,6 +834,18 @@ keywordList[nb_] := Flatten @ Cases[nb, Cell[c_, "Keywords", ___] :> Cases[{c}, 
    round-trips as a generic body and the forward path is the one that has to
    be told the template via a hand-added frontmatter block. *)
 hasObjectNameQ[nb_] := ! FreeQ[nb, Cell[_, "ObjectName", ___]]
+(* a documentation / resource notebook - where the <code>[Sym]()[...] signature DSL
+   round-trips through MTN - as opposed to a free-form narrative notebook. An
+   ObjectName cell marks a Symbol/Guide page; a resource or other template-built doc
+   carries doc metadata in its TaggingRules ("Metadata" / "TemplateGroupName"). A
+   bare narrative notebook has neither, so its call-forms render as real inline math
+   (issue #38). *)
+docNotebookQ[nb_] := hasObjectNameQ[nb] || AnyTrue[
+    Cases[nb, (TaggingRules -> v_) :> v, {1}],
+    ! FreeQ[Keys[#], "Metadata" | "ResourceType" | "DefinitionNotebookFramework"] &]
+(* set per-notebook in markdownOfNb; defaults True so a direct inlineMd call keeps
+   the signature DSL. *)
+$docPageQ = True
 
 frontmatter[nb_, name_] := Module[{cat, paclet, ctx, uri, kw, sa, rg},
     If[! hasObjectNameQ[nb], Return[""]];
@@ -800,7 +902,8 @@ markdownOfNb[nb : Notebook[_List, ___], opts : OptionsPattern[NotebookToMarkdown
     {name, blocks, fm, $detailsHeadingDone = False,
      $metadataCarrier   = OptionValue[NotebookToMarkdown, {opts}, "Metadata"],
      $preserveOutputs   = TrueQ @ OptionValue[NotebookToMarkdown, {opts}, "PreserveOutputs"],
-     $outputInlineLimit = OptionValue[NotebookToMarkdown, {opts}, "OutputInlineLimit"]},
+     $outputInlineLimit = OptionValue[NotebookToMarkdown, {opts}, "OutputInlineLimit"],
+     $docPageQ          = docNotebookQ[nb]},
     name = cellPlain @ FirstCase[nb, Cell[t_, "ObjectName", ___] :> t, "", Infinity];
     blocks = walkCells[First[nb]];
     fm = frontmatter[nb, name];
@@ -828,7 +931,7 @@ NotebookToMarkdown[source_, "String", opts : OptionsPattern[]] := NotebookToMark
    preservation there always inlines the boxes (no file is written). *)
 NotebookToMarkdown[source_, target_String /; StringEndsQ[ToLowerCase[target], ".md"], opts : OptionsPattern[]] := Block[
     {$n2mAssetDir = Replace[DirectoryName[target], "" -> Directory[]],
-     $n2mAssetBase = FileBaseName[target], $n2mOutCounter = 0},
+     $n2mAssetBase = FileBaseName[target], $n2mOutCounter = 0, $n2mFigCounter = 0},
     With[{md = NotebookToMarkdown[source, opts]},
         Export[target, md, "Text"];
         target
