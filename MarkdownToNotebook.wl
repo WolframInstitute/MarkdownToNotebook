@@ -738,12 +738,49 @@ outputBoxes[res_, opts_] := Which[
     True, ToBoxes[res]
 ]
 
-(* a captured message string -> a notebook "Message" cell. captureCellRun
-   redirects $Messages to a write stream and we read the printed text back
-   verbatim, so the cell text is exactly the line the kernel itself printed -
-   no template lookup, no arg substitution to redo. *)
-messageCell[s_String] := Cell[s, "Message", "MSG"]
-messageCell[hf_] := Cell[ToString[hf, InputForm], "Message", "MSG"]
+(* === message capture (box level) ===
+   captureCellRun installs an Internal`HandlerBlock["Message"] handler rather than
+   redirecting $Messages to a text file, so a message is captured as the same box
+   structure a notebook would show. handleMsg reformats each shown message from its
+   template + args: the name is a "MessageName"-styled token and each "`n`" slot is
+   the nth arg boxified - a string inserts verbatim, a RawBoxes inlines its boxes
+   (so ResourceFunctionMessage's styled name renders as real boxes instead of
+   dumping literal "RawBoxes[StyleBox[...]]"), anything else goes through ToBoxes.
+   The General::tag template is the fallback, matching the kernel. *)
+msgArgBox[s_String] := s
+msgArgBox[RawBoxes[b_]] := b
+msgArgBox[e_] := ToBoxes[e]
+SetAttributes[messageNameString, HoldFirst]
+messageNameString[s_Symbol] := SymbolName[Unevaluated[s]]
+messageNameString[o_] := ToString[Unevaluated[o], InputForm]
+slotFill[tmpl_String, args_List] := Replace[
+    StringSplit[tmpl, "`" ~~ ds : (DigitCharacter ..) ~~ "`" :> msgSlot[FromDigits[ds]]],
+    msgSlot[i_] :> If[1 <= i <= Length[args], msgArgBox[args[[i]]], ""], {1}]
+messageBoxData[name_String, tmpl_, args_List] := RowBox[Flatten[{
+    StyleBox[name, "MessageName"], ": ",
+    If[StringQ[tmpl], slotFill[tmpl, args], Riffle[msgArgBox /@ args, " "]]}, 1]]
+(* Quiet the body: building the box (ToBoxes of an arg, the template lookup) must
+   not itself fire a message, or the still-active handler would re-enter and loop.
+   A message fired here is Quiet'd -> reported to the handler as shown=False ->
+   falls to the no-op below, so there is no recursion. *)
+handleMsg[Hold[Message[MessageName[sym_, tag_String], margs___], True]] := Quiet @
+    AppendTo[msgs, messageBoxData[
+        messageNameString[Unevaluated[sym]] <> "::" <> tag,
+        With[{t = MessageName[sym, tag]}, If[StringQ[t], t, MessageName[General, tag]]],
+        {margs}]]
+handleMsg[_] := Null
+
+(* legacy: an OLD cache entry stored messages as plain text, where a styled
+   RawBoxes name dumped as literal "RawBoxes[StyleBox[RowBox[{name, ::, tag}],
+   MessageName]]" - recover "name::tag" so a cached page still reads cleanly. *)
+cleanMessageText[s_String] := StringReplace[s,
+    "RawBoxes[StyleBox[RowBox[{" ~~ name : Shortest[__] ~~ ", ::, " ~~
+        tag : Shortest[__] ~~ "}], MessageName]]" :> StringTrim[name] <> "::" <> StringTrim[tag]]
+
+(* a captured message -> a notebook "Message" cell: box data (the new box-level
+   capture) wraps directly; a legacy text string is cleaned and wrapped. *)
+messageCell[s_String] := Cell[cleanMessageText[s], "Message", "MSG"]
+messageCell[box_] := Cell[BoxData[box], "Message", "MSG"]
 
 (* Captured Print / Echo output -> a notebook "Print" cell.
    Print is intercepted by Block-shadowing the symbol (rebinding $Output
@@ -768,12 +805,20 @@ asPrintCell[s_String] := Cell[s, "Print"]
 asPrintCell[c_Cell] := c
 asPrintCell[other_] := Cell[ToString[other, InputForm], "Print"]
 
+(* box -> plain text, for the markdown twin's blockquote of a captured message
+   (a StyleBox keeps only its content; a RowBox concatenates its parts). *)
+msgBoxText[s_String] := s
+msgBoxText[RowBox[xs_List]] := StringJoin[msgBoxText /@ xs]
+msgBoxText[(StyleBox | TagBox | InterpretationBox | FrameBox)[b_, ___]] := msgBoxText[b]
+msgBoxText[b_] := ToString[b, InputForm]
+
 (* Plain-text rendering of captured messages / prints for the markdown twin.
-   Messages are always strings (the kernel writes them as text to
-   $Messages). Print cells may be rich - a string-only Print becomes a
-   blockquote, anything richer rasterises to a screenshot image. *)
-messageMd[s_String] := "> " <> StringReplace[StringTrim[s], "\n" -> "\n> "]
-messageMd[_] := ""
+   A box-level message renders via msgBoxText; a legacy text string is cleaned.
+   Print cells may be rich - a string-only Print becomes a blockquote, anything
+   richer rasterises to a screenshot image. *)
+messageMd[s_String] := "> " <> StringReplace[StringTrim[cleanMessageText[s]], "\n" -> "\n> "]
+messageMd[box_] := With[{t = StringTrim[msgBoxText[box]]},
+    If[t === "", "", "> " <> StringReplace[t, "\n" -> "\n> "]]]
 
 (* Extract a textual form from a captured Print cell, or Missing if it
    carries rich content (a GraphicsBox, a Dataset, a TemplateBox, ...).
@@ -822,15 +867,17 @@ printTextForm[_] := Missing["Rich"]
               "cells" -> {injected cell, ...}|>.
    Failed Get / parse returns "outs" -> {Missing[]} so callers downstream
    still see the failure as a no-output cell rather than a crash. *)
-captureCellRun[code_String, opts_Association : <||>] := Block[{msgFile, msgStream, stmts, outs, cellsExtra, msgTxt, msgs, prints},
-    msgFile = CreateFile[];
-    msgStream = OpenWrite[msgFile];
+captureCellRun[code_String, opts_Association : <||>] := Block[{stmts, outs, cellsExtra, msgs, prints},
     stmts = Quiet @ ToExpression[code, InputForm, Hold];
     If[Head[stmts] =!= Hold, stmts = Hold[code]];  (* parse failure: re-run for the message *)
     outs = {};
     cellsExtra = {};
     prints = {};
-    Block[{$Messages = {msgStream}, Print, Echo, CellPrint},
+    msgs = {};
+    (* $Messages -> {} suppresses the kernel's default text output; messages are
+       captured at the box level by the Internal`HandlerBlock below (handleMsg
+       AppendTo's the Block-local msgs via dynamic scope). *)
+    Block[{$Messages = {}, Print, Echo, CellPrint},
         (* Print accumulates a real Cell built from the args, not a text
            chunk - so Print[graphics], Print[image], Print[dataset], or
            Print["count: ", n] each render correctly downstream. *)
@@ -843,24 +890,21 @@ captureCellRun[code_String, opts_Association : <||>] := Block[{msgFile, msgStrea
         (* Walk statements: each held position is extracted with Extract,
            which preserves the Hold wrapper so we can inspect its surface
            form before releasing it. A CompoundExpression[..., Null] tail
-           is the source's "no output" mark - skip emission for that. *)
-        Do[
-            With[{heldStmt = Extract[stmts, i, Hold]},
-                If[ MatchQ[heldStmt, Hold[CompoundExpression[___, Null]]],
-                    (* suppressed - evaluate for side effects, no Output *)
-                    ReleaseHold[heldStmt],
-                    AppendTo[outs, outputBoxes[ReleaseHold[heldStmt], opts]]
-                ]
-            ],
-            {i, Length[stmts]}
+           is the source's "no output" mark - skip emission for that. The
+           HandlerBlock captures every message fired inside this walk. *)
+        Internal`HandlerBlock[{"Message", handleMsg},
+            Do[
+                With[{heldStmt = Extract[stmts, i, Hold]},
+                    If[ MatchQ[heldStmt, Hold[CompoundExpression[___, Null]]],
+                        (* suppressed - evaluate for side effects, no Output *)
+                        ReleaseHold[heldStmt],
+                        AppendTo[outs, outputBoxes[ReleaseHold[heldStmt], opts]]
+                    ]
+                ],
+                {i, Length[stmts]}
+            ]
         ]
     ];
-    Close[msgStream];
-    msgTxt = If[FileExistsQ[msgFile], Quiet @ Import[msgFile, "Text"], ""];
-    Quiet @ DeleteFile[msgFile];
-    msgs = If[StringQ[msgTxt] && StringTrim[msgTxt] =!= "",
-        DeleteCases[Map[StringTrim, StringSplit[msgTxt, "\n\n"]], ""],
-        {}];
     <|"outs" -> outs, "msgs" -> msgs, "prints" -> prints, "cells" -> cellsExtra|>
 ]
 
@@ -3199,12 +3243,6 @@ symbolNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"]
     If[ docContextList[meta] =!= {},
         nb = nb /. Cell[_, "ExampleInitialization", o___] :> Cell[BoxData[inputBoxes[exampleInitCode[meta]]], "ExampleInitialization", o]
     ];
-    (* Collapse the Examples-Initialization section (the doc-center default). Left
-       Open, it renders its own separator directly above the Examples separator, so
-       every symbol page shows two stacked delimiter lines between Details and
-       Examples; Closed it folds into a single, subtle bar. *)
-    nb = nb /. Cell[CellGroupData[{h : Cell[___, "ExamplesInitializationSection", ___], rest___}, _], o___] :>
-               Cell[CellGroupData[{h, rest}, Closed], o];
     (* walk Basic Examples block-by-block so per-cell `:`-terminated
        captions become ExampleText cells, `---` thematic breaks become
        ExampleDelimiter cells (resetting the In[]/Out[] counter), and
@@ -3237,6 +3275,23 @@ symbolNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"]
        ExampleSubsection placeholders or bare counters makes the build fail). *)
     nb = fillExtendedExamples[nb, sections];
     nb = groupPrimaryExamples[nb];
+    (* Nest the Examples-Initialization section as a Closed first child of the
+       Examples section (the canonical built-page shape) instead of leaving it a
+       top-level sibling of PrimaryExamplesSection. As a sibling it renders its own
+       section rule, so a page published WITHOUT DocumentationBuild (as PureMath
+       does) shows two stacked rules between Details and Examples; nested + Closed
+       it is the single subtle bar a built page shows. *)
+    With[{initGrp = FirstCase[nb,
+            g : Cell[CellGroupData[{Cell[___, "ExamplesInitializationSection", ___], ___}, _], ___] :> g,
+            Missing[], Infinity]},
+        If[! MissingQ[initGrp] && ! FreeQ[nb, Cell[_, "PrimaryExamplesSection", ___]],
+            nb = DeleteCases[nb, initGrp, Infinity];
+            nb = nb /. Cell[CellGroupData[{pe : Cell[_, "PrimaryExamplesSection", ___], peRest___}, peSt_], peo___] :>
+                Cell[CellGroupData[{pe,
+                    Replace[initGrp, Cell[CellGroupData[{h_, r___}, _], io___] :> Cell[CellGroupData[{h, r}, Closed], io]],
+                    peRest}, peSt], peo]
+        ]
+    ];
     setDocMetadata[fillCategorization[nb, "Symbol", meta], meta, "Symbol"]
 ]
 

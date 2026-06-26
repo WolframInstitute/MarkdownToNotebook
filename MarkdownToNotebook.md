@@ -787,3 +787,25 @@ VerificationTest[
 ]
 ```
 
+Example messages are captured at the box level (an `Internal`HandlerBlock["Message"]`, not a `$Messages` text file), so a message is rebuilt from its template + args with each arg boxified: a styled `RawBoxes` argument - as `ResourceFunction`'s `ResourceFunctionMessage` puts in its name slot - becomes a real `StyleBox` in the message boxes instead of dumping a literal `RawBoxes[StyleBox[…]]` string:
+
+```wl
+VerificationTest[
+    messageBoxData["RFM::user", "`1`: `2`", {RawBoxes[StyleBox[RowBox[{"Foo", "::", "bar"}], "MessageName"]], "oops"}],
+    RowBox[{StyleBox["RFM::user", "MessageName"], ": ", StyleBox[RowBox[{"Foo", "::", "bar"}], "MessageName"], ": ", "oops"}],
+    TestID -> "styled RawBoxes message arg becomes a StyleBox, not literal text (ResourceFunctionMessage)"
+]
+```
+
+The Examples-Initialization section is nested as a Closed first child of the Examples section, the way a built page has it - not a top-level sibling of `PrimaryExamplesSection`. A sibling renders its own section rule, so a page published without DocumentationBuild would show two stacked rules between Details and Examples:
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook["---\nTemplate: Symbol\nName: Foo\nContext: P`Q`\nPaclet: P/Q\nURI: P/Q/ref/Foo\n---\n\n## Usage\n\n`Foo[x]` does.\n\n## Basic Examples\n\n```wl\nFoo[1]\n```\n", "Evaluate" -> False]},
+        {Length @ Cases[First[nb], Cell[CellGroupData[{Cell[___, "ExamplesInitializationSection", ___], ___}, _], ___]],
+         ! FreeQ[nb, Cell[CellGroupData[{Cell[_, "PrimaryExamplesSection", ___], Cell[CellGroupData[{Cell[___, "ExamplesInitializationSection", ___], ___}, Closed], ___], ___}, _], ___]]}],
+    {0, True},
+    TestID -> "ExamplesInitializationSection nested in Examples, not a sibling section (no double rule)"
+]
+```
+
