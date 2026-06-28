@@ -809,3 +809,28 @@ VerificationTest[
 ]
 ```
 
+A symbol reference in a resource notebook (`Template: Paclet` / `FunctionResource` / ...) is the plain reference-`Link` ButtonBox the Function/Paclet Repository templates use - `BaseStyle -> "Link"` with the `paclet:ref/...` target kept (the cloud resolves it on deploy) - not the doc-center `RefLink` / `PackageLink` TemplateBox a built doc page uses, which the resource stylesheet has no definition for:
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook["---\nTemplate: Paclet\nName: Foo\nPaclet: Pub/Foo\nDescription: x\n---\n\n## Details\n\n- Uses [ColorConvert]() here.\n", "Evaluate" -> False]},
+        {Length @ Cases[nb, TemplateBox[_, "RefLink" | "PackageLink", ___], Infinity],
+         ! FreeQ[nb, ButtonBox["ColorConvert", ___, ButtonData -> "paclet:ref/ColorConvert", ___]]}],
+    {0, True},
+    TestID -> "resource-template autolink is a plain paclet Link ButtonBox (FunctionResource form), not a doc-center RefLink"
+]
+```
+
+A doc page (`Symbol` / `Guide` / `TechNote`) still emits the typed `paclet:` `RefLink` - it is built by DocumentationBuild and rendered in the doc center, where both the template and the `paclet:` scheme resolve (issue #20):
+
+```wl
+VerificationTest[
+    ! FreeQ[
+        MarkdownToNotebook["---\nTemplate: Symbol\nName: Bar\nContext: P`Q`\nPaclet: P/Q\nURI: P/Q/ref/Bar\n---\n\n## Usage\n\n`Bar[x]` x.\n\n## Details\n\n- Uses [ColorConvert]() here.\n", "Evaluate" -> False],
+        TemplateBox[_, "RefLink", ___]
+    ],
+    True,
+    TestID -> "doc-page autolink still uses the typed paclet RefLink (issue #20)"
+]
+```
+

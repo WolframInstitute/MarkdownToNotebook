@@ -21,33 +21,41 @@ Needs["GeneralUtilities`"]
    LaTeXMathParse handles \frac / \mathbb / scripts / sized delimiters that
    the ImportString[..., "TeX"] fallback (wolframParserTeX) loses.
 
-   Prefer the vendored submodule, resolved against THIS file's own location
-   so it is found from any working directory - the old DirectoryQ check was
-   cwd-relative and silently degraded to ImportString when MTN ran from
-   elsewhere (issue #25). PacletDirectoryLoad makes the paclet manager serve
-   the highest version, so a stale installed copy can't shadow the vendored
-   one. When the .wl was fetched standalone (no submodule on disk), install
-   the published paclet - but skip the install when an adequate version is
-   already present. *)
+   The dependency is enforced on USE (ensureParser[], called by every
+   MarkdownToNotebook invocation), not at load. A deployed ResourceFunction's
+   body is loaded once in whatever session first dereferences it (the build /
+   deploy kernel), so the check + Needs must run when the function is actually
+   called, in the caller's kernel - the same reason $convertDepth is read at
+   call time below. Only the vendored-submodule path is resolved here, while
+   $InputFileName still points at this file. *)
 $parserVersion = "0.2.3"
 pacletInstalledQ[paclet_String, version_String] := AnyTrue[
     Through[PacletFind[paclet]["Version"]],
     ResourceFunction["VersionOrder"][#, version] <= 0 &
 ]
-With[{vendored = FileNameJoin[{
-        Replace[DirectoryName[$InputFileName], "" :> Directory[]],
-        "examples", "WolframParser"}]},
+(* the vendored submodule, resolved against THIS file's location so it is found
+   from any working directory - the old cwd-relative check silently degraded to
+   ImportString when MTN ran from elsewhere (issue #25) *)
+$parserDir = FileNameJoin[{
+    Replace[DirectoryName[$InputFileName], "" :> Directory[]], "examples", "WolframParser"}]
+$parserReady = False
+(* Make Wolfram`Parser` available, once per session. Prefer the vendored submodule
+   (PacletDirectoryLoad makes the paclet manager serve the highest version, so a
+   stale installed copy can't shadow it); else install the published paclet,
+   skipping the install when an adequate version is already present. Best-effort:
+   if no parser is reachable the math path falls back to ImportString (see
+   wolframParserTeX, which gates on the symbol existing at call time rather than on
+   this succeeding). *)
+ensureParser[] := If[! TrueQ[$parserReady],
     Which[
-        DirectoryQ[vendored], PacletDirectoryLoad[vendored],
+        DirectoryQ[$parserDir], PacletDirectoryLoad[$parserDir],
         pacletInstalledQ["Wolfram/Parser", $parserVersion], Null,
         ! FailureQ[PacletInstall["Wolfram/Parser"]], Null,
         True, PacletInstall[ResourceObject["https://wolfr.am/1ECIxdqhB"]]
-    ]
+    ];
+    Quiet @ Check[Needs["Wolfram`Parser`"], Null];
+    $parserReady = True
 ]
-(* Best-effort: if no parser is reachable, MTN still loads and the math path
-   falls back to ImportString (see wolframParserTeX, which gates on the symbol
-   existing at call time rather than on this load succeeding). *)
-Quiet @ Check[Needs["Wolfram`Parser`"], Null]
 
 mdSep = "\n(*--cell--*)\n"
 
@@ -2729,6 +2737,16 @@ mathBlockCell[math_String] := With[{
     Cell[BoxData[PaneBox[boxes, ImageSize -> Full, Alignment -> Center]], "DisplayFormula"]
 ]
 
+(* the web-deployed resource templates (Function / Paclet / Example / Data
+   Repository, Prompt, Demonstration). Their notebooks keep the official resource
+   stylesheet - which has NONE of the doc-center typed-link templates (PackageLink /
+   RefLink, issue #20) - and their deployed page is plain web HTML where paclet:
+   URIs don't resolve. So a symbol reference in one must be a plain Hyperlink to the
+   public web URL, not the typed TemplateBox a built doc page (Symbol/Guide/TechNote)
+   uses. Doc pages go through DocumentationBuild + the doc center, where both hold. *)
+$resourceTemplates = {"FunctionResource", "Paclet", "Example", "Data", "Prompt", "Demonstration"}
+resourceTemplateQ[] := MemberQ[$resourceTemplates, $docTemplate]
+
 (* markdown links: [text](paclet:Pub/Name/ref/Sym) -> a reference Link (palette
    "Custom URI"); [text](http...) -> a Hyperlink (palette "Link to URL"). The
    ButtonBox sits directly in the surrounding TextData (a text hyperlink), not
@@ -2739,10 +2757,17 @@ mathBlockCell[math_String] := With[{
    the label in code/formula style as the link, i.e. a reference link the way
    See Also entries look. So [`WCAGContrastRatio`](paclet:.../ref/WCAGContrastRatio)
    is a code-styled symbol link, while [the docs](https://...) is a prose link. *)
-linkButton[text_, url_String] := If[
+linkButton[text_, url_String] := Which[
+    (* a resource notebook's stylesheet has none of the doc-center typed-link
+       TemplateBoxes (issue #20), so emit a plain reference-Link ButtonBox instead -
+       keeping the paclet: target, which the cloud / CloudPublish resolves on the
+       deployed page (and which the markdown twin rewrites to a web URL for GitHub) *)
+    StringStartsQ[url, "paclet:"] && resourceTemplateQ[],
+        ButtonBox[text, BaseStyle -> "Link", ButtonData -> url],
     StringStartsQ[url, "paclet:"],
-    pacletLinkBox[text, url], (* issue #20 *)
-    ButtonBox[text, BaseStyle -> "Hyperlink", ButtonData -> {URL[url], None}]
+        pacletLinkBox[text, url], (* issue #20 *)
+    True,
+        ButtonBox[text, BaseStyle -> "Hyperlink", ButtonData -> {URL[url], None}]
 ]
 
 (* a linkButton result safe to splice into prose TextData: a bare TemplateBox
@@ -2877,9 +2902,15 @@ resolveWebRefs[text_String] := Block[{s = text, resolveLink},
    content - a bare [Name] is left as literal text. If the name does not resolve,
    fall back to plain inline code. *)
 linkInferred[name_String] := Block[{url = inferURL[name]},
-    If[ url === None,
-        codeToInline[name],
-        Cell[BoxData @ pacletLinkBox[name, url], "InlineFormula"] (* issue #20 *)
+    Which[
+        url === None, codeToInline[name],
+        (* resource notebook: the plain reference-Link ButtonBox the Function/Paclet
+           Repository templates use (FunctionResource`Information`insertButtonData) -
+           BaseStyle "Link" + the paclet:ref target kept. The doc-center typed
+           PackageLink/RefLink TemplateBox of issue #20 is doc-page-only. *)
+        resourceTemplateQ[],
+            Cell[BoxData @ ButtonBox[name, BaseStyle -> "Link", ButtonData -> url], "InlineFormula"],
+        True, Cell[BoxData @ pacletLinkBox[name, url], "InlineFormula"] (* issue #20 *)
     ]
 ]
 
@@ -3041,7 +3072,7 @@ tableCellBox[text_String, opts___] := Cell[TextData @ inlineTextData[text], "Tab
 tableGridRow[cells_List, ncol_Integer, opts___] :=
     tableCellBox[#, opts] & /@ PadRight[cells, ncol, ""]
 
-$tableCellStyleFor := If[MemberQ[{"FunctionResource", "Paclet", "Example", "Data", "Prompt", "Demonstration"}, $docTemplate], "TableNotes", "Text"]
+$tableCellStyleFor := If[resourceTemplateQ[], "TableNotes", "Text"]
 
 (* a pipe table renders as a *TableMod cell when the doc template's
    stylesheet defines them (paclet documentation pages, ncol = 2 or 3);
@@ -4871,6 +4902,7 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
     src, text, parsed, meta, blocks, sections, tmplName, defCode, ctx, ctxPath,
     orderedCode, hashes, cacheDocName, cacheNames, cached, allHit, outputs, data, filled
 },
+    ensureParser[];
     src = resolveSource[file];
     text = src["Text"];
     parsed = litParse[text];
