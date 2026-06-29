@@ -1833,14 +1833,14 @@ listItemCells[block_, base_String] := With[{style = If[TrueQ[block["Ordered"]], 
 ]
 
 detailsCells[sections_] := Catenate @ Map[
-    block |-> Switch[block["Type"],
+    block |-> applyBlockMeta[Switch[block["Type"],
         "Prose", {Cell[TextData @ inlineTextData[block["Text"]], "Notes"]},
         "List", listItemCells[block, "Notes"],
         "Table", {tableCell[block]},
         "Quote", {quoteCell[block["Text"]]},
         "MathBlock", {mathBlockCell[block["Text"]]},
         _, {}
-    ],
+    ], block],
     (* The Notes slot is filled from the "Details" section. Accept both headings
        authors use for it: "## Details & Options" (the doc-tools title) and
        "## Details" alone. sectionKey normalizes " & " to " and ", so
@@ -1985,22 +1985,26 @@ exampleContent[sectionBlocks_, textStyle_String] := Block[{counter = 0, chunks =
                 flush[]; head = Cell[TextData @ inlineTextData[block["Text"]], exampleSubStyle[textStyle, block["Level"]]]; counter = 0,
             block["Type"] === "Separator",
                 flush[]; head = exampleDelimiterCell; counter = 0,
+            (* every content cell honors the block's #| directives (style / tags /
+               annotation) via applyBlockMeta, exactly as defaultNotebook and
+               proseBlockCells do - so "#| annotation:" before an example sentence
+               or cell becomes a real annotation in the structured templates too. *)
             block["Type"] === "Prose",
-                AppendTo[cur, Cell[TextData @ inlineTextData[block["Text"]], textStyle]],
+                cur = Join[cur, applyBlockMeta[{Cell[TextData @ inlineTextData[block["Text"]], textStyle]}, block]],
             block["Type"] === "Table",
-                AppendTo[cur, tableCell[block]],
+                cur = Join[cur, applyBlockMeta[{tableCell[block]}, block]],
             block["Type"] === "List",
-                cur = Join[cur, listItemCells[block, "Item"]],
+                cur = Join[cur, applyBlockMeta[listItemCells[block, "Item"], block]],
             block["Type"] === "Quote",
-                AppendTo[cur, quoteCell[block["Text"]]],
+                cur = Join[cur, applyBlockMeta[{quoteCell[block["Text"]]}, block]],
             block["Type"] === "MathBlock",
-                AppendTo[cur, mathBlockCell[block["Text"]]],
+                cur = Join[cur, applyBlockMeta[{mathBlockCell[block["Text"]]}, block]],
             block["Type"] === "Image",
-                AppendTo[cur, imageCell[block]],
+                cur = Join[cur, applyBlockMeta[{imageCell[block]}, block]],
             executableQ[block],
-                counter += 1; cur = Join[cur, exampleIOFor[block, counter]],
+                counter += 1; cur = Join[cur, applyBlockMeta[exampleIOFor[block, counter], block]],
             block["Type"] === "Code",
-                cur = Join[cur, withCellFlag[block, {nonExecutableCell[block]}]]
+                cur = Join[cur, applyBlockMeta[withCellFlag[block, {nonExecutableCell[block]}], block]]
         ],
         {block, sectionBlocks}
     ];
