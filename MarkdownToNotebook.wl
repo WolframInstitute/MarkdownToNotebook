@@ -1563,28 +1563,45 @@ allCodeOf[sections_, key_] := Cases[Lookup[sections, key, {}], b_ /; codeBlockQ[
    or tagged cell round-trips (NotebookToMarkdown re-emits these directives). *)
 cellTagList[v_] := DeleteCases[StringTrim /@ StringSplit[ToString[v], ","], ""]
 
+(* The "LastAnnotator" name baked into the annotation chrome. DocumentationTools'
+   AnnotationCell[] uses $AuthorUserName - the FrontEnd "AuthorUserName" interface
+   setting, else $UserName. For a headless / cloud build we prefer $CloudAccountName
+   (the publishing account), falling back to $UserName when not cloud-connected.
+   Resolved at build time, as DocumentationTools does, so the note records who
+   generated it. *)
+annotatorName[] := With[{n = $CloudAccountName}, If[StringQ[n] && n =!= "", n, $UserName]]
+
 (* the Edit / annotator / Delete chrome DocumentationTools' AnnotationRemove /
    AnnotationSearch match against ($AnnotationCellPattern); rebuilt verbatim so a
    round-tripped "#| annotation:" stays a real, removable annotation. Self-
-   contained box literals - no DocumentationTools dependency. The annotator name
-   is left empty (not carried by the directive); the FE shows just the label. *)
-annotationButtonsCell[] := Cell[BoxData[GridBox[
+   contained box literals - no DocumentationTools dependency. The "LastAnnotator"
+   slot carries annotatorName[], matching AnnotationCell[]'s RowBox[{label, name}]. *)
+annotationButtonsCell[] := With[{author = annotatorName[]}, Cell[BoxData[GridBox[
     {{
         Cell[BoxData[ButtonBox[DynamicBox[FEPrivate`FrontEndResource["DocumentationToolsStrings", "Edit"]],
             BaseStyle -> "TextAnnotationButton"]]],
-        StyleBox[RowBox[{DynamicBox[FEPrivate`FrontEndResource["DocumentationToolsStrings", "LastAnnotator"]], ""}],
+        StyleBox[RowBox[{DynamicBox[FEPrivate`FrontEndResource["DocumentationToolsStrings", "LastAnnotator"]], author}],
             "TextAnnotator"],
         Cell[BoxData[ButtonBox[DynamicBox[FEPrivate`FrontEndResource["DocumentationToolsStrings", "Delete"]],
             BaseStyle -> "TextAnnotationRemoveButton"]]],
         ""
     }},
     GridBoxAlignment -> {"Columns" -> {Left, Left, Right, Right}, "Rows" -> {{Automatic}}},
-    GridBoxItemSize -> {"Columns" -> {Scaled[0.15], Scaled[0.68], Scaled[0.15], Scaled[0.02]}}]]]
+    GridBoxItemSize -> {"Columns" -> {Scaled[0.15], Scaled[0.68], Scaled[0.15], Scaled[0.02]}}]]]]
 
 (* the CellFrameLabels an "Annotate" annotation lives in: the note (its date
    prefix kept verbatim from the directive) over the Edit/Delete chrome. *)
 annotationFrameLabels[note_String] := CellFrameLabels -> {{Inherited, Inherited}, {Inherited,
     Cell[TextData[{note, "\n\n", annotationButtonsCell[], "\n"}], "TextAnnotation", CellSize -> {590, Inherited}]}}
+
+(* a CellID for an annotated cell. GenerateAnnotationDialog (the Edit button) reads
+   the cell's CellID, aborts with "SelectedCellNoCellID" if it has none, and
+   NotebookFind locates the cell by that value - so it must be present AND unique
+   within the notebook (a content-derived hash would collide for two cells with the
+   same body + note, sending Edit to the wrong cell). A fresh random 9-digit integer,
+   the scheme the FrontEnd itself uses to stamp CellIDs; the round-trip compares only
+   Input-cell code, so non-determinism here is irrelevant. *)
+annotationCellID[] := RandomInteger[{100000000, 999999999}]
 
 (* Idempotent: re-applying the same options is a no-op (existing CellTags are
    replaced, not duplicated), so a cell may pass through applyCellMeta more than
@@ -1597,7 +1614,9 @@ applyCellMeta[Cell[c_, st_String, rest___], opts_Association] := Module[{r = {re
     If[KeyExistsQ[opts, "tags"] || KeyExistsQ[opts, "annotation"],
         r = Append[DeleteCases[r, CellTags -> _], CellTags -> DeleteDuplicates[tags]]];
     If[KeyExistsQ[opts, "annotation"],
-        r = Append[DeleteCases[r, CellFrameLabels -> _], annotationFrameLabels[opts["annotation"]]]];
+        r = Append[DeleteCases[r, CellFrameLabels -> _], annotationFrameLabels[opts["annotation"]]];
+        (* the Edit button needs a unique CellID; add one only if the cell lacks one *)
+        If[FreeQ[r, CellID -> _], AppendTo[r, CellID -> annotationCellID[]]]];
     Cell[c, Lookup[opts, "style", st], Sequence @@ r]
 ]
 applyCellMeta[other_, _] := other
@@ -3273,8 +3292,11 @@ symbolNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"]
     If[ notes =!= {},
         nb = nb /. Cell[_, "Notes", ___] :> Sequence @@ notes
     ];
-    (* load every documented context (Context + ContextPath) so a reader can run
-       the examples - matches the build-time evaluation $ContextPath *)
+    (* fill the ExampleInitialization cell with a Needs[] for every documented
+       context (Context + ContextPath) so a reader can run the examples. The
+       template's ExamplesInitializationSection is kept as-is - it is the standard
+       Examples-Initialization section every built ref page has (e.g. LeanLink), and
+       DocumentationBuild folds it into the Examples section at build time. *)
     If[ docContextList[meta] =!= {},
         nb = nb /. Cell[_, "ExampleInitialization", o___] :> Cell[BoxData[inputBoxes[exampleInitCode[meta]]], "ExampleInitialization", o]
     ];
@@ -3310,23 +3332,6 @@ symbolNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"]
        ExampleSubsection placeholders or bare counters makes the build fail). *)
     nb = fillExtendedExamples[nb, sections];
     nb = groupPrimaryExamples[nb];
-    (* Nest the Examples-Initialization section as a Closed first child of the
-       Examples section (the canonical built-page shape) instead of leaving it a
-       top-level sibling of PrimaryExamplesSection. As a sibling it renders its own
-       section rule, so a page published WITHOUT DocumentationBuild (as PureMath
-       does) shows two stacked rules between Details and Examples; nested + Closed
-       it is the single subtle bar a built page shows. *)
-    With[{initGrp = FirstCase[nb,
-            g : Cell[CellGroupData[{Cell[___, "ExamplesInitializationSection", ___], ___}, _], ___] :> g,
-            Missing[], Infinity]},
-        If[! MissingQ[initGrp] && ! FreeQ[nb, Cell[_, "PrimaryExamplesSection", ___]],
-            nb = DeleteCases[nb, initGrp, Infinity];
-            nb = nb /. Cell[CellGroupData[{pe : Cell[_, "PrimaryExamplesSection", ___], peRest___}, peSt_], peo___] :>
-                Cell[CellGroupData[{pe,
-                    Replace[initGrp, Cell[CellGroupData[{h_, r___}, _], io___] :> Cell[CellGroupData[{h, r}, Closed], io]],
-                    peRest}, peSt], peo]
-        ]
-    ];
     setDocMetadata[fillCategorization[nb, "Symbol", meta], meta, "Symbol"]
 ]
 

@@ -738,16 +738,18 @@ VerificationTest[
 ]
 ```
 
-A `#| annotation:` directive reconstructs a real "Annotate" annotation on its cell: the cell regains the `"TextAnnotation"` CellTag and a `CellFrameLabels` note (its date prefix kept verbatim) whose Edit/Delete chrome matches the shape `DocumentationTools`AnnotationRemove` looks for, so a round-tripped annotation stays a removable annotation rather than an orphan note:
+A `#| annotation:` directive reconstructs a real "Annotate" annotation on its cell: the cell regains the `"TextAnnotation"` CellTag, a `CellFrameLabels` note (its date prefix kept verbatim) whose Edit/Delete chrome matches the shape `DocumentationTools`AnnotationRemove` looks for, a `CellID` (the Edit button's `GenerateAnnotationDialog` aborts without one), and a non-empty `LastAnnotator` name - so a round-tripped annotation stays a removable, editable annotation rather than an orphan note:
 
 ```wl
 VerificationTest[
     With[{nb = MarkdownToNotebook["---\nTitle: T\n---\n\n<!-- #| annotation: 26.06.22: review me -->\nbody text\n"]},
-        ! FreeQ[nb, CellTags -> ({___, "TextAnnotation", ___} | "TextAnnotation")] &&
-        ! FreeQ[nb, Cell[TextData[{"26.06.22: review me", ___}], "TextAnnotation", ___]]
+        {! FreeQ[nb, CellTags -> ({___, "TextAnnotation", ___} | "TextAnnotation")],
+         ! FreeQ[nb, Cell[TextData[{"26.06.22: review me", ___}], "TextAnnotation", ___]],
+         ! FreeQ[FirstCase[nb, Cell[_, ___, CellFrameLabels -> {{_, _}, {_, Cell[_, "TextAnnotation", ___]}}, ___], Null, Infinity], CellID -> _Integer],
+         ! FreeQ[nb, StyleBox[RowBox[{_, Except["", _String]}], "TextAnnotator"]]}
     ],
-    True,
-    TestID -> "#| annotation: rebuilds the TextAnnotation tag + CellFrameLabels note"
+    {True, True, True, True},
+    TestID -> "#| annotation: rebuilds the TextAnnotation tag, note, CellID, and LastAnnotator name"
 ]
 ```
 
@@ -797,15 +799,15 @@ VerificationTest[
 ]
 ```
 
-The Examples-Initialization section is nested as a Closed first child of the Examples section, the way a built page has it - not a top-level sibling of `PrimaryExamplesSection`. A sibling renders its own section rule, so a page published without DocumentationBuild would show two stacked rules between Details and Examples:
+A symbol page keeps the standard Examples-Initialization section - the `ExamplesInitializationSection` group with an `ExampleInitialization` cell that `Needs[]` the documented context - exactly as the authoring template ships it and every built ref page has it (e.g. Wolfram/LeanLink). `DocumentationBuild` folds it into the Examples section at build time:
 
 ```wl
 VerificationTest[
     With[{nb = MarkdownToNotebook["---\nTemplate: Symbol\nName: Foo\nContext: P`Q`\nPaclet: P/Q\nURI: P/Q/ref/Foo\n---\n\n## Usage\n\n`Foo[x]` does.\n\n## Basic Examples\n\n```wl\nFoo[1]\n```\n", "Evaluate" -> False]},
-        {Length @ Cases[First[nb], Cell[CellGroupData[{Cell[___, "ExamplesInitializationSection", ___], ___}, _], ___]],
-         ! FreeQ[nb, Cell[CellGroupData[{Cell[_, "PrimaryExamplesSection", ___], Cell[CellGroupData[{Cell[___, "ExamplesInitializationSection", ___], ___}, Closed], ___], ___}, _], ___]]}],
-    {0, True},
-    TestID -> "ExamplesInitializationSection nested in Examples, not a sibling section (no double rule)"
+        {! FreeQ[nb, Cell[___, "ExamplesInitializationSection", ___]],
+         ! FreeQ[nb, Cell[BoxData[b_ /; ! FreeQ[b, "\"P`Q`\""]], "ExampleInitialization", ___]]}],
+    {True, True},
+    TestID -> "Symbol page keeps the standard Examples-Initialization section with a Needs cell"
 ]
 ```
 
