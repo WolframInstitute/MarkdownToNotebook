@@ -15,16 +15,16 @@ writes YAML frontmatter and `## section` headings; the converter chooses every
 cell style. Use the `Prompt` template.
 
 Model new documents on the worked example -
-https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/AdaLovelace.md
+https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/examples/AdaLovelace.md
 (a Persona) - and read
-https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/resource-notebooks.md
+https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/resource-notebooks.md
 (the "Prompt" section) for the slot-by-slot mapping.
 
 Read first - the canonical guidelines:
 
 - Prompt Repository submission guidelines: https://resources.wolframcloud.com/PromptRepository/guidelines
 - Prompt Repository style guidelines (the rules a submission is reviewed against): https://resources.wolframcloud.com/PromptRepository/style-guidelines
-- Wolfram Language code style: https://github.com/sw1sh/MarkdownToNotebook/blob/main/GUIDE.md
+- Wolfram Language code style: https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/GUIDE.md
 
 ## Frontmatter
 
@@ -83,7 +83,7 @@ Links: ["[label](https://example.com)"]
   than a chat session. Same example-section conventions as a Function Resource;
   for the per-cell authoring rules (one demonstration per cell,
   `:`-terminated caption, `---` between siblings) see
-  [docs/examples.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/examples.md).
+  [docs/examples.md](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/examples.md).
 
 **Optional, Persona-only**:
 

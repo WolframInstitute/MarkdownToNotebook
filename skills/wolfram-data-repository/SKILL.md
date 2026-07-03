@@ -15,11 +15,11 @@ The author writes YAML frontmatter and `## section` headings; the converter
 chooses every cell style. Use the `Data` template.
 
 The canonical worked example is the seventeen wallpaper groups dataset at
-[examples/WallpaperGroups.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/WallpaperGroups.md)
+[examples/WallpaperGroups.md](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/examples/WallpaperGroups.md)
 - a flat `Association` of records keyed by IUC symbol, with two named accessors
 (`ByLattice`, `ByPointGroup`) and the four canonical example subsections.
 Model new documents on it, and read
-https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/data-repository.md
+https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/data-repository.md
 for the slot-by-slot mapping (every Markdown key -> template slot -> notebook
 cell shape).
 
@@ -29,13 +29,13 @@ Read first - the canonical guidelines:
 - Data Repository style guidelines: https://resources.wolframcloud.com/DataRepository/style-guidelines
 - Write Data Resource Examples (the `$$Object` / `$$Data` convention used by the example cells): https://reference.wolfram.com/language/workflow/WriteDataResourceExamples.html
 - Use Data from the Wolfram Data Repository (retrieval patterns the examples should demonstrate): https://reference.wolfram.com/language/workflow/UseDataFromTheWolframDataRepository.html
-- Wolfram Language code style: https://github.com/sw1sh/MarkdownToNotebook/blob/main/GUIDE.md
+- Wolfram Language code style: https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/GUIDE.md
 
 ## Frontmatter
 
 Fence a `key: value` YAML header with `---` at the very top. The keys mirror the
 template's metadata slots (see
-[docs/data-repository.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/data-repository.md)
+[docs/data-repository.md](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/data-repository.md)
 for the full table):
 
 ```
@@ -110,14 +110,14 @@ set both.
 The cross-template conventions live in three docs - point at them, do not
 duplicate:
 
-- [docs/resource-guidelines.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/resource-guidelines.md)
+- [docs/resource-guidelines.md](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/resource-guidelines.md)
   for the shared rules (Name, Description, Author Notes, Links, straight
   quotes, ...).
-- [docs/examples.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/examples.md)
+- [docs/examples.md](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/examples.md)
   for the one-demonstration-per-cell / one-sentence `:`-terminated caption /
   `---`-between-siblings example-authoring rule that every Data example
   section must follow.
-- [docs/formatting.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/formatting.md)
+- [docs/formatting.md](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/formatting.md)
   for inline formatting: backtick `` `code` `` -> Template Input, inline math
   `$...$`, and inferred symbol links written as `<code>[Range]()</code>`.
 
@@ -209,7 +209,7 @@ example uses `wallpaperGroups[...]` directly so the conversion produces real
 
 Each example follows the same one-demonstration-per-cell /
 one-sentence `:`-terminated caption / `---`-between-siblings rule
-[docs/examples.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/examples.md)
+[docs/examples.md](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/examples.md)
 documents once. Record an expected result with an `<!-- => ... -->` comment
 after a cell.
 
@@ -241,13 +241,13 @@ AI-authorship disclosure is **required** when the resource was drafted or
 substantially edited with help from an LLM-based assistant - identify the
 model, the human supervisor, and which parts are model-generated vs
 hand-edited. The minimum-bar template and rationale live in
-[the AI-assisted authoring disclosure section of resource-guidelines.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/resource-guidelines.md#ai-assisted-authoring-disclosure-author-notes);
+[the AI-assisted authoring disclosure section of resource-guidelines.md](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/resource-guidelines.md#ai-assisted-authoring-disclosure-author-notes);
 the text fills the same Author Notes slot in the Data template that it does
 in every other resource template.
 
 ## Worked example
 
-See [examples/WallpaperGroups.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/WallpaperGroups.md)
+See [examples/WallpaperGroups.md](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/examples/WallpaperGroups.md)
 for the canonical end-to-end document: frontmatter with every statistical-
 metadata field set, `## Details` with bullets and inline math, `## Content`
 with one primary payload and two named accessors (all `#| eval: false`),
@@ -267,7 +267,7 @@ mtn["WallpaperGroups.md", "WallpaperGroups.nb"]
 To deploy publicly, do **not** rely on a headless `DeployResource` (it scrapes
 an empty definition); scrape the notebook into a `ResourceObject` and
 `CloudDeploy` the resulting Data resource - see the deploy note in
-https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/subtleties.md .
+https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/subtleties.md .
 Submit to the repository with the docked Submit button or `ResourceSubmit`.
 Before submitting, run `` DefinitionNotebookClient`CheckDefinitionNotebook[nbo] ``
 and clear its hints (that doc lists the common ones and their fixes).
@@ -317,7 +317,7 @@ flow before treating them as canonical:
   license labels (CC0 / CC BY / Public Domain / ...), that constraint is not
   surfaced here.
 - **Required vs optional statistical-metadata fields** - the slot mapping in
-  [docs/data-repository.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/data-repository.md)
+  [docs/data-repository.md](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/data-repository.md)
   documents which slots exist, but does not say which the Check pass treats
   as required. The conservative read is that `Author` / `Date` / `Publisher`
   / `GeographicCoverage` / `TemporalCoverage` / `Language` / `Rights` /

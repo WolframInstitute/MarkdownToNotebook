@@ -10,7 +10,7 @@ description: Author a Wolfram Language symbol reference page (a function/symbol 
 document with the `Symbol` template.
 
 **Before authoring, read
-https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/doc-pages.md** -
+https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/doc-pages.md** -
 the *Conventions across all doc pages* section there covers the rules shared
 by Symbol, Guide, and TechNote pages (the `[Symbol]()` / backticks split,
 italics for argument names, `EvaluateSeparator` for state-threading, the
@@ -28,7 +28,7 @@ the Paclet Repository rules apply to it):
 
 - Paclet Repository, creating paclets: https://resources.wolframcloud.com/PacletRepository/creating-paclets
 - Paclet Repository, submission guidelines: https://resources.wolframcloud.com/PacletRepository/guidelines
-- Wolfram Language code style: https://github.com/sw1sh/MarkdownToNotebook/blob/main/GUIDE.md
+- Wolfram Language code style: https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/GUIDE.md
 
 ## Frontmatter
 
@@ -132,7 +132,7 @@ subdirectories: like guides they stay flat in
   `## Neat Examples`. The example-authoring rule (one demonstration per
   cell, one-sentence `:`-terminated caption, `---` between siblings,
   `### Heading` becomes an `ExampleSubsection`) is documented once in
-  [docs/examples.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/examples.md) - follow it everywhere example cells appear.
+  [docs/examples.md](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/examples.md) - follow it everywhere example cells appear.
 
 ## Examples and outputs
 

@@ -11,7 +11,7 @@ with the `TechNote` template. Unlike a symbol or guide page, a tech note has **n
 fixed sections** - it is free-flowing prose and code, like a tutorial.
 
 **Before authoring, read
-https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/doc-pages.md** -
+https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/doc-pages.md** -
 the *Conventions across all doc pages* section there covers the rules shared
 by Symbol, Guide, and TechNote pages (the `[Symbol]()` / backticks split,
 italics for argument names, `EvaluateSeparator` for state-threading multi-part
@@ -26,7 +26,7 @@ Paclet Repository rules apply to it):
 
 - Paclet Repository, creating paclets: https://resources.wolframcloud.com/PacletRepository/creating-paclets
 - Paclet Repository, submission guidelines: https://resources.wolframcloud.com/PacletRepository/guidelines
-- Wolfram Language code style: https://github.com/sw1sh/MarkdownToNotebook/blob/main/GUIDE.md
+- Wolfram Language code style: https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/GUIDE.md
 
 ## Frontmatter
 
@@ -58,7 +58,7 @@ it directly to documentation cell styles:
   paclet loads and examples run. Tech-note example cells follow the same
   per-cell rule the resource pages use: one demonstration per cell,
   one-sentence `:`-terminated caption, `---` between siblings - see
-  [docs/examples.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/examples.md).
+  [docs/examples.md](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/examples.md).
 
 Structure the note as a narrative: lead with the problem, show the simplest
 approach, then build up. Use concrete, runnable examples throughout. Inline math is

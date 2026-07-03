@@ -7,7 +7,7 @@ ContributedBy: "Nikolay Murzin, Claude (Anthropic)"
 Keywords: [markdown, literate programming, inverse, function repository, notebook, round trip]
 Categories: [Notebook Documents & Presentation]
 SeeAlso: [ResourceFunction, ResourceObject, NotebookGet, MarkdownToNotebook]
-Links: ["[MarkdownToNotebook - the forward converter](https://resources.wolframcloud.com/FunctionRepository/resources/MarkdownToNotebook/)", "[Source on GitHub](https://github.com/sw1sh/MarkdownToNotebook)"]
+Links: ["[MarkdownToNotebook - the forward converter](https://resources.wolframcloud.com/FunctionRepository/resources/MarkdownToNotebook/)", "[Source on GitHub](https://github.com/WolframInstitute/MarkdownToNotebook)"]
 EntrySymbol: NotebookToMarkdown
 ---
 

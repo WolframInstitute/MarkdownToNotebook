@@ -10,8 +10,8 @@ notebook. `MarkdownToNotebook` fills it from a literate-markdown document with t
 `Paclet` template. The worked example is the AccessibleColors paclet definition at
 https://github.com/sw1sh/AccessibleColors/blob/main/ResourceDefinition.md ; model
 new paclets on it and read
-https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/resource-notebooks.md
-and https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/resource-guidelines.md
+https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/resource-notebooks.md
+and https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/resource-guidelines.md
 for the slot mapping and Paclet Repository rules.
 
 A paclet is more than this one notebook: it also has documentation pages (guide,
@@ -23,7 +23,7 @@ Read first - the canonical guidelines:
 
 - Paclet Repository, creating paclets (the build, deploy and submit workflow): https://resources.wolframcloud.com/PacletRepository/creating-paclets
 - Paclet Repository, submission guidelines (the rules a paclet is reviewed against): https://resources.wolframcloud.com/PacletRepository/guidelines
-- Wolfram Language code style: https://github.com/sw1sh/MarkdownToNotebook/blob/main/GUIDE.md
+- Wolfram Language code style: https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/GUIDE.md
 
 ## Frontmatter
 
@@ -49,7 +49,7 @@ Links: ["[label](https://example.com)"]
 ```
 
 Notes that bite (see
-https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/subtleties.md):
+https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/subtleties.md):
 `Name`/`Paclet` include the publisher
 ID (`Publisher/PacletName`); `MainGuide` is the **relative** notebook path, not a
 bare name; `Description` must match `PacletInfo.wl`'s `"Description"` exactly; each
@@ -90,7 +90,7 @@ your paclet actually meets - the submission reviewer reads them. Valid set
   inferred reference links (the `<code>` wrapper applies code styling, the empty
   parens make markdown viewers render it as a clickable link).
 - Example sections (`## Basic Examples`, `## Scope`, `## Applications`, ...) -
-  follow the example-authoring rule in [docs/examples.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/examples.md)
+  follow the example-authoring rule in [docs/examples.md](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/examples.md)
   (one demonstration per cell, one-sentence `:`-terminated caption,
   `---` between siblings).
 - `## Hero Image` - the landing-page image. Its first executable cell is evaluated;
@@ -102,7 +102,7 @@ your paclet actually meets - the submission reviewer reads them. Valid set
   **Required when the paclet was drafted with help from an AI assistant**:
   identify the model, the human supervisor, and which parts are model-
   generated vs hand-edited. See the [AI-assisted authoring
-  disclosure](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/resource-guidelines.md#ai-assisted-authoring-disclosure-author-notes)
+  disclosure](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/resource-guidelines.md#ai-assisted-authoring-disclosure-author-notes)
   section of the resource guidelines for the minimum-bar template.
 
 ## Code-cell options
@@ -128,7 +128,7 @@ Build the documentation pages with `DocumentationBuild` (the Symbol/Guide/TechNo
 notebooks the other skills produce). Deploy the paclet definition by scraping it
 into a `ResourceObject` and `CloudDeploy`-ing it (a headless `DeployResource`
 scrapes empty - see
-https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/subtleties.md); submit
+https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/subtleties.md); submit
 with `ResourceSubmit`. Run
 `DefinitionNotebookClient`CheckDefinitionNotebook[nbo]` and clear its hints first.
 

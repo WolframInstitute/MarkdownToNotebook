@@ -11,7 +11,7 @@ with the `Guide` template. A guide page is a paclet's documentation home: an
 abstract plus a curated, annotated list of the paclet's functions.
 
 **Before authoring, read
-https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/doc-pages.md** -
+https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/doc-pages.md** -
 the *Conventions across all doc pages* section there covers the rules shared
 by Symbol, Guide, and TechNote pages (the `[Symbol]()` / backticks split,
 italics for argument names, `EvaluateSeparator` for state-threading, the
@@ -26,7 +26,7 @@ Paclet Repository rules apply to it):
 
 - Paclet Repository, creating paclets: https://resources.wolframcloud.com/PacletRepository/creating-paclets
 - Paclet Repository, submission guidelines: https://resources.wolframcloud.com/PacletRepository/guidelines
-- Wolfram Language code style: https://github.com/sw1sh/MarkdownToNotebook/blob/main/GUIDE.md
+- Wolfram Language code style: https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/GUIDE.md
 
 ## Frontmatter
 

@@ -16,8 +16,8 @@ auto-generated thumbnail and snapshots. The author writes YAML frontmatter and
 `Demonstration` template.
 
 Model new documents on the worked example -
-https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/BlochSphereGates.md -
-and read https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/resource-notebooks.md
+https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/examples/BlochSphereGates.md -
+and read https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/resource-notebooks.md
 (the "Demonstration" section) for the slot-by-slot mapping.
 
 Read first - the canonical guidelines:
@@ -25,7 +25,7 @@ Read first - the canonical guidelines:
 - Demonstrations Project authoring guidelines (the rules a submission is reviewed against): https://demonstrations.wolfram.com/guidelines.html
 - Topics taxonomy (the menu Categories must come from): https://demonstrations.wolfram.com/topics.html
 - *Create a Demonstration* workflow: https://reference.wolfram.com/language/workflow/CreateADemonstrationForTheWolframDemonstrationsProject.html
-- Wolfram Language code style: https://github.com/sw1sh/MarkdownToNotebook/blob/main/GUIDE.md
+- Wolfram Language code style: https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/GUIDE.md
 
 ## Frontmatter
 
@@ -77,7 +77,7 @@ Kids & Fun (each with its own subtree).
   what the Manipulate would render at those parameters is fine). The site requires
   *at least three* snapshots and they should illustrate the range of behavior.
   Each snapshot is its own captioned demonstration with a `---` separator
-  between siblings - the [docs/examples.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/examples.md) rule, applied to the
+  between siblings - the [docs/examples.md](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/examples.md) rule, applied to the
   snapshot strip.
 
 **Optional**:

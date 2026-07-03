@@ -7,7 +7,7 @@ ContributedBy: Nikolay Murzin, Claude (Anthropic)
 Keywords: [markdown, literate programming, inverse, function repository, notebook, round trip]
 Categories: [Notebook Documents & Presentation]
 SeeAlso: [ResourceFunction, ResourceObject, NotebookGet, MarkdownToNotebook]
-Links: ["[MarkdownToNotebook - the forward converter](https://resources.wolframcloud.com/FunctionRepository/resources/MarkdownToNotebook/)", "[Source on GitHub](https://github.com/sw1sh/MarkdownToNotebook)"]
+Links: ["[MarkdownToNotebook - the forward converter](https://resources.wolframcloud.com/FunctionRepository/resources/MarkdownToNotebook/)", "[Source on GitHub](https://github.com/WolframInstitute/MarkdownToNotebook)"]
 EntrySymbol: NotebookToMarkdown
 ---
 
@@ -43,7 +43,7 @@ inline:
 
 ### Options for round-tripping non-standard cells
 
-The walker's default output is the clean literate-markdown twin above. The following options additionally preserve what markdown can't natively express - a non-standard `CellStyle`, `CellTags`, or an `Output` cell - by emitting MarkdownToNotebook `#|` directives the forward path reads back (see *Cell options* in [docs/formatting.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/formatting.md)).
+The walker's default output is the clean literate-markdown twin above. The following options additionally preserve what markdown can't natively express - a non-standard `CellStyle`, `CellTags`, or an `Output` cell - by emitting MarkdownToNotebook `#|` directives the forward path reads back (see *Cell options* in [docs/formatting.md](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/formatting.md)).
 
 | Option | Default | Effect |
 |---|---|---|

@@ -12,16 +12,16 @@ toolbar) from a literate-markdown document. The author writes YAML frontmatter a
 `FunctionResource` template.
 
 The canonical worked example is the converter's own definition document,
-https://github.com/sw1sh/MarkdownToNotebook/blob/main/MarkdownToNotebook.md (the
+https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/MarkdownToNotebook.md (the
 converter is its own resource). Model new documents on it, and read
-https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/resource-notebooks.md and
-https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/resource-guidelines.md for
+https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/resource-notebooks.md and
+https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/resource-guidelines.md for
 the slot-by-slot mapping and the Function Repository style rules.
 
 Read first - the canonical guidelines:
 
 - Function Repository style guidelines (the rules a submission is reviewed against): https://resources.wolframcloud.com/FunctionRepository/style-guidelines
-- Wolfram Language code style (4-space indent, naming, plot colors, no `For` / `AppendTo`, ...): https://github.com/sw1sh/MarkdownToNotebook/blob/main/GUIDE.md
+- Wolfram Language code style (4-space indent, naming, plot colors, no `For` / `AppendTo`, ...): https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/GUIDE.md
 
 ## Frontmatter
 
@@ -82,11 +82,11 @@ Always set `Categories` - an empty checkbox group is a submission hint.
   `## Possible Issues`, `## Neat Examples`. The example-authoring rule
   (one demonstration per cell, one-sentence `:`-terminated caption,
   `---` between siblings, `### Heading` becomes a subsubsection) is
-  documented once in [docs/examples.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/examples.md) - follow it for every example
+  documented once in [docs/examples.md](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/examples.md) - follow it for every example
   section in a resource.
 - `## Author Notes` - optional prose, fills the Author Information panel.
   **Required when the resource was drafted with help from an AI assistant**;
-  see [the disclosure rule in resource-guidelines.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/resource-guidelines.md#ai-assisted-authoring-disclosure-author-notes).
+  see [the disclosure rule in resource-guidelines.md](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/resource-guidelines.md#ai-assisted-authoring-disclosure-author-notes).
 
 ## Code-cell options
 
@@ -151,7 +151,7 @@ mtn["MyFunction.md", "MyFunction.nb"]
 To deploy publicly, do **not** rely on a headless `DeployResource` (it scrapes an
 empty definition); scrape the notebook into a `ResourceObject` and `CloudDeploy` the
 resulting `ResourceFunction` - see the deploy note in
-https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/subtleties.md . Submit to
+https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/subtleties.md . Submit to
 the repository with the docked Submit button or `ResourceSubmit`. Before submitting,
 run `DefinitionNotebookClient`CheckDefinitionNotebook[nbo]` and clear its hints
 (that doc lists the common ones and their fixes).

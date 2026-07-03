@@ -13,18 +13,18 @@ show how to use them. The author writes YAML frontmatter and `## section` headin
 the converter chooses every cell style. Use the `Example` template.
 
 Model new documents on the worked examples - a minimal one at
-https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/PrimeSpiralPoints.md
+https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/examples/PrimeSpiralPoints.md
 and a richer one (multiple content elements, `eval: false` content cells, inline
 math, several plots, a hero) at
-https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/QuantumWalk.md - and
-read https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/resource-notebooks.md
+https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/examples/QuantumWalk.md - and
+read https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/resource-notebooks.md
 (the "Example" section) for the slot-by-slot mapping.
 
 Read first - the canonical guidelines:
 
 - Example Repository submission guidelines: https://resources.wolframcloud.com/ExampleRepository/guidelines
 - Example Repository style guidelines (the rules a submission is reviewed against): https://resources.wolframcloud.com/ExampleRepository/style-guidelines
-- Wolfram Language code style: https://github.com/sw1sh/MarkdownToNotebook/blob/main/GUIDE.md
+- Wolfram Language code style: https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/GUIDE.md
 
 ## Frontmatter
 
@@ -66,7 +66,7 @@ Visualization & Graphics. Always set `Categories` - an empty group is a submissi
 - `## Examples` - intro prose plus runnable computations that demonstrate the content
   (the Example template has a single Examples slot, so this fills it directly - no
   named sub-sections like a Function resource). Follow the example-authoring
-  rule in [docs/examples.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/examples.md):
+  rule in [docs/examples.md](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/examples.md):
   one demonstration per cell, one-sentence `:`-terminated caption, `---`
   between siblings.
 - `## Hero Image` - the landing-page image. Its first executable cell is evaluated;
@@ -104,7 +104,7 @@ mtn["PrimeSpiralPoints.md", "PrimeSpiralPoints.nb"]
 To deploy publicly, do **not** rely on a headless `DeployResource` (it scrapes an
 empty definition); scrape the notebook into a `ResourceObject` and `CloudDeploy` the
 result - see the deploy note in
-https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/subtleties.md . Submit to
+https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/subtleties.md . Submit to
 the repository with the docked Submit button or `ResourceSubmit`. Before submitting,
 run `DefinitionNotebookClient`CheckDefinitionNotebook[nbo]` and clear its hints (that
 doc lists the common ones and their fixes).

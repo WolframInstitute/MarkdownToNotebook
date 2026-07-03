@@ -115,4 +115,4 @@ buildOne["MarkdownToNotebook.md", MarkdownToNotebook, "DeployedResources/Functio
 buildOne["NotebookToMarkdown.md", NotebookToMarkdown, "DeployedResources/Function/NotebookToMarkdown"]
 
 Print[""]
-Print["build: done (source: github.com/sw1sh/MarkdownToNotebook)"]
+Print["build: done (source: github.com/WolframInstitute/MarkdownToNotebook)"]

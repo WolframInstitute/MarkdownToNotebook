@@ -7,7 +7,7 @@ ContributedBy: "Nikolay Murzin, Claude (Anthropic)"
 Keywords: [markdown, literate programming, function repository, notebook, documentation, templates]
 Categories: [Notebook Documents & Presentation]
 SeeAlso: [ResourceFunction, ResourceObject, CreateNotebook, DefineResourceFunction]
-Links: ["[Wolfram/AccessibleColors - an example paclet authored entirely in markdown](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/AccessibleColors/)", "[Source on GitHub](https://github.com/sw1sh/MarkdownToNotebook)", "[YAML front matter - the frontmatter convention](https://jekyllrb.com/docs/front-matter/)", "[Quarto cell options - the #| option syntax](https://quarto.org/docs/computations/execution-options.html)", "[CommonMark - the base markdown spec](https://commonmark.org/)"]
+Links: ["[Wolfram/AccessibleColors - an example paclet authored entirely in markdown](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/AccessibleColors/)", "[Source on GitHub](https://github.com/WolframInstitute/MarkdownToNotebook)", "[YAML front matter - the frontmatter convention](https://jekyllrb.com/docs/front-matter/)", "[Quarto cell options - the #| option syntax](https://quarto.org/docs/computations/execution-options.html)", "[CommonMark - the base markdown spec](https://commonmark.org/)"]
 EntrySymbol: MarkdownToNotebook
 ---
 
@@ -4121,7 +4121,7 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
 - A `Flag` frontmatter key flags the whole document and a code cell's `#| flag:` option flags that cell, with one of the documentation build's flags - `Future`, `Excised`, `Obsolete`, `Temporary`, `Preview`, or `Internal` - the front end's Futurize / Excise toolbar buttons, written as the build's banner cell.
 - Evaluated example outputs are cached as a [PersistentSymbol](https://reference.wolfram.com/language/ref/PersistentSymbol.html) per cell at the `"Local"` [PersistenceLocation](https://reference.wolfram.com/language/ref/PersistenceLocation.html), keyed by a cumulative hash of the preceding cells, so re-runs reuse them across sessions.
 - Manage that cache the standard way: [PersistentObjects](https://reference.wolfram.com/language/ref/PersistentObjects.html)["MarkdownToNotebook/ExampleOutput/*", "Local"] lists it, [DeleteObject](https://reference.wolfram.com/language/ref/DeleteObject.html) clears it, and [$PersistencePath](https://reference.wolfram.com/language/ref/$PersistencePath.html) / [PersistenceLocation](https://reference.wolfram.com/language/ref/PersistenceLocation.html) relocate it.
-- The source lives on GitHub, which renders the markdown directly: [github.com/sw1sh/MarkdownToNotebook](https://github.com/sw1sh/MarkdownToNotebook).
+- The source lives on GitHub, which renders the markdown directly: [github.com/WolframInstitute/MarkdownToNotebook](https://github.com/WolframInstitute/MarkdownToNotebook).
 - Running the function on this document - [Get](https://reference.wolfram.com/language/ref/Get.html) the `.wl`, then `MarkdownToNotebook["MarkdownToNotebook.md", "MarkdownToNotebook.nb"]` - reproduces this very definition notebook; that is the loop `build.wls` runs.
 
 Individual code cells carry their own options as `#|` comment lines at the top of the cell - the [Quarto](https://quarto.org/docs/computations/execution-options.html) cell-option convention - one `key: value` per line:
@@ -4376,14 +4376,14 @@ MarkdownToNotebook["## A\n\n```wl\nx = 1\n```\n\n```wl\nx + 10\n```\n\n## B\n\n`
 
 ## Applications
 
-`MarkdownToNotebook` fills every Wolfram Repository definition notebook from plain markdown, so authors never edit notebook cell styles by hand. The samples below live under [`examples/`](https://github.com/sw1sh/MarkdownToNotebook/tree/main/examples) in the repository; `examples/build.wls` builds each one and `DeployResource`-style `CloudDeploy[ResourceObject[nb], …, Permissions -> "Public"]`s it under a stable public URL, so every link below resolves to the live deployed notebook.
+`MarkdownToNotebook` fills every Wolfram Repository definition notebook from plain markdown, so authors never edit notebook cell styles by hand. The samples below live under [`examples/`](https://github.com/WolframInstitute/MarkdownToNotebook/tree/main/examples) in the repository; `examples/build.wls` builds each one and `DeployResource`-style `CloudDeploy[ResourceObject[nb], …, Permissions -> "Public"]`s it under a stable public URL, so every link below resolves to the live deployed notebook.
 
 ### Function Resource
 
-The [`ReverseAddSequence`](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/ReverseAddSequence.md) document is a complete [Function Repository](https://resources.wolframcloud.com/FunctionRepository/) submission - usage signature, examples, options, and the function body itself - kept in one markdown file. Converting it fills the official `FunctionResource` notebook with its docked Deploy/Submit toolbar, and the build step deploys it [publicly to the cloud](https://www.wolframcloud.com/obj/nikm/DeployedResources/FunctionResource/ReverseAddSequence). The `#| screenshot: true` cell option rasterizes the produced notebook and `#| tear: 200` gives it a torn-paper screenshot look, keeping the top 200 points of output visible above the tear:
+The [`ReverseAddSequence`](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/examples/ReverseAddSequence.md) document is a complete [Function Repository](https://resources.wolframcloud.com/FunctionRepository/) submission - usage signature, examples, options, and the function body itself - kept in one markdown file. Converting it fills the official `FunctionResource` notebook with its docked Deploy/Submit toolbar, and the build step deploys it [publicly to the cloud](https://www.wolframcloud.com/obj/nikm/DeployedResources/FunctionResource/ReverseAddSequence). The `#| screenshot: true` cell option rasterizes the produced notebook and `#| tear: 200` gives it a torn-paper screenshot look, keeping the top 200 points of output visible above the tear:
 
 ```wl
-MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/ReverseAddSequence.md"]
+MarkdownToNotebook["https://raw.githubusercontent.com/WolframInstitute/MarkdownToNotebook/refs/heads/main/examples/ReverseAddSequence.md"]
 ```
 
 ![output](images/MarkdownToNotebook-out-21.png)
@@ -4420,50 +4420,50 @@ MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/PAdic/main/docs/Guid
 
 ### Example
 
-The `Example` template fills the [Example Repository](https://resources.wolframcloud.com/ExampleRepository/) definition notebook. The [`PrimeSpiralPoints`](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/PrimeSpiralPoints.md) sample ships a `"Points"` content element and a short gallery of derived plots; deployed [here](https://www.wolframcloud.com/obj/nikm/DeployedResources/Example/PrimeSpiralPoints):
+The `Example` template fills the [Example Repository](https://resources.wolframcloud.com/ExampleRepository/) definition notebook. The [`PrimeSpiralPoints`](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/examples/PrimeSpiralPoints.md) sample ships a `"Points"` content element and a short gallery of derived plots; deployed [here](https://www.wolframcloud.com/obj/nikm/DeployedResources/Example/PrimeSpiralPoints):
 
 ```wl
-MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/PrimeSpiralPoints.md"]
+MarkdownToNotebook["https://raw.githubusercontent.com/WolframInstitute/MarkdownToNotebook/refs/heads/main/examples/PrimeSpiralPoints.md"]
 ```
 
 ![output](images/MarkdownToNotebook-out-25.png)
 
 ---
 
-The [Discrete-Time Quantum Walk](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/QuantumWalk.md) sample is a longer Example doc: it derives the Hadamard-coin walk, plots the two-horned interference distribution against the classical Gaussian, and bundles the simulator as a `"Step"` content function; deployed [here](https://www.wolframcloud.com/obj/nikm/DeployedResources/Example/Discrete-TimeQuantumWalkonaLine):
+The [Discrete-Time Quantum Walk](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/examples/QuantumWalk.md) sample is a longer Example doc: it derives the Hadamard-coin walk, plots the two-horned interference distribution against the classical Gaussian, and bundles the simulator as a `"Step"` content function; deployed [here](https://www.wolframcloud.com/obj/nikm/DeployedResources/Example/Discrete-TimeQuantumWalkonaLine):
 
 ```wl
-MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/QuantumWalk.md"]
+MarkdownToNotebook["https://raw.githubusercontent.com/WolframInstitute/MarkdownToNotebook/refs/heads/main/examples/QuantumWalk.md"]
 ```
 
 ![output](images/MarkdownToNotebook-out-26.png)
 
 ### Data
 
-The `Data` template fills the [Data Repository](https://resources.wolframcloud.com/DataRepository/) definition notebook. The [Seventeen Wallpaper Groups](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/WallpaperGroups.md) sample bundles the classification table, the point-group and lattice columns, and a worked Euler-characteristic check; deployed [here](https://www.wolframcloud.com/obj/nikm/DeployedResources/Data/SeventeenWallpaperGroups):
+The `Data` template fills the [Data Repository](https://resources.wolframcloud.com/DataRepository/) definition notebook. The [Seventeen Wallpaper Groups](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/examples/WallpaperGroups.md) sample bundles the classification table, the point-group and lattice columns, and a worked Euler-characteristic check; deployed [here](https://www.wolframcloud.com/obj/nikm/DeployedResources/Data/SeventeenWallpaperGroups):
 
 ```wl
-MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/WallpaperGroups.md"]
+MarkdownToNotebook["https://raw.githubusercontent.com/WolframInstitute/MarkdownToNotebook/refs/heads/main/examples/WallpaperGroups.md"]
 ```
 
 ![output](images/MarkdownToNotebook-out-27.png)
 
 ### Prompt
 
-The `Prompt` template fills the [Prompt Repository](https://resources.wolframcloud.com/PromptRepository/) definition notebook for one of three resource types - `Persona`, `Function`, or `Modifier`. The [`AdaLovelace`](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/AdaLovelace.md) sample is a Persona prompt whose `## Prompt` section is the system message and whose `## Chat Examples` and `## Basic Examples` invoke the persona through [LLMSynthesize](https://reference.wolfram.com/language/ref/LLMSynthesize.html) and [ChatEvaluate](https://reference.wolfram.com/language/ref/ChatEvaluate.html); deployed [here](https://www.wolframcloud.com/obj/nikm/DeployedResources/Prompt/AdaLovelace):
+The `Prompt` template fills the [Prompt Repository](https://resources.wolframcloud.com/PromptRepository/) definition notebook for one of three resource types - `Persona`, `Function`, or `Modifier`. The [`AdaLovelace`](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/examples/AdaLovelace.md) sample is a Persona prompt whose `## Prompt` section is the system message and whose `## Chat Examples` and `## Basic Examples` invoke the persona through [LLMSynthesize](https://reference.wolfram.com/language/ref/LLMSynthesize.html) and [ChatEvaluate](https://reference.wolfram.com/language/ref/ChatEvaluate.html); deployed [here](https://www.wolframcloud.com/obj/nikm/DeployedResources/Prompt/AdaLovelace):
 
 ```wl
-MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/AdaLovelace.md"]
+MarkdownToNotebook["https://raw.githubusercontent.com/WolframInstitute/MarkdownToNotebook/refs/heads/main/examples/AdaLovelace.md"]
 ```
 
 ![output](images/MarkdownToNotebook-out-28.png)
 
 ### Demonstration
 
-The `Demonstration` template fills the [Demonstrations Project](https://demonstrations.wolfram.com/) authoring notebook, complete with its docked HELP / SAVE / UPDATE THUMBNAIL AND SNAPSHOTS / TEST IMAGE SIZE / UPLOAD toolbar. The [Bloch Sphere with a Quantum Gate Sequence](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/BlochSphereGates.md) sample uses one `## Caption` paragraph, the `## Initialization` definitions (the gate matrices and the Bloch projection), a single `## Manipulate` cell, and three `## Snapshots` panels - the structure the Demonstrations review requires. A snapshot is *the same `Manipulate` rendered at a specific control state*, not a different graphic, so the idiomatic pattern factors the `Manipulate` into a named helper `demo[p1_:..., p2_:..., ...]` in `## Initialization` and each `## Snapshots` cell is a call like `demo[v1, v2, ...]` with `#| input: false` so only the rendered panel appears (no code, no `In[]`/`Out[]` label):
+The `Demonstration` template fills the [Demonstrations Project](https://demonstrations.wolfram.com/) authoring notebook, complete with its docked HELP / SAVE / UPDATE THUMBNAIL AND SNAPSHOTS / TEST IMAGE SIZE / UPLOAD toolbar. The [Bloch Sphere with a Quantum Gate Sequence](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/examples/BlochSphereGates.md) sample uses one `## Caption` paragraph, the `## Initialization` definitions (the gate matrices and the Bloch projection), a single `## Manipulate` cell, and three `## Snapshots` panels - the structure the Demonstrations review requires. A snapshot is *the same `Manipulate` rendered at a specific control state*, not a different graphic, so the idiomatic pattern factors the `Manipulate` into a named helper `demo[p1_:..., p2_:..., ...]` in `## Initialization` and each `## Snapshots` cell is a call like `demo[v1, v2, ...]` with `#| input: false` so only the rendered panel appears (no code, no `In[]`/`Out[]` label):
 
 ```wl
-MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/BlochSphereGates.md"]
+MarkdownToNotebook["https://raw.githubusercontent.com/WolframInstitute/MarkdownToNotebook/refs/heads/main/examples/BlochSphereGates.md"]
 ```
 
 ![output](images/MarkdownToNotebook-out-29.png)
@@ -4480,20 +4480,20 @@ MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/AccessibleColors/ref
 
 ### Computational Essay
 
-The `ComputationalEssay` template fills the Wolfram [Computational Essay](https://writings.stephenwolfram.com/2017/11/what-is-a-computational-essay/) genre - an intellectual story told through narrative prose interleaved with short, captioned Wolfram Language inputs. The produced notebook uses the `Default.nb` stylesheet (no resource scraper, no docked submit toolbar) and is deployable to the [Notebook Archive](https://www.notebookarchive.org/), [Wolfram Community](https://community.wolfram.com/), or a public `CloudObject`. The [How Random Is Pi?](https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/PiIsMostlyRandom.md) sample probes the digits of pi for the kind of patterns a *normal* number ought not have - a chi-square test, a 2D random walk on the digits - in five short segments; deployed [here](https://www.wolframcloud.com/obj/nikm/DeployedResources/ComputationalEssay/HowRandomIsPi):
+The `ComputationalEssay` template fills the Wolfram [Computational Essay](https://writings.stephenwolfram.com/2017/11/what-is-a-computational-essay/) genre - an intellectual story told through narrative prose interleaved with short, captioned Wolfram Language inputs. The produced notebook uses the `Default.nb` stylesheet (no resource scraper, no docked submit toolbar) and is deployable to the [Notebook Archive](https://www.notebookarchive.org/), [Wolfram Community](https://community.wolfram.com/), or a public `CloudObject`. The [How Random Is Pi?](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/examples/PiIsMostlyRandom.md) sample probes the digits of pi for the kind of patterns a *normal* number ought not have - a chi-square test, a 2D random walk on the digits - in five short segments; deployed [here](https://www.wolframcloud.com/obj/nikm/DeployedResources/ComputationalEssay/HowRandomIsPi):
 
 ```wl
-MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/PiIsMostlyRandom.md"]
+MarkdownToNotebook["https://raw.githubusercontent.com/WolframInstitute/MarkdownToNotebook/refs/heads/main/examples/PiIsMostlyRandom.md"]
 ```
 
 ![output](images/MarkdownToNotebook-out-31.png)
 
 ### Book
 
-The `Chapter` template fills the [Wolfram Book Tools](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/WolframBookTools) chapter notebook - the structure used by long-form course / book material with TOC navigation, exercises, vocabulary, Q&A, and back matter. The [IntroToQuantumComputing](https://github.com/sw1sh/MarkdownToNotebook/tree/main/examples/IntroToQuantumComputing) example is a worked two-chapter book modelled on the first two lessons of the [Wolfram Quantum Framework](https://github.com/WolframResearch/QuantumFramework) course, augmented with the book-style back matter the original notebooks did not have. Each chapter compiles independently; the build script also stamps `ExpressionUUID`s on heading cells (so the TOC buttons have stable jump targets), generates `Contents.nb` in the same shape `WolframBookTools` `WBTMakeContentsFromDialog` writes, and (`--publish`) deploys the whole book to the cloud - chapter 1 [here](https://www.wolframcloud.com/obj/nikm/IntroToQuantumComputing/01-what-is-quantum-computation.nb), chapter 2 [here](https://www.wolframcloud.com/obj/nikm/IntroToQuantumComputing/02-building-blocks-of-quantum-circuits.nb), and the [TOC](https://www.wolframcloud.com/obj/nikm/IntroToQuantumComputing/Contents.nb):
+The `Chapter` template fills the [Wolfram Book Tools](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/WolframBookTools) chapter notebook - the structure used by long-form course / book material with TOC navigation, exercises, vocabulary, Q&A, and back matter. The [IntroToQuantumComputing](https://github.com/WolframInstitute/MarkdownToNotebook/tree/main/examples/IntroToQuantumComputing) example is a worked two-chapter book modelled on the first two lessons of the [Wolfram Quantum Framework](https://github.com/WolframResearch/QuantumFramework) course, augmented with the book-style back matter the original notebooks did not have. Each chapter compiles independently; the build script also stamps `ExpressionUUID`s on heading cells (so the TOC buttons have stable jump targets), generates `Contents.nb` in the same shape `WolframBookTools` `WBTMakeContentsFromDialog` writes, and (`--publish`) deploys the whole book to the cloud - chapter 1 [here](https://www.wolframcloud.com/obj/nikm/IntroToQuantumComputing/01-what-is-quantum-computation.nb), chapter 2 [here](https://www.wolframcloud.com/obj/nikm/IntroToQuantumComputing/02-building-blocks-of-quantum-circuits.nb), and the [TOC](https://www.wolframcloud.com/obj/nikm/IntroToQuantumComputing/Contents.nb):
 
 ```wl
-MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/examples/IntroToQuantumComputing/chapters/01-what-is-quantum-computation.md"]
+MarkdownToNotebook["https://raw.githubusercontent.com/WolframInstitute/MarkdownToNotebook/refs/heads/main/examples/IntroToQuantumComputing/chapters/01-what-is-quantum-computation.md"]
 ```
 
 ![output](images/MarkdownToNotebook-out-32.png)
@@ -4525,7 +4525,7 @@ MarkdownToNotebook["nonexistent.md", "Association"]["Sections"]
 The neatest example is this very document: running the function on its own GitHub source produces the notebook itself, the one you are reading (its `## Definition` even inlines `MarkdownToNotebook.wl` from the same GitHub directory, so the one URL is self-contained). The example converts its own source, so it passes `"Evaluate" -> False` to leave that copy's example cells unevaluated rather than re-run this very example without end:
 
 ```wl
-NotebookPut[MarkdownToNotebook["https://raw.githubusercontent.com/sw1sh/MarkdownToNotebook/refs/heads/main/MarkdownToNotebook.md", "Evaluate" -> False]]
+NotebookPut[MarkdownToNotebook["https://raw.githubusercontent.com/WolframInstitute/MarkdownToNotebook/refs/heads/main/MarkdownToNotebook.md", "Evaluate" -> False]]
 ```
 
 ![output](images/MarkdownToNotebook-out-35.png)

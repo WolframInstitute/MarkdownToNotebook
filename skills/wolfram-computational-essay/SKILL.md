@@ -17,8 +17,8 @@ promotes any one-line prose ending with `:` (right before a code block) to a
 `ComputationalEssay` template.
 
 Model new documents on the worked example -
-https://github.com/sw1sh/MarkdownToNotebook/blob/main/examples/PiIsMostlyRandom.md
-- and read https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/resource-notebooks.md
+https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/examples/PiIsMostlyRandom.md
+- and read https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/resource-notebooks.md
 (the "ComputationalEssay" section) for the slot mapping.
 
 Read first - the canonical guidelines:
@@ -27,7 +27,7 @@ Read first - the canonical guidelines:
 - *Steps to Writing a Computational Essay* (official guidelines): https://www.wolframcloud.com/obj/Expositions/Published/ComputationalEssayGuidelines
 - The canonical template-opener `ResourceFunction["ComputationalEssayTemplate"]`: https://resources.wolframcloud.com/FunctionRepository/resources/ComputationalEssayTemplate
 - *Computational Essays* collection on the Notebook Archive: https://www.notebookarchive.org/collection-pod?collection=computational-essays
-- Wolfram Language code style: https://github.com/sw1sh/MarkdownToNotebook/blob/main/GUIDE.md
+- Wolfram Language code style: https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/GUIDE.md
 
 `ResourceFunction["ComputationalEssayTemplate"][]` is the "button" the
 official guidelines refer to: evaluating it in a notebook opens an empty
@@ -73,7 +73,7 @@ needs. The conventional shape:
   a sentence or two of context, then a one-line caption ending with `:` that
   describes what the code does, then the code itself, then its output. The
   one-cell-per-demonstration rule that holds across every other resource
-  type (see [docs/examples.md](https://github.com/sw1sh/MarkdownToNotebook/blob/main/docs/examples.md)) holds here too - never
+  type (see [docs/examples.md](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/docs/examples.md)) holds here too - never
   cram two unrelated computations into one `wl` cell.
 - A closing section that summarises what was found and what was *not* shown.
 - A `## References` section with one numbered reference per item.
