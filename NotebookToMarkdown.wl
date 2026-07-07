@@ -181,26 +181,30 @@ walkerMath[s_String] := StringReplace[StringReplace[normStr[s], $mathAsciiOps], 
 walkerMath[StyleBox[s_String, "TI", ___]] /; StringMatchQ[s, RegularExpression["[a-zA-Z]{2,}"]] :=
     "\\mathit{" <> s <> "}"
 walkerMath[StyleBox[s_, ___]] := walkerMath[s]
-walkerMath[FractionBox[a_, b_]] := walkerMath[a] <> "/" <> walkerMath[b]
+(* every fixed-arity box rule carries a "___" option tail: the forward pipeline
+   emits option-bearing script boxes inline (e.g. UnderscriptBox[sum, m,
+   LimitsPositioning -> False]) and without the tail they skip every rule and dump
+   the raw box tree into the $...$ span (issue #51). *)
+walkerMath[FractionBox[a_, b_, ___]] := walkerMath[a] <> "/" <> walkerMath[b]
 (* a script base with any trailing spacing glue (the "\," walkerMath emits for a
    whitespace leaf) stripped, so a script never lands on a glue node - KaTeX errors
    "Got group of unknown type: 'internal'" on "U\, ^{\dagger}" (issue #33). An
    empty base becomes "{}" so the script still has a valid base. *)
 scriptBase[box_] := Replace[
     StringReplace[walkerMath[box], ("\\," | " ") .. ~~ EndOfString -> ""], "" -> "{}"]
-walkerMath[SubscriptBox[a_, b_]] := scriptBase[a] <> "_{" <> walkerMath[b] <> "}"
-walkerMath[SuperscriptBox[a_, b_]] := scriptBase[a] <> "^{" <> walkerMath[b] <> "}"
-walkerMath[SubsuperscriptBox[a_, b_, c_]] := scriptBase[a] <> "_{" <> walkerMath[b] <> "}^{" <> walkerMath[c] <> "}"
-walkerMath[SqrtBox[a_]] := "\\sqrt{" <> walkerMath[a] <> "}"
-walkerMath[RadicalBox[a_, b_]] := "\\sqrt[" <> walkerMath[b] <> "]{" <> walkerMath[a] <> "}"
-walkerMath[UnderscriptBox[a_, b_]] := walkerMath[a] <> "_{" <> walkerMath[b] <> "}"
-walkerMath[OverscriptBox[a_, "^"]] := "\\hat{" <> walkerMath[a] <> "}"
-walkerMath[OverscriptBox[a_, "_"]] := "\\overline{" <> walkerMath[a] <> "}"
+walkerMath[SubscriptBox[a_, b_, ___]] := scriptBase[a] <> "_{" <> walkerMath[b] <> "}"
+walkerMath[SuperscriptBox[a_, b_, ___]] := scriptBase[a] <> "^{" <> walkerMath[b] <> "}"
+walkerMath[SubsuperscriptBox[a_, b_, c_, ___]] := scriptBase[a] <> "_{" <> walkerMath[b] <> "}^{" <> walkerMath[c] <> "}"
+walkerMath[SqrtBox[a_, ___]] := "\\sqrt{" <> walkerMath[a] <> "}"
+walkerMath[RadicalBox[a_, b_, ___]] := "\\sqrt[" <> walkerMath[b] <> "]{" <> walkerMath[a] <> "}"
+walkerMath[UnderscriptBox[a_, b_, ___]] := walkerMath[a] <> "_{" <> walkerMath[b] <> "}"
+walkerMath[OverscriptBox[a_, "^", ___]] := "\\hat{" <> walkerMath[a] <> "}"
+walkerMath[OverscriptBox[a_, "_", ___]] := "\\overline{" <> walkerMath[a] <> "}"
 (* vector / harpoon accent -> \vec (issue #33: a raw harpoon as \overset arg is
    untypesettable) *)
-walkerMath[OverscriptBox[a_, "\[RightVector]" | "\[RightArrow]"]] := "\\vec{" <> walkerMath[a] <> "}"
-walkerMath[OverscriptBox[a_, b_]] := "\\overset{" <> walkerMath[b] <> "}{" <> walkerMath[a] <> "}"
-walkerMath[UnderoverscriptBox[a_, b_, c_]] := walkerMath[a] <> "_{" <> walkerMath[b] <> "}^{" <> walkerMath[c] <> "}"
+walkerMath[OverscriptBox[a_, "\[RightVector]" | "\[RightArrow]", ___]] := "\\vec{" <> walkerMath[a] <> "}"
+walkerMath[OverscriptBox[a_, b_, ___]] := "\\overset{" <> walkerMath[b] <> "}{" <> walkerMath[a] <> "}"
+walkerMath[UnderoverscriptBox[a_, b_, c_, ___]] := walkerMath[a] <> "_{" <> walkerMath[b] <> "}^{" <> walkerMath[c] <> "}"
 walkerMath[ButtonBox[n_, ___]] := walkerMath[n]
 (* GridBox -> a TeX matrix environment (issue #33: a bare grid hit the catch-all
    and dumped its box tree). The author's own delimiters sit OUTSIDE the grid as
@@ -244,18 +248,25 @@ walkerMath[other_] := ToString[other, InputForm]
    literal "\n" strings. The handful of 2D box types get one-dimensional
    surface equivalents - subscripts and superscripts have no surface form so we
    use the canonical functional one. *)
-boxToCode[s_String] := normStr[s]
+(* deactivate the four active PUA linear-syntax markers back to inert ASCII BEFORE
+   normStr drops the whole PUA structural band - so a string-embedded box (a
+   reactivated AssociationThread key, issue #44) round-trips md -> nb -> twin.md to
+   the exact linear-syntax source instead of leaving broken SubscriptBox[...] text. *)
+$linearSyntaxDeactivate = {
+    FromCharacterCode[63425] -> "\\!", FromCharacterCode[63433] -> "\\(",
+    FromCharacterCode[63432] -> "\\*", FromCharacterCode[63424] -> "\\)"};
+boxToCode[s_String] := normStr @ StringReplace[s, $linearSyntaxDeactivate]
 (* multi-statement Input cells store as BoxData[{b1, ";", "\n", b2, ...}] -
    a bare List of boxes. Without this rule the headless boxToCode fallback
    dumps the raw box tree via ToString[InputForm] (issue #16). *)
 boxToCode[xs_List] := StringJoin[boxToCode /@ xs]
 boxToCode[RowBox[xs_List]] := StringJoin[boxToCode /@ xs]
-boxToCode[FractionBox[a_, b_]] := boxToCode[a] <> "/" <> boxToCode[b]
-boxToCode[SqrtBox[a_]] := "Sqrt[" <> boxToCode[a] <> "]"
-boxToCode[SubscriptBox[a_, b_]] := "Subscript[" <> boxToCode[a] <> ", " <> boxToCode[b] <> "]"
-boxToCode[SuperscriptBox[a_, b_]] := boxToCode[a] <> "^" <> boxToCode[b]
-boxToCode[SubsuperscriptBox[a_, b_, c_]] := boxToCode[a] <> "_" <> boxToCode[b] <> "^" <> boxToCode[c]
-boxToCode[OverscriptBox[a_, _]] := boxToCode[a]
+boxToCode[FractionBox[a_, b_, ___]] := boxToCode[a] <> "/" <> boxToCode[b]
+boxToCode[SqrtBox[a_, ___]] := "Sqrt[" <> boxToCode[a] <> "]"
+boxToCode[SubscriptBox[a_, b_, ___]] := "Subscript[" <> boxToCode[a] <> ", " <> boxToCode[b] <> "]"
+boxToCode[SuperscriptBox[a_, b_, ___]] := boxToCode[a] <> "^" <> boxToCode[b]
+boxToCode[SubsuperscriptBox[a_, b_, c_, ___]] := boxToCode[a] <> "_" <> boxToCode[b] <> "^" <> boxToCode[c]
+boxToCode[OverscriptBox[a_, _, ___]] := boxToCode[a]
 boxToCode[FormBox[b_, ___]] := walkerMath[b]
 boxToCode[InterpretationBox[disp_, ___]] := boxToCode[disp]
 boxToCode[TagBox[disp_, ___]] := boxToCode[disp]
@@ -281,7 +292,7 @@ emWrap[s_String, mark_String] := Which[
 
 (* === string cleaner for inline captions ===
    A placeholder string in an authoring nb is stored as front-end linear syntax:
-   "<PUA \!\(\*>StyleBox["x", "TI"]<PUA \)>". The \! \( \* \) markers are
+   "<PUA lead-in>StyleBox["x", "TI"]<PUA close>". The linear-syntax markers are
    private-use characters; convert StyleBox["x","TI"] -> *x*, SubscriptBox ->
    $_{}$ etc., then drop the PUA markers and map formal/script/etc. glyphs.
    Do NOT put the raw linear-syntax form in this source: Get would parse it
@@ -359,8 +370,9 @@ callFormMath[other_] := walkerMath[other]
 
 (* does a box tree carry 2D math structure (so it should render as $...$, not `code`)? *)
 mathyQ[b_] := ! FreeQ[b, _SubscriptBox | _SuperscriptBox | _SubsuperscriptBox |
-    _FractionBox | _SqrtBox | _RadicalBox | _OverscriptBox | _UnderscriptBox | _FormBox |
-    TemplateBox[_, "Ket" | "Bra" | "Braket" | "BraKet" | "SuperDagger" | "Dagger" | "Conjugate"]]
+    _FractionBox | _SqrtBox | _RadicalBox | _OverscriptBox | _UnderscriptBox | _UnderoverscriptBox |
+    _GridBox | _FormBox |
+    TemplateBox[_, "Ket" | "Bra" | "Braket" | "BraKet" | "SuperDagger" | "Dagger" | "Conjugate" | "Abs" | "Norm"]]
 
 (* a flat formula may have no 2D structure but still carry math-only glyphs -
    Greek (U+0370..03FF), letterlike script (U+2100..214F), the Mathematical
@@ -491,8 +503,8 @@ feInputText[bd_] := Module[{r},
     StringTrim @ If[MatchQ[r, {_String, ___}], First[r], ToString[r]]
 ]
 (* Strip a wrapping TagBox / InterpretationBox before handing the cell to
-   the FE - InputText preserves these wrappers as their `\!\(\*TagBox[...]\)`
-   linear box form (the FE thinks they're meaningful 2D structure) and
+   the FE - InputText preserves these wrappers as their linear-syntax TagBox[...]
+   box form (the FE thinks they're meaningful 2D structure) and
    surfaces them in the recovered fence as raw box source instead of the
    code the cell visually renders as. Every other walker (boxToCode,
    inlineMd, walkerMath) already unwraps these heads (issue #6). *)
@@ -645,7 +657,17 @@ $knownBlockStyles = {
     "Item", "Item1", "Item2", "Bullet", "ItemNumbered", "ItemNumbered1",
     "Input", "Code", "ExampleInput", "Program",
     "PrimaryExamplesSection", "ExampleSection", "ExampleSubsection",
-    "ExampleSubsubsection", "ExampleDelimiter", "InlineFormula"
+    "ExampleSubsubsection", "ExampleDelimiter", "InlineFormula",
+    (* "$$...$$" display math (issue #40) *)
+    "DisplayFormula",
+    (* Chapter back-matter sections + their content, all round-tripping to
+       "## Title" / list / prose (issue #50) *)
+    "SummarySection", "VocabularySection", "KeyConceptsSection", "ExerciseSection",
+    "QASection", "TechNoteSection", "MoreExploreSection", "ReferenceSection",
+    "ResourcesSection", "TakeawaysSection", "VocabularySubsection",
+    "SummaryList", "Reference", "TechNoteItem", "MoreExploreItem", "ResourceItem",
+    "TakeawaysList", "KeyConceptsList", "SummaryNote", "VocabularyText",
+    "ExerciseNote", "ExerciseSectionNote", "TechNote", "QANote"
 };
 (* DocumentationTools scaffolding a template fills in by default: a cell with such
    a style / tag is a template default cell, skipped under Automatic (not authored
@@ -806,6 +828,22 @@ blockFor["ExampleDelimiter", _] := "---"
 
 (* InlineFormula at block level (rare; normally inlined). *)
 blockFor["InlineFormula", c_] := "`" <> tidy @ inlineMd[c] <> "`"
+
+(* Display math: a "$$...$$" block builds to a DisplayFormula cell wrapping the math
+   in a centering PaneBox; unwrap it back to a "$$...$$" block (issue #40). *)
+blockFor["DisplayFormula", BoxData[PaneBox[b_, ___]]] := "$$" <> walkerMath[b] <> "$$"
+blockFor["DisplayFormula", BoxData[b_]] := "$$" <> walkerMath[b] <> "$$"
+
+(* Chapter (Wolfram Book Tools) reserved back-matter sections: the H2 heading cell
+   and its list / note content round-trip back to "## Title" + items (issue #50). *)
+blockFor[("SummarySection" | "VocabularySection" | "KeyConceptsSection" |
+    "ExerciseSection" | "QASection" | "TechNoteSection" | "MoreExploreSection" |
+    "ReferenceSection" | "ResourcesSection" | "TakeawaysSection"), c_] := "## " <> sectionTitle[c]
+blockFor["VocabularySubsection", c_] := "### " <> sectionTitle[c]
+blockFor[("SummaryList" | "Reference" | "TechNoteItem" | "MoreExploreItem" |
+    "ResourceItem" | "TakeawaysList" | "KeyConceptsList"), c_] := "- " <> tidy @ inlineMd[c]
+blockFor[("SummaryNote" | "VocabularyText" | "ExerciseNote" | "ExerciseSectionNote" |
+    "TechNote" | "QANote"), c_] := tidy @ inlineMd[c]
 
 (* Drop known-decoration / evaluation / metadata styles. *)
 blockFor[s_String, _] /; MemberQ[$dropStyles, s] := ""

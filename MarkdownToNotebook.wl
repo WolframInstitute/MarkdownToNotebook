@@ -1270,9 +1270,12 @@ verbatimInlineQ[s_String] := StringFreeQ[s, Whitespace] && Or[
 $linearSyntaxReactivate = {
     "\\!" -> FromCharacterCode[63425], "\\(" -> FromCharacterCode[63433],
     "\\*" -> FromCharacterCode[63432], "\\)" -> FromCharacterCode[63424]};
-(* the inert box lead-in, assembled from pieces so the converter's own source
-   carries no literal run of it to self-match. *)
-$linearSyntaxLeadIn = StringJoin["\\", "!", "\\", "(", "\\", "*"];
+(* the inert linear-syntax group opener (backslash-bang backslash-paren), assembled
+   from pieces so the converter's own source carries no literal run of it to
+   self-match. Every group opens with this regardless of what follows - "\*<box>",
+   a form tag ("TraditionalForm`..."), or a bare group - so gating on it catches all
+   three (issue #57), not just the star-box shape. *)
+$linearSyntaxLeadIn = StringJoin["\\", "!", "\\", "("];
 (* a cell whose ENTIRE source is one string literal carrying that inert lead-in is
    a typeset string label (a PlotLabel, a ket, a TableHeadings entry). Reactivation
    is restricted to such a whole-string-literal cell, so ordinary code that merely
@@ -1295,7 +1298,11 @@ inputBoxes[code_String] := Block[{boxes, parsed, trimmed = StringTrim[code]},
            WL, but the normal shape of inline LaTeX - skip the reparse and emit the
            raw string so it renders verbatim. "\[Name]" Wolfram named characters
            are unaffected because they have "[" (not a letter) after the backslash. *)
-        If[StringContainsQ[trimmed, "\\" ~~ LetterCharacter ~~ LetterCharacter],
+        (* exempt a cell that carries linear syntax: its lead-in followed by a letter
+           (e.g. the newline before "SubscriptBox" in a multiline box) is WL box code,
+           not LaTeX, and must reach the reparse + reactivation below (issue #58). *)
+        If[StringContainsQ[trimmed, "\\" ~~ LetterCharacter ~~ LetterCharacter] &&
+            ! StringContainsQ[trimmed, $linearSyntaxLeadIn],
             Return[trimmed]
         ];
         (* a path / URL / dotted filename: keep verbatim (see verbatimInlineQ). *)
@@ -1303,11 +1310,21 @@ inputBoxes[code_String] := Block[{boxes, parsed, trimmed = StringTrim[code]},
     ];
     boxes = Quiet @ UsingFrontEnd @ MathLink`CallFrontEnd[FrontEnd`ReparseBoxStructurePacket[trimmed]];
     If[ FreeQ[boxes, $Failed] && (StringQ[boxes] || ! AtomQ[boxes]),
-        fixBlankHead[boxes],
+        reactivateStringLinearSyntax @ fixBlankHead[boxes],
         parsed = Quiet @ ToExpression[code, StandardForm, Defer];
         If[parsed === $Failed, code, ToBoxes[parsed]]
     ]
 ]
+
+(* ReparseBoxStructurePacket does not reactivate linear syntax inside a string
+   literal it does not own (a nested "..." argument, e.g. an AssociationThread key),
+   so a box-syntax string one argument deep rebuilds as literal ASCII. Walk the
+   reparsed boxes and reactivate the inert tokens in every String box token that
+   carries the full lead-in - keyed on the complete opener so a token holding a stray
+   group-open is untouched (issue #44). A no-op on the whole-string-label path, where
+   the token was already reactivated before the reparse. *)
+reactivateStringLinearSyntax[boxes_] := boxes /.
+    s_String /; StringContainsQ[s, $linearSyntaxLeadIn] :> StringReplace[s, $linearSyntaxReactivate]
 
 (* The FE reparser splits a Blank from a NAMED-character head: an underscore
    followed by a Wolfram named character comes back as a 2-element RowBox meaning
