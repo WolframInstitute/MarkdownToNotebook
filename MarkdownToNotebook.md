@@ -810,6 +810,36 @@ VerificationTest[
 ]
 ```
 
+An example-output cache entry whose boxes embed a raw format-wrapper expression (a `TraditionalForm[...]` inside an `Interpretation` / `Manipulate` / `DynamicModule` output) round-trips through the persistent cache: it is stored `Compress`'d, so `Put` cannot render it as un-reparseable 2D text and force the whole document to permanently cache-miss:
+
+```wl
+VerificationTest[
+    Module[{entry, name, got},
+        entry = <|"outs" -> {ToBoxes[Interpretation[TraditionalForm[Cos[x/2]], TraditionalForm[Cos[x/2]]]]},
+            "msgs" -> {}, "prints" -> {}, "cells" -> {}|>;
+        name = exampleCacheName["CacheReproTest", 1, 987654321];
+        exampleCacheSet[name, entry];
+        got = exampleCacheGet[name];
+        DeleteObject[PersistentObjects[name, "Local"]];
+        got === entry],
+    True,
+    TestID -> "cache survives an embedded TraditionalForm wrapper (Compress round-trip, issue #60)"
+]
+```
+
+A `#| tags:` (or `#| annotation:`) directive before a fenced code cell lands on the Input cell even after the cell is evaluated - the Input/Output pair is wrapped in a `CellGroupData`, so the directive is applied to the group's first (Input) cell, not dropped (issue #42):
+
+```wl
+VerificationTest[
+    ! FreeQ[
+        MarkdownToNotebook["<!-- #| tags: mytag -->\n```wl\n1 + 1\n```\n"],
+        Cell[_, "Input", ___, CellTags -> {___, "mytag", ___}, ___]
+    ],
+    True,
+    TestID -> "#| tags on a fenced code cell survives evaluation, lands on the Input cell (issue #42)"
+]
+```
+
 A symbol page keeps the standard Examples-Initialization section - the `ExamplesInitializationSection` group with an `ExampleInitialization` cell that `Needs[]` the documented context - exactly as the authoring template ships it and every built ref page has it (e.g. Wolfram/LeanLink). `DocumentationBuild` folds it into the Examples section at build time:
 
 ```wl

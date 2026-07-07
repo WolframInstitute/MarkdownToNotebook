@@ -1651,6 +1651,12 @@ applyCellMeta[Cell[c_, st_String, rest___], opts_Association] := Module[{r = {re
         If[FreeQ[r, CellID -> _], AppendTo[r, CellID -> annotationCellID[]]]];
     Cell[c, Lookup[opts, "style", st], Sequence @@ r]
 ]
+(* an evaluated code cell is wrapped as Cell[CellGroupData[{Input, Output}, ...]];
+   apply the block's #| style / tags / annotation to the FIRST (Input) cell inside -
+   the one the directive belongs on - so a code cell's tag / annotation round-trips
+   (issue #42), not just an unevaluated (bare Input) one. *)
+applyCellMeta[Cell[CellGroupData[{first_, rest___}, gopts___], copts___], opts_Association] :=
+    Cell[CellGroupData[{applyCellMeta[first, opts], rest}, gopts], copts]
 applyCellMeta[other_, _] := other
 
 applyBlockMeta[cells_List, b_] := Module[{o = Lookup[b, "Options", <||>], hm, out},
@@ -4859,8 +4865,16 @@ exampleCacheName[docName_String, cellIdx_Integer, h_Integer] :=
         "/" <> IntegerString[cellIdx, 10, 3] <>
         "-" <> IntegerString[h, 36]
 
-exampleCacheGet[name_String] := PersistentSymbol[name, $cacheLocation]
-exampleCacheSet[name_String, v_] := (PersistentSymbol[name, $cacheLocation] = v;)
+(* Store the entry Compress'd. PersistentSymbol serializes via Put, which renders an
+   embedded raw format-wrapper expression (TraditionalForm[...] / OutputForm[...], as
+   Interpretation / Manipulate / DynamicModule outputs carry) as 2D text - fraction
+   bars, "cos(...)" - that Get can no longer parse (Syntax::sntx), so the entry reads
+   back Missing and, since allHit needs every entry, the whole doc re-evaluates on
+   every warm build and re-poisons the entry (issue #60). Compress round-trips any
+   expression as an opaque ASCII string. Legacy uncompressed entries (an Association,
+   not a String) pass through unchanged. *)
+exampleCacheGet[name_String] := Replace[PersistentSymbol[name, $cacheLocation], c_String :> Uncompress[c]]
+exampleCacheSet[name_String, v_] := (PersistentSymbol[name, $cacheLocation] = Compress[v];)
 
 (* === entry point === *)
 
