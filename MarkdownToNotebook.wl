@@ -2762,10 +2762,30 @@ texBoxesViaImport[math_String] :=
    templates in proportion. Display math (mathBlockCell -> DisplayFormula) keeps
    its own prominent size. *)
 $inlineFontSize = 0.9 Inherited
+
+(* A bare big operator (indefinite \int, or a limit-less \sum / \prod) comes back
+   from LaTeXMathParse as StyleBox[op, FontSize -> 1.7 Inherited] - the lone glyph
+   blown up to read as a tall sign, which towers over a short integrand and stretches
+   the inline line (issue #47). Dampen it: a restrained inline size, a larger display
+   size. Key on the GLYPH, not the factor - sized delimiters (\Big(, \Bigg[) also
+   arrive as StyleBox[char, FontSize -> r Inherited] with r up to 3.0 and must keep
+   their size; the large-operator characters are disjoint from every delimiter. The
+   "> 1.5" guard limits the rewrite to the enlargement, never a deliberately shrunk
+   operator. Matched char-by-char so a multi-glyph \iint / \iiint run qualifies. *)
+$bigOpGlyphs = {"\[Integral]", "\[ContourIntegral]", "\[DoubleContourIntegral]",
+    "\[ClockwiseContourIntegral]", "\[CounterClockwiseContourIntegral]",
+    "\[Sum]", "\[Product]", "\[Coproduct]"}
+bigOpGlyphQ[s_String] := StringLength[s] > 0 && AllTrue[Characters[s], MemberQ[$bigOpGlyphs, #] &]
+$bigOpInlineScale = 1.15
+$bigOpDisplayScale = 1.4
+dampenBigOps[boxes_, scale_] := boxes /.
+    StyleBox[s_String, a___, FontSize -> (r_?NumericQ) Inherited, b___] /; bigOpGlyphQ[s] && r > 1.5 :>
+        StyleBox[s, a, FontSize -> scale Inherited, b]
+
 mathInline[math_String] := Block[{boxes = texBoxes[math]},
     If[ boxes === $Failed,
         Cell[BoxData[FormBox[inputBoxes[math], TraditionalForm]], "InlineFormula", FontSize -> $inlineFontSize],
-        Cell[BoxData[boxes], "InlineFormula", FontSize -> $inlineFontSize]
+        Cell[BoxData[dampenBigOps[boxes, $bigOpInlineScale]], "InlineFormula", FontSize -> $inlineFontSize]
     ]
 ]
 
@@ -2775,7 +2795,7 @@ mathInline[math_String] := Block[{boxes = texBoxes[math]},
    and centers its content; that way the equation sits horizontally centered the way
    a markdown viewer renders display math, in any stylesheet. *)
 mathBlockCell[math_String] := With[{
-    boxes = Replace[texBoxes[math], $Failed -> FormBox[inputBoxes[math], TraditionalForm]]
+    boxes = dampenBigOps[Replace[texBoxes[math], $Failed -> FormBox[inputBoxes[math], TraditionalForm]], $bigOpDisplayScale]
 },
     Cell[BoxData[PaneBox[boxes, ImageSize -> Full, Alignment -> Center]], "DisplayFormula"]
 ]

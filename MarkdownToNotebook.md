@@ -840,6 +840,19 @@ VerificationTest[
 ]
 ```
 
+A bare big operator (an indefinite `\int`, or a limit-less `\sum`) comes back from the parser blown up to `FontSize -> 1.7 Inherited`, towering over the inline line; it is dampened to a restrained inline scale, while a sized delimiter (`\Big(`) keeps its size (issue #47):
+
+```wl
+VerificationTest[
+    Cases[
+        MarkdownToNotebook["$\\int \\mathcal{L}\\,dx$", "Evaluate" -> False],
+        StyleBox[s_String, ___, FontSize -> (r_ ? NumericQ) Inherited, ___] /; bigOpGlyphQ[s] :> r,
+        Infinity],
+    {1.15},
+    TestID -> "bare big operator dampened to inline scale, not the parser's 1.7x (issue #47)"
+]
+```
+
 A symbol page keeps the standard Examples-Initialization section - the `ExamplesInitializationSection` group with an `ExampleInitialization` cell that `Needs[]` the documented context - exactly as the authoring template ships it and every built ref page has it (e.g. Wolfram/LeanLink). `DocumentationBuild` folds it into the Examples section at build time:
 
 ```wl
