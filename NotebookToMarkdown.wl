@@ -272,7 +272,10 @@ boxToCode[other_] := ToString[other, InputForm]
    when it is already wrapped at the same level. *)
 emWrap[s_String, mark_String] := Which[
     s === "" || StringMatchQ[s, (PunctuationCharacter | WhitespaceCharacter | "[" | "]" | "{" | "}" | "(" | ")") ..], s,
-    StringMatchQ[s, mark ~~ Except["*"] .. ~~ mark], s,
+    (* match the literal mark; a bare "*" in a StringMatchQ pattern is the
+       abbreviated-wildcard, which matches "" on both ends and reports every
+       string as already-wrapped, dropping the marks (issue #54) *)
+    StringMatchQ[s, Verbatim[mark] ~~ Except["*"] .. ~~ Verbatim[mark]], s,
     True, mark <> s <> mark
 ]
 
@@ -360,12 +363,14 @@ mathyQ[b_] := ! FreeQ[b, _SubscriptBox | _SuperscriptBox | _SubsuperscriptBox |
     TemplateBox[_, "Ket" | "Bra" | "Braket" | "BraKet" | "SuperDagger" | "Dagger" | "Conjugate"]]
 
 (* a flat formula may have no 2D structure but still carry math-only glyphs -
-   Greek (U+0370..03FF), letterlike script (U+2100..214F), or the Wolfram
+   Greek (U+0370..03FF), letterlike script (U+2100..214F), the Mathematical
+   Alphanumeric Symbols block (U+1D400..1D7FF, where \mathbb / \mathfrak / script
+   letters land after normStr's PUA mapping, issue #52), or the Wolfram
    math-letter / constant PUA band (U+F6B2..F7E4). Treat those as math too,
    so the InlineFormula dispatch routes them to "$...$" rather than the code
    fallback (issue #15). *)
 mathCharQ[c_String] := With[{n = First @ ToCharacterCode[c]},
-    880 <= n <= 1023 || 8448 <= n <= 8527 || 63154 <= n <= 63460]
+    880 <= n <= 1023 || 8448 <= n <= 8527 || 119808 <= n <= 120831 || 63154 <= n <= 63460]
 mathLikeQ[b_] := mathyQ[b] || ! FreeQ[b, s_String /; AnyTrue[Characters[s], mathCharQ]]
 
 (* a non-Link call box (Sym[...], "name"[...], *circ*[...]) is a SIGNATURE, not
@@ -417,13 +422,19 @@ inlineMd[bb_ButtonBox] := "[" <> cellPlain[bb[[1]]] <> "]()"
    code-span as `code`. *)
 inlineMd[Cell[BoxData[FormBox[b_, ___]], "InlineFormula", ___]] := "$" <> walkerMath[b] <> "$"
 inlineMd[Cell[BoxData[StyleBox[s_, "TI", ___]], "InlineFormula", ___]] :=
-    If[mathLikeQ[s], "$" <> walkerMath[s] <> "$", "*" <> boxToCode[s] <> "*"]
+    (* a TI string inside an InlineFormula is a "*x*" signature placeholder ONLY on
+       a doc page; in a narrative notebook it can only have come from a "$x$" span,
+       so route it back to math (issue #53) *)
+    If[mathLikeQ[s] || ! $docPageQ, "$" <> walkerMath[s] <> "$", "*" <> boxToCode[s] <> "*"]
 inlineMd[Cell[BoxData[ButtonBox[a___]], "InlineFormula", ___]] := inlineMd[ButtonBox[a]]
 inlineMd[Cell[BoxData[TagBox[bb_ButtonBox, ___]], "InlineFormula", ___]] := inlineMd[bb]
 inlineMd[c0 : Cell[BoxData[b_], "InlineFormula", ___]] /; ! decorationCellQ[c0] := Which[
     ! FreeQ[b, BaseStyle -> "Link" | "Hyperlink"], "<code>" <> sigBox[b] <> "</code>",
     sigCallBoxQ[b] && ($docPageQ || MatchQ[b, _FormBox]), "<code>" <> sigBox[b] <> "</code>",
     sigCallBoxQ[b], "$" <> callFormMath[b] <> "$",
+    (* narrative notebook (no signature DSL): TI content in an InlineFormula is a
+       "$...$" span of italic letters, e.g. $cz$ -> RowBox of TI (issue #53) *)
+    ! $docPageQ && ! FreeQ[b, StyleBox[_, "TI", ___]], "$" <> walkerMath[b] <> "$",
     mathLikeQ[b], "$" <> walkerMath[b] <> "$",
     True, With[{c = cleanStr[boxToCode[b]]},
         (* a styled-string placeholder ("name" with TI) cleans to contain *...*;

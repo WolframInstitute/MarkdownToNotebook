@@ -2434,16 +2434,14 @@ docContextList[meta_] := DeleteDuplicates @ DeleteCases[
 exampleInitCode[meta_] := StringRiffle[
     ("Needs[\"" <> # <> "\"]") & /@ docContextList[meta], "\n"]
 
-(* the font LaTeX math (LaTeXMathParse output) is restyled to, so authored math
-   renders in a Computer-Modern-like face like LaTeX/MaTeX rather than the front
-   end's default math font. Holds the resolved "MathFont" option value (see
-   applyMathFont):
-     Automatic  - auto-detect the best installed CM font (Latin Modern Math >
-                  CMU Serif), leaving math untouched if none is found; the default;
-     None / ""  - leave the parser output untouched (no restyling);
-     "Family"   - rewrite every math expression to that family.
+(* the font LaTeX math (LaTeXMathParse output) is restyled to. Holds the resolved
+   "MathFont" option value (see applyMathFont):
+     None / "" / Automatic - keep the FE-native math font (the default): deterministic
+                  across machines and correctly sized inline;
+     "Family"   - rewrite every math expression to that Computer-Modern-like family
+                  (Latin Modern Math, CMU Serif, ...) for the LaTeX / MaTeX look.
    Set per build from the "MathFont" option. *)
-$mathFontFamily = Automatic
+$mathFontFamily = None
 
 (* Subscripts in a usage signature use the portable HTML form "x<sub>i</sub>" (works
    in every markdown renderer and on GitHub), with "x~i~" accepted as the Pandoc
@@ -2667,34 +2665,13 @@ inlineImage[alt_String, src_String] := Block[{img = Quiet @ Import[src]},
    the wrong symbol) and guarded on it existing, so MTN still works - unstyled -
    when the parser isn't available (e.g. the ImportString fallback path). *)
 applyMathFont[boxes_] := Which[
-    boxes === $Failed || $mathFontFamily === None || $mathFontFamily === "", boxes,
+    (* None / "" / Automatic all keep the FE-native math font - the "TI" math-italic
+       style LaTeXMathParse already emits, which is correctly sized relative to body
+       text and identical on every machine (issue #45). A named family is the
+       explicit Computer-Modern / LaTeX opt-in. *)
+    boxes === $Failed || MatchQ[$mathFontFamily, None | "" | Automatic], boxes,
     Names["Wolfram`Parser`LaTeXMathStyle"] === {}, boxes,
-    (* Automatic: 1-arg LaTeXMathStyle auto-detects the CM font and no-ops when
-       none is installed (so a font-less build machine degrades to plain boxes). *)
-    $mathFontFamily === Automatic, Symbol["Wolfram`Parser`LaTeXMathStyle"][boxes],
     True, Symbol["Wolfram`Parser`LaTeXMathStyle"][boxes, $mathFontFamily]
-]
-
-(* True when LaTeXMathStyle's auto-detect finds an installed CM math font (it
-   wraps in a FontFamily) rather than returning the probe unchanged. *)
-cmMathFontAvailableQ[] := Names["Wolfram`Parser`LaTeXMathStyle"] =!= {} &&
-    ! FreeQ[Quiet @ Check[Symbol["Wolfram`Parser`LaTeXMathStyle"]["x"], "x"], FontFamily -> _]
-
-MarkdownToNotebook::nomathfont =
-    "No Computer-Modern math font found, so LaTeX math is left in the front \
-end's native font. Install Latin Modern Math (macOS: brew install --cask \
-font-latin-modern-math; or from https://www.gust.org.pl/projects/e-foundry/lm-math) \
-for the LaTeX look. Pass MathFont -> None to silence this message, or \
-MathFont -> \"family\" to force a specific font.";
-
-(* Warn once per top-level build if math styling was left to Automatic (the
-   default) but no CM font is installed - so the output silently fell back to
-   the FE-native font. Suppressed when the caller set MathFont explicitly
-   (they made the choice) and on nested conversions. *)
-warnIfNoMathFont[explicit_] := If[
-    ! TrueQ[explicit] && $mathFontFamily === Automatic && $convertDepth <= 1 &&
-        Names["Wolfram`Parser`LaTeXMathStyle"] =!= {} && ! cmMathFontAvailableQ[],
-    Message[MarkdownToNotebook::nomathfont]
 ]
 
 texBoxes[math_String] :=
@@ -4903,7 +4880,7 @@ withMarkdownSource[Notebook[cells_, o : OptionsPattern[]], src_String, tmpl_Stri
 ]
 withMarkdownSource[other_, _, _] := other
 
-Options[MarkdownToNotebook] = {"Evaluate" -> True, "PreserveSource" -> False, "EvaluateSeparator" -> Automatic, "MathFont" -> Automatic, "LightDark" -> Automatic}
+Options[MarkdownToNotebook] = {"Evaluate" -> True, "PreserveSource" -> False, "EvaluateSeparator" -> Automatic, "MathFont" -> None, "LightDark" -> Automatic}
 
 (* spec is an *optional* second argument (default Automatic). Do not split this
    into a separate 1-argument form that forwards to the 3-argument one: an empty
@@ -4942,13 +4919,10 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
     blocks = resolveIncludes[parsed["Blocks"], src["Base"]];
     tmplName = Lookup[meta, "Template", "Default"];
     $docTemplate = tmplName;
-    (* Automatic (default) auto-detects an installed CM math font and bakes it
-       into the notebook (no-op if none is on the build machine); None / "" keeps
-       the front end's native math font; a family name forces that family. See
-       applyMathFont. When left to Automatic and no CM font is installed, warn
-       with install instructions (silent when MathFont was set explicitly). *)
+    (* None (default) / "" / Automatic keep the front end's native math font -
+       deterministic across machines and correctly sized inline; a family name
+       (e.g. "Latin Modern Math") forces the Computer-Modern look. See applyMathFont. *)
     $mathFontFamily = OptionValue["MathFont"];
-    warnIfNoMathFont[MemberQ[Keys[Flatten[{opts}]], "MathFont"]];
 
     (* evaluate every executable cell in document order, threading state in a
        private context (so the document's own code can't clobber the live
