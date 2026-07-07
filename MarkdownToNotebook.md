@@ -753,6 +753,17 @@ VerificationTest[
 ]
 ```
 
+A `#| annotation:` directive on a **section heading** (e.g. before `## Details` on a structured doc page) annotates the section's first cell - a structured heading has no cell of its own, so the note lands once on the first content cell rather than being dropped or repeated on every item:
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook["---\nTemplate: Symbol\nName: Foo\nContext: P`Q`\nPaclet: P/Q\nURI: P/Q/ref/Foo\n---\n\n## Usage\n\n`Foo[x]` does.\n\n<!-- #| annotation: 26.06: review section -->\n## Details\n\n- Detail one.\n- Detail two.\n\n## Basic Examples\n\n```wl\nFoo[1]\n```\n", "Evaluate" -> False]},
+        Cases[nb, Cell[_, "Notes", ___, CellFrameLabels -> {{_, _}, {_, Cell[TextData[{note_String, ___}], "TextAnnotation", ___]}}, ___] :> note, Infinity]],
+    {"26.06: review section"},
+    TestID -> "#| annotation: on a section heading (## Details) annotates the section's first cell"
+]
+```
+
 A page whose examples span more than its primary `Context:` lists the extra contexts in a `ContextPath:` frontmatter list; the page's `ExampleInitialization` cell then `Needs[]` every one (the primary context first), so a reader who runs the examples loads them all - not just the primary context:
 
 ```wl

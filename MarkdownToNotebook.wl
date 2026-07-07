@@ -556,17 +556,32 @@ resolveIncludes[blocks_List, base_String] := Map[resolveBlock[#, base] &, blocks
 sectionKey[text_String] := StringReplace[ToLowerCase[text], " & " -> " and "]
 
 sectionsFrom[blocks_List] := Block[{step, init},
-    init = <|"key" -> "", "acc" -> <||>|>;
+    init = <|"key" -> "", "acc" -> <||>, "pend" -> <||>|>;
     step[state_, b_] := Which[
         b["Type"] === "Heading" && b["Level"] <= 2,
+            (* A "#| " directive on a section heading ("#| annotation:" before
+               "## Details", say) has no header cell of its own on a structured page -
+               the heading maps to a template slot, not a visible cell. Carry the
+               heading's style / tags / annotation to the section's FIRST content
+               block, where the block builders' applyBlockMeta lands it on the first
+               cell the section produces (e.g. the first Notes cell). Directives that
+               only make sense on a code cell (eval / file / ...) are not carried. *)
             With[{k = sectionKey[b["Text"]]},
-                <|"key" -> k, "acc" -> Append[state["acc"], k -> {}]|>]
+                <|"key" -> k, "acc" -> Append[state["acc"], k -> {}],
+                  "pend" -> KeyTake[Lookup[b, "Options", <||>], {"style", "tags", "annotation"}]|>]
         ,
         state["key"] === "",
             state
         ,
         True,
-            <|"key" -> state["key"], "acc" -> MapAt[Append[#, b] &, state["acc"], Key[state["key"]]]|>
+            (* stash the heading's directives on the first block under a private
+               "headingMeta" key; applyBlockMeta lands them on that block's FIRST
+               cell only, so a "## Details" annotation is one note, not one per item *)
+            <|"key" -> state["key"],
+              "acc" -> MapAt[Append[#, If[state["pend"] === <||>, b,
+                     Append[b, "Options" -> Append[Lookup[b, "Options", <||>], "headingMeta" -> state["pend"]]]]] &,
+                 state["acc"], Key[state["key"]]],
+              "pend" -> <||>|>
     ];
     Fold[step, init, blocks]["acc"]
 ]
@@ -1621,9 +1636,14 @@ applyCellMeta[Cell[c_, st_String, rest___], opts_Association] := Module[{r = {re
 ]
 applyCellMeta[other_, _] := other
 
-applyBlockMeta[cells_List, b_] := With[{o = Lookup[b, "Options", <||>]},
-    If[KeyExistsQ[o, "style"] || KeyExistsQ[o, "tags"] || KeyExistsQ[o, "annotation"],
-        applyCellMeta[#, o] & /@ cells, cells]]
+applyBlockMeta[cells_List, b_] := Module[{o = Lookup[b, "Options", <||>], hm, out},
+    hm = Lookup[o, "headingMeta", <||>];
+    (* the block's OWN style / tags / annotation apply to every cell it produces *)
+    out = If[KeyExistsQ[o, "style"] || KeyExistsQ[o, "tags"] || KeyExistsQ[o, "annotation"],
+        applyCellMeta[#, o] & /@ cells, cells];
+    (* a directive inherited from the section heading annotates the first cell only *)
+    If[hm =!= <||> && out =!= {}, out = MapAt[applyCellMeta[#, hm] &, out, 1]];
+    out]
 
 (* All prose / list / quote / table blocks of a section, in order, as ordinary
    Text cells - the format the Demonstration template's Caption / Details /
