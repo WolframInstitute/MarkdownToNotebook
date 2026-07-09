@@ -877,6 +877,17 @@ VerificationTest[
 ]
 ```
 
+Dirac notation whose content is wrapped in braces (`\langle{\phi}|{\psi}\rangle`) keeps that content: the parser's standalone-fence commands re-emit a following `{group}` instead of dropping it, so a braced bra/ket/braket folds into its template just like the unbraced form (issue #49, WolframParser fix):
+
+```wl
+VerificationTest[
+    {! FreeQ[MarkdownToNotebook["$\\langle{\\phi}|{\\psi}\\rangle$", "Evaluate" -> False], TemplateBox[_, "BraKet"]],
+     ! FreeQ[MarkdownToNotebook["$\\langle{X}|$", "Evaluate" -> False], TemplateBox[_, "Bra"]]},
+    {True, True},
+    TestID -> "braced Dirac content keeps its content and folds into Bra/BraKet (issue #49)"
+]
+```
+
 A symbol page keeps the standard Examples-Initialization section - the `ExamplesInitializationSection` group with an `ExampleInitialization` cell that `Needs[]` the documented context - exactly as the authoring template ships it and every built ref page has it (e.g. Wolfram/LeanLink). `DocumentationBuild` folds it into the Examples section at build time:
 
 ```wl
