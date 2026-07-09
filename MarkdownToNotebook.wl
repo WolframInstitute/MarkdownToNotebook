@@ -2697,9 +2697,49 @@ applyMathFont[boxes_] := Which[
     True, Symbol["Wolfram`Parser`LaTeXMathStyle"][boxes, $mathFontFamily]
 ]
 
+(* Promote a balanced bracketing-bar pair to the front end's Abs / Norm TemplateBox
+   (clean non-extensible bars), instead of the raw \[LeftBracketingBar]..
+   \[RightBracketingBar] glyphs the parser emits for a bare |x| - which the FE
+   auto-sizes into stretched, seamed bars (issue #46, follow-up to #33/#28). Only the
+   explicit \lvert / \lVert macros were promoted before (they carry SpanMaxSize -> 1);
+   a bare | arrives as a bare glyph, or SpanMinSize -> r when sized to a tall
+   argument, so accept all three wrapper forms. Safe because only a genuine modulus
+   yields a balanced open(U+F603)+close(U+F604) pair - a conditional P(a|b) is an
+   ASCII "|", a bra/ket bar is already absorbed into a Ket/BraKet template - so
+   keying on the pair catches exactly the moduli. *)
+$openBar   = "\[LeftBracketingBar]"        | StyleBox["\[LeftBracketingBar]", ___]
+$closeBar  = "\[RightBracketingBar]"       | StyleBox["\[RightBracketingBar]", ___]
+$openDBar  = "\[LeftDoubleBracketingBar]"  | StyleBox["\[LeftDoubleBracketingBar]", ___]
+$closeDBar = "\[RightDoubleBracketingBar]" | StyleBox["\[RightDoubleBracketingBar]", ___]
+$barSpacer = " " | "\[ThinSpace]" | "\[VeryThinSpace]" | "\[MediumSpace]" | "\[NegativeThinSpace]" | "\[NegativeVeryThinSpace]" | FromCharacterCode[16^^200A]
+barContent[parts_List] := With[{c = DeleteCases[parts, $barSpacer]},
+    Which[c === {}, "", Length[c] === 1, First[c], True, RowBox[c]]]
+templatizeBars[boxes_] := boxes //. {
+    RowBox[{pre___, $openDBar, mid : Except[$openDBar | $closeDBar] .., $closeDBar, post___}] :>
+        RowBox[{pre, TemplateBox[{barContent[{mid}]}, "Norm"], post}],
+    RowBox[{pre___, $openBar, mid : Except[$openBar | $closeBar] .., $closeBar, post___}] :>
+        RowBox[{pre, TemplateBox[{barContent[{mid}]}, "Abs"], post}]
+}
+
+(* The Abs / Norm TemplateBox draws extensible bars; stretched past ~one line height
+   around a TALL argument - a braket, whose angle brackets exceed a text line, as in
+   |<phi|psi>|^2 - the FE builds the glyph from pieces and it renders with a visible
+   mid-height seam. Rewrite only the tall-argument templates to a plain scaled
+   vertical line (\[VerticalLine] / \[DoubleVerticalBar], relational glyphs that never
+   extend, so never seam); a scalar argument keeps the template (correct at base size,
+   round-trips to \lvert / \lVert). Runs OUTSIDE templatizeBars' //. - the vertical
+   line is not a bracketing bar, so it is never re-promoted (issue #48). *)
+$tallBarScale = 1.3
+tallArgQ[arg_] := ! FreeQ[arg, TemplateBox[_, "Ket" | "Bra" | "Braket" | "BraKet"]]
+straightBar[glyph_] := StyleBox[glyph, FontSize -> $tallBarScale Inherited]
+straightenTallBars[boxes_] := boxes /. {
+    TemplateBox[{arg_}, "Abs"] /; tallArgQ[arg] :> RowBox[{straightBar["\[VerticalLine]"], arg, straightBar["\[VerticalLine]"]}],
+    TemplateBox[{arg_}, "Norm"] /; tallArgQ[arg] :> RowBox[{straightBar["\[DoubleVerticalBar]"], arg, straightBar["\[DoubleVerticalBar]"]}]
+}
+
 texBoxes[math_String] :=
     Block[{r = wolframParserTeX[math]},
-        applyMathFont @ If[ r =!= $Failed, r, texBoxesViaImport[math] ]
+        straightenTallBars @ applyMathFont @ templatizeBars @ If[ r =!= $Failed, r, texBoxesViaImport[math] ]
     ]
 
 (* Detection and call both resolve the parser at *runtime* by its full name.

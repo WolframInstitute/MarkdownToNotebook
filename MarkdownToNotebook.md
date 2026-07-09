@@ -853,6 +853,30 @@ VerificationTest[
 ]
 ```
 
+A bare `|x|` modulus is promoted to the front end's `Abs` `TemplateBox` (clean bars), not left as raw bracketing-bar glyphs; a conditional `P(a|b)` (an ASCII bar) is untouched (issue #46):
+
+```wl
+VerificationTest[
+    {! FreeQ[MarkdownToNotebook["$|\\alpha|^2$", "Evaluate" -> False], TemplateBox[_, "Abs"]],
+     ! FreeQ[MarkdownToNotebook["$\\lVert v\\rVert$", "Evaluate" -> False], TemplateBox[_, "Norm"]],
+     FreeQ[MarkdownToNotebook["$P(a|b)$", "Evaluate" -> False], TemplateBox[_, "Abs"]]},
+    {True, True, True},
+    TestID -> "bare |x| / ||v|| promoted to Abs / Norm template, conditional bar untouched (issue #46)"
+]
+```
+
+Around a *tall* argument (a braket) the stretched template bars seam, so a tall modulus is drawn with a plain scaled vertical line instead of the extensible template; a scalar modulus keeps the template. Both round-trip to `|...|` / `\lvert` (issue #48):
+
+```wl
+VerificationTest[
+    {! FreeQ[MarkdownToNotebook["$|\\langle\\phi|\\psi\\rangle|^2$", "Evaluate" -> False], StyleBox["\[VerticalLine]", ___]],
+     FreeQ[MarkdownToNotebook["$|\\langle\\phi|\\psi\\rangle|^2$", "Evaluate" -> False], TemplateBox[_, "Abs"]],
+     ! FreeQ[MarkdownToNotebook["$|\\alpha|^2$", "Evaluate" -> False], TemplateBox[_, "Abs"]]},
+    {True, True, True},
+    TestID -> "tall braket modulus drawn with a straight vertical line, scalar keeps the Abs template (issue #48)"
+]
+```
+
 A symbol page keeps the standard Examples-Initialization section - the `ExamplesInitializationSection` group with an `ExampleInitialization` cell that `Needs[]` the documented context - exactly as the authoring template ships it and every built ref page has it (e.g. Wolfram/LeanLink). `DocumentationBuild` folds it into the Examples section at build time:
 
 ```wl

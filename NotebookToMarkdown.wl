@@ -136,6 +136,9 @@ $mathTeX = Join[<|
     FromCharacterCode[16^^226B] -> "\\gg ", FromCharacterCode[16^^226A] -> "\\ll ",
     FromCharacterCode[16^^2218] -> "\\circ ", FromCharacterCode[16^^25E6] -> "\\circ ",
     FromCharacterCode[16^^22C1] -> "\\bigvee ", FromCharacterCode[16^^22C0] -> "\\bigwedge ",
+    (* the straight bars a tall Abs / Norm modulus is drawn with (issue #48); math
+       leaf only, so a divides / parallel bar in prose is left as the Unicode glyph *)
+    FromCharacterCode[16^^2502] -> "|", FromCharacterCode[16^^2225] -> "\\|",
     FromCharacterCode[16^^200B] -> ""    (* zero-width space -> drop *)
 |>];
 
