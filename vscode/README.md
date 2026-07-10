@@ -18,18 +18,16 @@ moment the notebook writes it.
 
 - A Wolfram kernel launcher on `PATH` named `wl` (or set `mtn.wlCommand`).
 - A desktop front end to open `.nb` files (macOS `open`).
-- The converters resolve like the build scripts do: from the [deployed resource
+- The converters are the [deployed resource
   functions](https://www.wolframcloud.com/obj/nikm/DeployedResources/Function/MarkdownToNotebook)
-  on the Wolfram Cloud, with a local checkout of `MarkdownToNotebook.wl` /
-  `NotebookToMarkdown.wl` taking precedence when one is found (searching the
-  file's ancestor folders and the open workspace folders, or set
-  `mtn.packageDirectory`).
+  on the Wolfram Cloud — the same ones the build scripts use — so the button
+  works on any `.md` with no local checkout. Redeploy them (build.wls) to pick
+  up converter changes.
 
 ## Settings
 
 | Setting                 | Default | Meaning                                                        |
 | ----------------------- | ------- | -------------------------------------------------------------- |
-| `mtn.packageDirectory`  | `""`    | Folder holding the two `.wl` files (empty = auto-detect).      |
 | `mtn.wlCommand`         | `"wl"`  | Kernel launcher accepting `-f FILE`.                           |
 | `mtn.openWith`          | `""`    | App for `open -a` (empty = default `.nb` handler).             |
 

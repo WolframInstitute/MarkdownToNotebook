@@ -12,37 +12,6 @@ const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
 
-// Find the folder holding MarkdownToNotebook.wl / NotebookToMarkdown.wl.
-// Precedence: explicit setting -> ancestors of the .md -> open workspace folders.
-function hasPackages(dir) {
-  try {
-    return fs.existsSync(path.join(dir, 'MarkdownToNotebook.wl')) &&
-           fs.existsSync(path.join(dir, 'NotebookToMarkdown.wl'));
-  } catch (_) {
-    return false;
-  }
-}
-
-function resolvePkgDir(configured, mdPath) {
-  if (configured && configured.trim()) {
-    const dir = configured.trim();
-    return hasPackages(dir) ? dir : null; // honor an explicit (possibly wrong) setting loudly
-  }
-  // walk up from the markdown file
-  let dir = path.dirname(mdPath);
-  for (let i = 0; i < 40; i++) {
-    if (hasPackages(dir)) return dir;
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  // then the open workspace folders
-  for (const wf of vscode.workspace.workspaceFolders || []) {
-    if (hasPackages(wf.uri.fsPath)) return wf.uri.fsPath;
-  }
-  return null;
-}
-
 function runBuilder(wl, builder, env) {
   return new Promise((resolve, reject) => {
     const child = cp.spawn(wl, ['-t', '300', '-f', builder], {
@@ -102,10 +71,6 @@ function activate(context) {
     const wl = cfg.get('wlCommand') || 'wl';
     const openWith = cfg.get('openWith') || '';
 
-    // A local checkout of the converters is preferred (development mode); without
-    // one the builder falls back to the deployed resource functions on the cloud.
-    const pkgDir = resolvePkgDir(cfg.get('packageDirectory'), mdPath) || '';
-
     const builder = path.join(context.extensionPath, 'open-as-notebook.wls');
     const hash = crypto.createHash('sha1').update(mdPath).digest('hex').slice(0, 10);
     const outNb = path.join(os.tmpdir(), `mtn-${path.basename(mdPath, '.md')}-${hash}.nb`);
@@ -116,7 +81,7 @@ function activate(context) {
           location: vscode.ProgressLocation.Notification,
           title: `Opening ${path.basename(mdPath)} as a Wolfram notebook…`
         },
-        () => runBuilder(wl, builder, { MTN_PKG_DIR: pkgDir, MTN_MD_PATH: mdPath, MTN_OUT_NB: outNb })
+        () => runBuilder(wl, builder, { MTN_MD_PATH: mdPath, MTN_OUT_NB: outNb })
       );
       openNotebook(nbPath, openWith);
     } catch (e) {

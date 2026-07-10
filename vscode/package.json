@@ -2,7 +2,7 @@
   "name": "mtn-open-as-notebook",
   "displayName": "Markdown ↔ Wolfram Notebook",
   "description": "Open a Markdown file as a Wolfram notebook (MarkdownToNotebook) with a docked toolbar to save it back to Markdown (NotebookToMarkdown).",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "wolframinstitute",
   "engines": { "vscode": "^1.70.0" },
   "categories": ["Other"],
@@ -47,11 +47,6 @@
     "configuration": {
       "title": "Markdown ↔ Wolfram Notebook",
       "properties": {
-        "mtn.packageDirectory": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "Folder that contains `MarkdownToNotebook.wl` and `NotebookToMarkdown.wl` (development mode). Leave empty to auto-detect from the file's ancestor folders and the open workspace folders; when no local checkout is found, the deployed resource functions on the Wolfram Cloud are used."
-        },
         "mtn.wlCommand": {
           "type": "string",
           "default": "wl",

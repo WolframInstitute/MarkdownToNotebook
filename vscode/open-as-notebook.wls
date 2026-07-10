@@ -3,19 +3,13 @@
 
 (*  open-as-notebook.wls  --  used by the VS Code "Open as Wolfram Notebook" button.
 
-    Converts a Markdown file to a temporary notebook with MarkdownToNotebook, injects a
-    docked "Save to Markdown" cell whose button writes the edited notebook back to the
-    same .md via NotebookToMarkdown, and writes the notebook to disk.  The VS Code
-    extension then opens that notebook in the desktop front end.
+    Converts a Markdown file to a temporary notebook with the deployed
+    MarkdownToNotebook resource function (the same one the build scripts use),
+    injects a docked "Save to Markdown" cell whose button writes the edited notebook
+    back to the same .md via the deployed NotebookToMarkdown, and writes the notebook
+    to disk.  The VS Code extension then opens that notebook in the desktop front end.
 
-    The converters resolve like the build scripts do: from the deployed resource
-    functions on the Wolfram Cloud, with a local checkout of the .wl sources taking
-    precedence when one is present (development mode).
-
-    All paths arrive through the environment so nothing machine-specific lives in this
-    file:
-        MTN_PKG_DIR  optional directory holding MarkdownToNotebook.wl and
-                     NotebookToMarkdown.wl (empty -> use the deployed functions)
+    Paths arrive through the environment so nothing machine-specific lives here:
         MTN_MD_PATH  the .md file to open (also the save-back target)
         MTN_OUT_NB   where to write the generated .nb
     On success the script prints the .nb path as its last line; on failure it prints a
@@ -26,7 +20,6 @@ fail[msg_] := (Print["ERROR: " <> msg]; Exit[1]);
 $m2nUrl = "https://www.wolframcloud.com/obj/nikm/DeployedResources/Function/MarkdownToNotebook";
 $n2mUrl = "https://www.wolframcloud.com/obj/nikm/DeployedResources/Function/NotebookToMarkdown";
 
-pkgDir = Replace[Environment["MTN_PKG_DIR"], Except[_String] -> ""];
 mdPath = Environment["MTN_MD_PATH"];
 outNb  = Environment["MTN_OUT_NB"];
 
@@ -34,36 +27,24 @@ If[! StringQ[mdPath] || ! StringQ[outNb],
     fail["MTN_MD_PATH and MTN_OUT_NB must be set"]];
 If[! FileExistsQ[mdPath], fail["markdown file not found: " <> mdPath]];
 
-(* local checkout wins (development); otherwise the deployed resource function *)
-localM2N = FileNameJoin[{pkgDir, "MarkdownToNotebook.wl"}];
-m2n = If[ pkgDir =!= "" && FileExistsQ[localM2N],
-    (Get[localM2N]; MarkdownToNotebook),
-    (* a left-over Automatic $CloudBase makes the resource fetch URLParse[Automatic]
-       and fail intermittently; pin it before touching the deployed function *)
-    ($CloudBase = "https://www.wolframcloud.com"; ResourceFunction[$m2nUrl])
-];
-
-nb = m2n[mdPath, "Notebook"];
+(* a left-over Automatic $CloudBase makes the resource fetch URLParse[Automatic]
+   and fail intermittently; pin it before touching the deployed function *)
+$CloudBase = "https://www.wolframcloud.com";
+nb = ResourceFunction[$m2nUrl][mdPath, "Notebook"];
 If[! MatchQ[nb, _Notebook], fail["MarkdownToNotebook did not return a Notebook"]];
 
 (* --- the docked "Save to Markdown" toolbar ------------------------------------------
-   The button action is held; pkgDir / mdPath / the deployed URL are frozen in as
-   string literals with With, so the generated notebook is self-contained and needs no
-   arguments at click time.  The local NotebookToMarkdown.wl is preferred when it still
-   exists on disk; otherwise the deployed resource function is fetched on first click. *)
-dockCell = With[{pkg = pkgDir, md = mdPath, label = FileNameTake[mdPath], n2mUrl = $n2mUrl},
+   The button action is held; mdPath and the deployed URL are frozen in as string
+   literals with With, so the generated notebook is self-contained and needs no
+   arguments at click time.  The resource function is fetched on first click. *)
+dockCell = With[{md = mdPath, label = FileNameTake[mdPath], n2mUrl = $n2mUrl},
     Cell[
         BoxData @ ToBoxes @ Row[{
             Button[
                 Style["\:2193  Save to Markdown", 12, FontWeight -> "SemiBold"],
-                With[{local = FileNameJoin[{pkg, "NotebookToMarkdown.wl"}]},
-                    If[ pkg =!= "" && FileExistsQ[local],
-                        (Get[local]; NotebookToMarkdown[EvaluationNotebook[], md]),
-                        ($CloudBase = "https://www.wolframcloud.com";
-                         ResourceFunction[n2mUrl][EvaluationNotebook[], md])
-                    ]
-                ];
-                CurrentValue[EvaluationNotebook[], {TaggingRules, "MTNsaved"}] = md,
+                ($CloudBase = "https://www.wolframcloud.com";
+                 ResourceFunction[n2mUrl][EvaluationNotebook[], md];
+                 CurrentValue[EvaluationNotebook[], {TaggingRules, "MTNsaved"}] = md),
                 Method -> "Queued", Appearance -> "DialogBox", ImageMargins -> 4
             ],
             Spacer[14],
