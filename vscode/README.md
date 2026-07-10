@@ -18,9 +18,12 @@ moment the notebook writes it.
 
 - A Wolfram kernel launcher on `PATH` named `wl` (or set `mtn.wlCommand`).
 - A desktop front end to open `.nb` files (macOS `open`).
-- `MarkdownToNotebook.wl` and `NotebookToMarkdown.wl`. The extension auto-detects
-  them by searching the file's ancestor folders and the open workspace folders;
-  point `mtn.packageDirectory` at their folder to use them from any project.
+- The converters resolve like the build scripts do: from the [deployed resource
+  functions](https://www.wolframcloud.com/obj/nikm/DeployedResources/Function/MarkdownToNotebook)
+  on the Wolfram Cloud, with a local checkout of `MarkdownToNotebook.wl` /
+  `NotebookToMarkdown.wl` taking precedence when one is found (searching the
+  file's ancestor folders and the open workspace folders, or set
+  `mtn.packageDirectory`).
 
 ## Settings
 

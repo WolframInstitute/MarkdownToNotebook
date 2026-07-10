@@ -102,14 +102,9 @@ function activate(context) {
     const wl = cfg.get('wlCommand') || 'wl';
     const openWith = cfg.get('openWith') || '';
 
-    const pkgDir = resolvePkgDir(cfg.get('packageDirectory'), mdPath);
-    if (!pkgDir) {
-      vscode.window.showErrorMessage(
-        'Open as Wolfram Notebook: could not find MarkdownToNotebook.wl / NotebookToMarkdown.wl. ' +
-          'Set "mtn.packageDirectory" in Settings.'
-      );
-      return;
-    }
+    // A local checkout of the converters is preferred (development mode); without
+    // one the builder falls back to the deployed resource functions on the cloud.
+    const pkgDir = resolvePkgDir(cfg.get('packageDirectory'), mdPath) || '';
 
     const builder = path.join(context.extensionPath, 'open-as-notebook.wls');
     const hash = crypto.createHash('sha1').update(mdPath).digest('hex').slice(0, 10);
