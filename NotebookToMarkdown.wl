@@ -940,16 +940,17 @@ taggedCellText[nb_, tag_] := cellPlain @ FirstCase[nb, c : Cell[body_, ___] /; c
 resourceLinkMd[c_] := Module[
     {b = FirstCase[c, ButtonBox[l_String, ___, ButtonData -> {URL[u_String], ___}, ___] :> {l, u}, Missing[], Infinity]},
     If[MissingQ[b], cellPlain[c], "[" <> First[b] <> "](" <> Last[b] <> ")"]]
-(* Currently scoped to the Function template. Recovering a family's frontmatter also
-   makes MarkdownToNotebook rebuild through that family's template on the return trip,
-   which only round-trips if the body cells map back to the template's slots - for
-   Function we emit the flat "## Section" body its slots expect, but Data / Example /
-   Demonstration / Paclet keep their own content-section names (e.g. "Data
-   Definitions" -> ContentElements) that need a per-family body transform. Until each
-   is taught, they stay on the plain walker (no frontmatter), which round-trips as a
-   generic document. resourceFrontmatter / prepResourceBody already generalise over
-   the families' shared metadata; flip this gate per family as each body map lands. *)
-resourceDefNotebookQ[nb_] := resourceTypeOf[nb] === "Function" && ! FreeQ[nb, c_Cell /; cellHasTagQ[c, "Name"]]
+(* Scoped to the families whose body-to-slot mapping is implemented. Recovering a
+   family's frontmatter also makes MarkdownToNotebook rebuild through that family's
+   template on the return trip, which only round-trips if the body cells map back to
+   the template's slots - Function and Paclet emit the section names their slots are
+   filled from, but Data / Example / Demonstration keep their own content-section
+   names (e.g. "Data Definitions" -> ContentElements) that still need a per-family
+   body transform. Until each is taught, they stay on the plain walker (no
+   frontmatter), which round-trips as a generic document. *)
+$resourceFamilies = {"Function", "Paclet"};
+resourceDefNotebookQ[nb_] := MemberQ[$resourceFamilies, resourceTypeOf[nb]] &&
+    ! FreeQ[nb, c_Cell /; cellHasTagQ[c, "Name"]]
 
 (* === resource body normalization ===
    The resource definition notebook nests the authored content inside template
@@ -977,9 +978,13 @@ $resourceDropTags = {
     "Related Symbols", "See Also", "SeeAlso", "Related Documentation Pages",
     "Related Resource Objects", "Related Demonstrations",
     "Source/Reference Citation", "Citation", "Detailed Source Information",
-    "Source Control URL", "Licensing Information", "Disclosures",
-    "Links", "External Links", "Compatibility", "Content Types", "ContentTypes",
-    "Submission Notes"};
+    "SourceControlURL", "Source Control Repository", "LicensingInformation",
+    "Disclosures", "Links", "External Links", "Compatibility",
+    "Content Types", "ContentTypes", "Submission Notes",
+    (* Paclet chrome regenerated from the frontmatter on rebuild *)
+    "PacletManifest", "Paclet Manifest", "PrimaryContext", "Primary Context",
+    "MainGuidePage", "Main Guide Page",
+    "ExampleInitialization", "Initialization for Examples"};
 (* wrapper headings whose label is dropped and whose children ARE the body;
    "Source & Additional Information" keeps its code-bearing child (Tests). An
    "Author Notes" section is neither: kept whole when authored, and reduced to a
@@ -987,6 +992,7 @@ $resourceDropTags = {
    untouched. *)
 $resourceCommonFlattenTags = {"Source & Additional Information"};
 $functionFlattenTags       = {"Documentation", "Examples"};
+$pacletFlattenTags         = {"WebContent", "Web Content"};
 promoteHeadings[expr_] := expr /. Cell[c_, s : ("Subsection" | "Subsubsection"), o___] :>
     Cell[c, Replace[s, {"Subsection" -> "Section", "Subsubsection" -> "Subsection"}], o]
 
@@ -1037,13 +1043,46 @@ normalizeResourceCells[cells0_List, flattenTags_] := Module[{cells = flattenCell
    sections at their native levels and only re-home Tests. *)
 promoteTests[cells_] := cells /.
     Cell[c_, "Subsection", o___] /; cellHasTagQ[Cell[c, "Subsection", o], "VerificationTests"] :> Cell[c, "Section", o]
-prepResourceBody[cells_List, functionQ_] := If[functionQ,
-    mergeUsageLines[promoteHeadings /@ normalizeResourceCells[cells, Join[$resourceCommonFlattenTags, $functionFlattenTags]]],
-    promoteTests @ normalizeResourceCells[cells, $resourceCommonFlattenTags]
+(* The Paclet template renders some slots under its own labels; rename the heading
+   back to the markdown section name its slot is filled from ("Basic Description" /
+   LongDescription <- "## Usage", "Details" <- "## Details & Options", "Headline
+   Image" / HeroImage <- "## Hero Image"), so the recovered markdown rebuilds. *)
+$pacletHeadingNames = {"LongDescription" -> "Usage", "Details" -> "Details & Options", "HeroImage" -> "Hero Image"};
+renamePacletHeadings[cells_] := Map[
+    Function[cell,
+        If[headingLevelOf[cell] < Infinity,
+            With[{new = SelectFirst[$pacletHeadingNames, cellHasTagQ[cell, First[#]] &, None]},
+                If[new === None, cell, Cell[Last[new], cell[[2]]]]],
+            cell]],
+    cells]
+prepResourceBody[cells_List, family_String] := Switch[family,
+    "Function",
+        mergeUsageLines[promoteHeadings /@
+            normalizeResourceCells[cells, Join[$resourceCommonFlattenTags, $functionFlattenTags]]],
+    "Paclet",
+        promoteHeadings /@ renamePacletHeadings @
+            normalizeResourceCells[cells, Join[$resourceCommonFlattenTags, $functionFlattenTags, $pacletFlattenTags]],
+    _,
+        promoteTests @ normalizeResourceCells[cells, $resourceCommonFlattenTags]
 ]
 
 fmField[key_, val_] := If[StringTrim[val] === "", "", key <> ": " <> val <> "\n"]
 fmList[key_, items_] := If[items === {}, "", key <> ": [" <> StringRiffle[items, ", "] <> "]\n"]
+(* items that may contain commas or markdown links are quoted so the YAML-ish
+   parser keeps each element whole *)
+fmQuotedList[key_, items_] := If[items === {}, "",
+    key <> ": [" <> StringRiffle[("\"" <> # <> "\"" &) /@ items, ", "] <> "]\n"]
+
+(* Paclet-only fields, each read from its widget / text cell: the license id is the
+   string following the "RadioButtonValue" marker in the License radio widget; the
+   main guide is the unique ".nb" path in the Main Guide Page chooser. *)
+resourceLicense[nb_] := Module[
+    {strs = Cases[resourceSectionKidsAny[nb, {"LicensingInformation"}], _String, Infinity], i},
+    i = FirstPosition[strs, "RadioButtonValue", Missing[], {1}];
+    If[MissingQ[i] || First[i] + 1 > Length[strs], "", strs[[First[i] + 1]]]]
+resourceMainGuide[nb_] := FirstCase[
+    resourceSectionKidsAny[nb, {"MainGuidePage", "Main Guide Page"}],
+    s_String /; StringEndsQ[s, ".nb"], "", Infinity]
 
 (* children of the first subsection matching ANY of the tag aliases a family may use
    (one subsection can carry several of them, so match once, not per-tag). Works on
@@ -1064,8 +1103,10 @@ resourceContentItems[nb_, tags_List] := Cases[resourceSectionKidsAny[nb, tags],
     cell : Cell[content_, "Item", ___] /; ! cellHasTagQ[cell, "DefaultContent"] :> content]
 resourceSubsectionText[nb_, tags_List] := StringRiffle[
     cellPlain /@ Cases[resourceSectionKidsAny[nb, tags], Cell[c_, "Text", ___] :> c], ", "]
-resourceFrontmatter[nb_] := Module[{rt = resourceTypeOf[nb], name, desc, contrib, kw, sa, rr, links},
+resourceFrontmatter[nb_] := Module[
+    {rt = resourceTypeOf[nb], pacletQ, name, desc, contrib, kw, sa, rr, links, sources},
     If[! resourceDefNotebookQ[nb], Return[""]];
+    pacletQ = rt === "Paclet";
     name    = taggedCellText[nb, "Name"];
     desc    = taggedCellText[nb, "Description"];
     contrib = resourceSubsectionText[nb, {"Contributed By", "ContributorInformation", "Author Names", "AuthorNames"}];
@@ -1076,20 +1117,31 @@ resourceFrontmatter[nb_] := Module[{rt = resourceTypeOf[nb], name, desc, contrib
         Cases[nb, Cell[c_, "RelatedSymbol", ___] :> cellPlain[c], Infinity],
         cellPlain /@ resourceContentItems[nb, {"See Also", "Related Symbols", "Related Documentation Pages"}]];
     rr      = cellPlain /@ resourceContentItems[nb, {"Related Resource Objects", "Related Demonstrations"}];
+    sources = cellPlain /@ resourceContentItems[nb, {"Source/Reference Citation"}];
     links   = resourceLinkMd /@ resourceContentItems[nb, {"Links", "External Links"}];
     StringJoin[
         "---\n",
         "Template: ", templateForResourceType[rt], "\n",
         "ResourceType: ", rt, "\n",
         fmField["Name", name],
+        If[pacletQ, StringJoin[
+            fmField["Context", resourceSubsectionText[nb, {"PrimaryContext", "Primary Context"}]],
+            (* a repository paclet's resource name IS the paclet name *)
+            fmField["Paclet", name]], ""],
         fmField["Description", desc],
         fmField["ContributedBy", contrib],
         fmList["Keywords", kw],
+        If[pacletQ, StringJoin[
+            fmField["MainGuide", resourceMainGuide[nb]],
+            fmField["License", resourceLicense[nb]],
+            fmField["WolframVersion", resourceSubsectionText[nb, {"CompatibilityWolframLanguageVersionRequired", "Wolfram Language Version"}]],
+            fmField["SourceControlURL", resourceSubsectionText[nb, {"SourceControlURL", "Source Control Repository"}]]], ""],
+        fmQuotedList["Sources", sources],
         fmList["SeeAlso", sa],
         fmList["RelatedResources", rr],
         (* each Links item is already a markdown link; quote it so the YAML element
-           is a string the forward parser unquotes. *)
-        If[links === {}, "", "Links: [" <> StringRiffle[("\"" <> # <> "\"" &) /@ links, ", "] <> "]\n"],
+           is a string the forward parser unquotes *)
+        fmQuotedList["Links", links],
         "---\n\n"
     ]
 ]
@@ -1181,7 +1233,7 @@ markdownOfNb[nb : Notebook[_List, ___], opts : OptionsPattern[NotebookToMarkdown
      $outputCommentLimit = OptionValue[NotebookToMarkdown, {opts}, "OutputCommentLimit"],
      $docPageQ           = docNotebookQ[nb]},
     name = cellPlain @ FirstCase[nb, Cell[t_, "ObjectName", ___] :> t, "", Infinity];
-    cells = If[resourceDefNotebookQ[nb], prepResourceBody[First[nb], resourceTypeOf[nb] === "Function"], First[nb]];
+    cells = If[resourceDefNotebookQ[nb], prepResourceBody[First[nb], resourceTypeOf[nb]], First[nb]];
     (* the walker is grouping-agnostic, so doc pages run on the flat cell list; the
        screenshot pre-pass relies on it (Output follows its Input) *)
     If[$docPageQ, cells = applyOutputScreenshots[flattenCellGroups[cells]]];
