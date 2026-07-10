@@ -640,12 +640,15 @@ $dropStyles = {
 Options[NotebookToMarkdown] = {
     "Metadata" -> Automatic,        (* Automatic | "Comment" | "Inline" | None *)
     "PreserveOutputs" -> False,     (* emit Output cells (else dropped, regenerated on re-run) *)
-    "OutputInlineLimit" -> 2048     (* WXF bytes: <= inline "#| boxes", > spill to a ".wxf" sidecar *)
+    "OutputInlineLimit" -> 2048,    (* WXF bytes: <= inline "#| boxes", > spill to a ".wxf" sidecar *)
+    "OutputCommentLimit" -> 240     (* chars: an example result longer than this is marked
+                                       "#| screenshot: true" instead of a "<!-- => v -->" comment *)
 };
 
 $metadataCarrier  = Automatic;
 $preserveOutputs  = False;
 $outputInlineLimit = 2048;
+$outputCommentLimit = 240;
 $n2mAssetDir   = None;   (* directory for ".wxf" sidecars; None (in-memory) forces inline *)
 $n2mAssetBase  = "cell";
 $n2mOutCounter = 0;
@@ -654,7 +657,7 @@ $n2mFigCounter = 0;      (* authored-figure ".png" counter (issue #34) *)
 (* styles whose markdown form round-trips to the same style - no "#| style:" *)
 $knownBlockStyles = {
     "Title", "Section", "Subsection", "Subsubsection", "ObjectName",
-    "Usage", "UsageDescription", "Notes",
+    "Usage", "UsageDescription", "UsageLine", "Notes",
     "2ColumnTableMod", "3ColumnTableMod", "TableNotes",
     "Text", "Quote", "Caption", "ExampleText", "CodeText",
     "Item", "Item1", "Item2", "Bullet", "ItemNumbered", "ItemNumbered1",
@@ -678,7 +681,7 @@ $knownBlockStyles = {
 $templateStyles = {"UsageInputs", "InlineCode", "RelatedSymbol", "TableText"};
 (* M2N-managed markers never emitted as #| tags: "DefaultContent" is the scraper
    marker; "TextAnnotation" rides the dedicated "#| annotation:" directive. *)
-$internalTags = {"DefaultContent", "TextAnnotation"};
+$internalTags = {"DefaultContent", "TextAnnotation", "MTNScreenshot", "MTNUnfilled"};
 allCellTags[opts_List] := Flatten[Cases[opts, (CellTags -> t_) :> Flatten[{t}]]]
 
 (* structural template markers - a cell carrying any of these is part of the doc
@@ -712,10 +715,14 @@ annotationNoteOf[opts_List] := FirstCase[opts,
    emits "#| annotation:". An annotation is always authored content, so it is
    emitted even on a template-default cell (which contributes no style/tags). *)
 withCellMeta[body_, style_, opts_List] := Module[
-    {mode = $metadataCarrier, dirs = {}, tags, note = annotationNoteOf[opts], isDefault},
+    {mode = $metadataCarrier, dirs = {}, tags, note = annotationNoteOf[opts], isDefault,
+     shot = MemberQ[allCellTags[opts], "MTNScreenshot"]},
     If[body === "" || mode === None, Return[body]];
     isDefault = (mode === Automatic && templateDefaultCellQ[style, opts]);
-    If[isDefault && MissingQ[note], Return[body]];
+    (* an annotation or a screenshot mark is authored intent, emitted even on an
+       otherwise template-default cell *)
+    If[isDefault && MissingQ[note] && ! shot, Return[body]];
+    If[shot, AppendTo[dirs, {"screenshot", "true"}]];
     If[! isDefault,
         If[! MemberQ[$knownBlockStyles, style] && ! MemberQ[$dropStyles, style],
             AppendTo[dirs, {"style", style}]];
@@ -750,6 +757,13 @@ ClearAll[blockFor]
 blockFor["Output", c_] /; ($preserveOutputs && FreeQ[c, GraphicsBox | Graphics3DBox | RasterBox]) :=
     preserveOutputBlock[c]
 
+(* On a doc/resource page a non-graphic Output cell is an example result; emit it
+   as the "<!-- => value -->" annotation the source uses (MarkdownToNotebook drops
+   that comment and re-evaluates, so it round-trips). Graphic outputs are the
+   image-twin's job and carry no such comment. *)
+blockFor["Output", c_] /; (! $preserveOutputs && $docPageQ && FreeQ[c, GraphicsBox | Graphics3DBox | RasterBox]) :=
+    With[{t = tidy @ codeText[c]}, If[t === "", "", "<!-- => " <> t <> " -->"]]
+
 (* A standalone graphic whose cell IS the graphic (BoxData holds only the
    GraphicsBox, not code) and whose style is an Input/Code cell is an AUTHORED
    figure - a hand-pasted picture, not regenerable output. Export it to a ".png"
@@ -777,10 +791,16 @@ blockFor[_, BoxData[TagBox[(GraphicsBox | Graphics3DBox | RasterBox)[___], ___]]
 
 (* Top-level headings. A doc template puts the function name in an ObjectName
    cell; frontmatter recovery emits it as `Name:`, so the cell itself drops. *)
-blockFor["Title", c_] := "# " <> cellPlain[c]
-blockFor["Section", c_] := "## " <> cellPlain[c]
-blockFor["Subsection", c_] := "### " <> cellPlain[c]
-blockFor["Subsubsection", c_] := "#### " <> cellPlain[c]
+(* An explicit "Details & Options" heading (the resource template makes it a real
+   Subsection, promoted to a Section for the flat body) also satisfies the Notes
+   slot, so mark it done - otherwise the Notes handler below emits a second one. *)
+headingMd[level_, c_] := With[{t = cellPlain[c]},
+    If[t === "Details & Options", $detailsHeadingDone = True];
+    StringRepeat["#", level] <> " " <> t]
+blockFor["Title", c_] := headingMd[1, c]
+blockFor["Section", c_] := headingMd[2, c]
+blockFor["Subsection", c_] := headingMd[3, c]
+blockFor["Subsubsection", c_] := headingMd[4, c]
 blockFor["ObjectName", _] := ""
 
 (* Usage / Notes / property tables - the doc template's headings are implicit,
@@ -880,11 +900,11 @@ keywordList[nb_] := Flatten @ Cases[nb, Cell[c_, "Keywords", ___] :> Cases[{c}, 
 (* Symbol-page templates carry an ObjectName cell (the function name) and a
    Categorization cell (entity type / paclet / context / URI). When both are
    present we emit a Symbol-template frontmatter the forward path can rebuild
-   the doc-tools authoring notebook from. Other templates (FunctionResource,
-   Data, TechNote, Demonstration, ...) have their own metadata in cells we
-   don't currently round-trip; emit no frontmatter so the recovered .md
-   round-trips as a generic body and the forward path is the one that has to
-   be told the template via a hand-added frontmatter block. *)
+   the doc-tools authoring notebook from. The resource-system family
+   (FunctionResource, Data, Example, Prompt, Demonstration) is handled by
+   resourceFrontmatter below, which reads the slot-tagged definition cells.
+   Anything else emits no frontmatter, so the recovered .md round-trips as a
+   generic body and the forward path is told the template by a hand-added block. *)
 hasObjectNameQ[nb_] := ! FreeQ[nb, Cell[_, "ObjectName", ___]]
 (* a documentation / resource notebook - where the <code>[Sym]()[...] signature DSL
    round-trips through MTN - as opposed to a free-form narrative notebook. An
@@ -899,7 +919,184 @@ docNotebookQ[nb_] := hasObjectNameQ[nb] || AnyTrue[
    the signature DSL. *)
 $docPageQ = True
 
-frontmatter[nb_, name_] := Module[{cat, paclet, ctx, uri, kw, sa, rg},
+(* === FunctionResource-family frontmatter recovery ===
+   A resource definition notebook (Function / Prompt / Data / Example /
+   Demonstration) keeps its metadata in template cells tagged by slot name: the
+   Title is tagged "Name", the summary "Description", and the Source & Additional
+   Information section groups the "Contributed By" / "Keywords" / "Related Symbols"
+   / "Links" subsections. Reconstruct the canonical YAML the forward path reads
+   (Name, Description, ContributedBy, Keywords, SeeAlso, Links) from those cells.
+   Categories live in a checkbox widget whose *checked* state doesn't survive as
+   text, so that slot is dropped; ShortName / RelatedResources are legacy keys the
+   current schema folds into Name / (nothing). *)
+$resourceTypeTemplate = <|"Function" -> "FunctionResource"|>;
+templateForResourceType[rt_String] := Lookup[$resourceTypeTemplate, rt, rt]
+resourceTypeOf[nb_] := FirstCase[Cases[nb, (TaggingRules -> v_) :> v, {1}],
+    tr_ :> FirstCase[tr, (Rule | RuleDelayed)[ResourceType | "ResourceType", v_] :> ToString[v], Missing[]],
+    Missing[], {1}]
+cellHasTagQ[Cell[___, CellTags -> t_, ___], tag_] := MemberQ[Flatten[{t}], tag]
+cellHasTagQ[_, _] := False
+taggedCellText[nb_, tag_] := cellPlain @ FirstCase[nb, c : Cell[body_, ___] /; cellHasTagQ[c, tag] :> body, "", Infinity]
+resourceLinkMd[c_] := Module[
+    {b = FirstCase[c, ButtonBox[l_String, ___, ButtonData -> {URL[u_String], ___}, ___] :> {l, u}, Missing[], Infinity]},
+    If[MissingQ[b], cellPlain[c], "[" <> First[b] <> "](" <> Last[b] <> ")"]]
+(* Currently scoped to the Function template. Recovering a family's frontmatter also
+   makes MarkdownToNotebook rebuild through that family's template on the return trip,
+   which only round-trips if the body cells map back to the template's slots - for
+   Function we emit the flat "## Section" body its slots expect, but Data / Example /
+   Demonstration / Paclet keep their own content-section names (e.g. "Data
+   Definitions" -> ContentElements) that need a per-family body transform. Until each
+   is taught, they stay on the plain walker (no frontmatter), which round-trips as a
+   generic document. resourceFrontmatter / prepResourceBody already generalise over
+   the families' shared metadata; flip this gate per family as each body map lands. *)
+resourceDefNotebookQ[nb_] := resourceTypeOf[nb] === "Function" && ! FreeQ[nb, c_Cell /; cellHasTagQ[c, "Name"]]
+
+(* === resource body normalization ===
+   The resource definition notebook nests the authored content inside template
+   scaffolding: a Title/Description carrying the frontmatter, "Documentation" and
+   "Examples" wrapper sections whose subsections are the real content, and a
+   "Source & Additional Information" section that is pure metadata (now in the
+   frontmatter). Cell GROUPING is unreliable: a fresh MarkdownToNotebook expression
+   nests each section in explicit CellGroupData, but the front end regroups an open
+   notebook (NotebookGet returns one Title-rooted group), so the transform must not
+   pattern-match on group shape. Instead: flatten every group away, then walk the
+   flat cell list sectionally - a heading cell owns everything up to the next
+   heading of the same or shallower level - dropping metadata sections by heading
+   tag, bare wrapper labels, and unfilled template placeholders, then promoting the
+   surviving subsections to `## Section`. Empty leftovers are removed afterwards by
+   dropEmptySections. *)
+(* Metadata / scaffolding sections recovered into the frontmatter (or pure template
+   chrome) - dropped from the body across the resource families. The tag set is the
+   union over Function / Data / Example / Demonstration / Paclet; a tag a given
+   family lacks is simply never matched. "Author Notes" is NOT here: it is
+   authorable from markdown, so it is kept when filled and disappears via the
+   placeholder drop when untouched. *)
+$resourceDropTags = {
+    "Contributed By", "ContributorInformation", "Author Names", "AuthorNames",
+    "Keywords", "Categories",
+    "Related Symbols", "See Also", "SeeAlso", "Related Documentation Pages",
+    "Related Resource Objects", "Related Demonstrations",
+    "Source/Reference Citation", "Citation", "Detailed Source Information",
+    "Source Control URL", "Licensing Information", "Disclosures",
+    "Links", "External Links", "Compatibility", "Content Types", "ContentTypes",
+    "Submission Notes"};
+(* wrapper headings whose label is dropped and whose children ARE the body;
+   "Source & Additional Information" keeps its code-bearing child (Tests). An
+   "Author Notes" section is neither: kept whole when authored, and reduced to a
+   bare heading by the placeholder drop (then removed by dropEmptySections) when
+   untouched. *)
+$resourceCommonFlattenTags = {"Source & Additional Information"};
+$functionFlattenTags       = {"Documentation", "Examples"};
+promoteHeadings[expr_] := expr /. Cell[c_, s : ("Subsection" | "Subsubsection"), o___] :>
+    Cell[c, Replace[s, {"Subsection" -> "Section", "Subsubsection" -> "Subsection"}], o]
+
+(* The resource template splits a usage statement into a "UsageInputs" signature
+   cell and a following "UsageDescription" cell; the Symbol form keeps them on one
+   "<code>[f]()[..]</code> desc" line. Merge each adjacent pair into a single line
+   (the signature routed through InlineFormula so it renders as <code>). *)
+usageDescParts[TextData[xs_List]] := xs
+usageDescParts[TextData[x_]] := {x}
+usageDescParts[s_] := {s}
+mergeUsageLines[cells_] := cells //.
+    {a___, Cell[ui_, "UsageInputs", ___], Cell[ud_, "UsageDescription", ___], b___} :>
+        {a, Cell[TextData[Flatten[{Cell[ui, "InlineFormula"], " ", usageDescParts[ud]}]], "UsageLine"], b}
+blockFor["UsageLine", TextData[xs_List]] := tidy @ StringJoin[inlineMd /@ xs]
+
+(* flatten every CellGroupData wrapper into the bare cell sequence; grouping carries
+   no information the walker needs, and the FE's regrouping makes it unreliable. *)
+flattenCellGroups[cells_List] := cells //. Cell[CellGroupData[inner_List, ___], ___] :> Splice[inner]
+$headingLevels = <|"Title" -> 1, "Section" -> 2, "Subsection" -> 3, "Subsubsection" -> 4|>;
+headingLevelOf[Cell[_, s_String, ___]] := Lookup[$headingLevels, s, Infinity]
+headingLevelOf[_] := Infinity
+(* the span a heading cell owns in a flat list: itself through everything up to the
+   next heading of the same or shallower level. *)
+sectionSpanEnd[cells_, i_] := Module[{lvl = headingLevelOf[cells[[i]]], j = i + 1},
+    While[j <= Length[cells] && headingLevelOf[cells[[j]]] > lvl, j++]; j - 1]
+normalizeResourceCells[cells0_List, flattenTags_] := Module[{cells = flattenCellGroups[cells0], out = {}, i = 1, cell},
+    While[i <= Length[cells],
+        cell = cells[[i]];
+        Which[
+            (* frontmatter carriers and unfilled template placeholders *)
+            cellHasTagQ[cell, "Name"] || cellHasTagQ[cell, "Description"] || cellHasTagQ[cell, "MTNUnfilled"],
+                i++,
+            (* metadata section: drop the heading and everything it owns *)
+            headingLevelOf[cell] < Infinity && AnyTrue[$resourceDropTags, cellHasTagQ[cell, #] &],
+                i = sectionSpanEnd[cells, i] + 1,
+            (* wrapper label: drop just the heading, keep its children *)
+            AnyTrue[flattenTags, cellHasTagQ[cell, #] &],
+                i++,
+            True,
+                AppendTo[out, cell]; i++
+        ]
+    ];
+    out
+]
+(* Tests is the code-bearing survivor of the Source wrapper; promote it to a Section
+   so "## Tests" maps back to the VerificationTests slot. Function promotes the whole
+   body (its content is flat ## sections); the other families keep their own content
+   sections at their native levels and only re-home Tests. *)
+promoteTests[cells_] := cells /.
+    Cell[c_, "Subsection", o___] /; cellHasTagQ[Cell[c, "Subsection", o], "VerificationTests"] :> Cell[c, "Section", o]
+prepResourceBody[cells_List, functionQ_] := If[functionQ,
+    mergeUsageLines[promoteHeadings /@ normalizeResourceCells[cells, Join[$resourceCommonFlattenTags, $functionFlattenTags]]],
+    promoteTests @ normalizeResourceCells[cells, $resourceCommonFlattenTags]
+]
+
+fmField[key_, val_] := If[StringTrim[val] === "", "", key <> ": " <> val <> "\n"]
+fmList[key_, items_] := If[items === {}, "", key <> ": [" <> StringRiffle[items, ", "] <> "]\n"]
+
+(* children of the first subsection matching ANY of the tag aliases a family may use
+   (one subsection can carry several of them, so match once, not per-tag). Works on
+   the flattened cell list so it is immune to the FE's regrouping: the children are
+   the heading's sectional span. *)
+resourceSectionKidsAny[nb_, tags_List] := Module[
+    {cells = flattenCellGroups[First[nb]], i},
+    i = FirstPosition[cells,
+        h_ /; headingLevelOf[h] < Infinity && AnyTrue[tags, cellHasTagQ[h, #] &],
+        Missing[], {1}, Heads -> False];
+    If[MissingQ[i], Return[{}]];
+    i = First[i];
+    cells[[i + 1 ;; sectionSpanEnd[cells, i]]]
+]
+(* the authored (non-placeholder) Item contents; an unfilled slot keeps a
+   "DefaultContent"-tagged placeholder Item, which is not a real value. *)
+resourceContentItems[nb_, tags_List] := Cases[resourceSectionKidsAny[nb, tags],
+    cell : Cell[content_, "Item", ___] /; ! cellHasTagQ[cell, "DefaultContent"] :> content]
+resourceSubsectionText[nb_, tags_List] := StringRiffle[
+    cellPlain /@ Cases[resourceSectionKidsAny[nb, tags], Cell[c_, "Text", ___] :> c], ", "]
+resourceFrontmatter[nb_] := Module[{rt = resourceTypeOf[nb], name, desc, contrib, kw, sa, rr, links},
+    If[! resourceDefNotebookQ[nb], Return[""]];
+    name    = taggedCellText[nb, "Name"];
+    desc    = taggedCellText[nb, "Description"];
+    contrib = resourceSubsectionText[nb, {"Contributed By", "ContributorInformation", "Author Names", "AuthorNames"}];
+    kw      = cellPlain /@ resourceContentItems[nb, {"Keywords"}];
+    (* SeeAlso: Function stores it as RelatedSymbol cells, the other families as a
+       "See Also" / "Related Symbols" / "Related Documentation Pages" list. *)
+    sa      = DeleteDuplicates @ Join[
+        Cases[nb, Cell[c_, "RelatedSymbol", ___] :> cellPlain[c], Infinity],
+        cellPlain /@ resourceContentItems[nb, {"See Also", "Related Symbols", "Related Documentation Pages"}]];
+    rr      = cellPlain /@ resourceContentItems[nb, {"Related Resource Objects", "Related Demonstrations"}];
+    links   = resourceLinkMd /@ resourceContentItems[nb, {"Links", "External Links"}];
+    StringJoin[
+        "---\n",
+        "Template: ", templateForResourceType[rt], "\n",
+        "ResourceType: ", rt, "\n",
+        fmField["Name", name],
+        fmField["Description", desc],
+        fmField["ContributedBy", contrib],
+        fmList["Keywords", kw],
+        fmList["SeeAlso", sa],
+        fmList["RelatedResources", rr],
+        (* each Links item is already a markdown link; quote it so the YAML element
+           is a string the forward parser unquotes. *)
+        If[links === {}, "", "Links: [" <> StringRiffle[("\"" <> # <> "\"" &) /@ links, ", "] <> "]\n"],
+        "---\n\n"
+    ]
+]
+
+frontmatter[nb_, name_] := Module[{cat, paclet, ctx, uri, kw, sa, rg, res},
+    res = resourceFrontmatter[nb];
+    If[res =!= "", Return[res]];
     If[! hasObjectNameQ[nb], Return[""]];
     cat = catList[nb];
     paclet = If[Length[cat] >= 2, cat[[2]], ""];
@@ -950,14 +1147,45 @@ dropEmptySections[blocks_List] := Module[{i, out = {}},
    up as bare `## Title` blocks with no following content, which we drop.
    For an arbitrary notebook a trailing heading IS authored content, so the
    drop pass only runs when a doc-page frontmatter is being emitted. *)
+(* On a doc page, fold an example's oversized result into a "#| screenshot: true"
+   mark on its input cell and drop the giant Output, so it round-trips as a rendered
+   image rather than a wall-of-text "<!-- => v -->" comment. Threshold is the
+   OutputCommentLimit option; graphic outputs are left for the code to regenerate.
+   Operates on the flat cell list (groups already flattened): each Output belongs to
+   the nearest preceding Input. *)
+outputCommentTooLongQ[boxes_] := FreeQ[boxes, GraphicsBox | Graphics3DBox | RasterBox] &&
+    StringLength[tidy @ codeText[boxes]] > $outputCommentLimit
+withScreenshotTag[Cell[c_, s_, o___]] := If[FreeQ[{o}, CellTags -> _],
+    Cell[c, s, o, CellTags -> {"MTNScreenshot"}],
+    Replace[Cell[c, s, o], (CellTags -> t_) :> (CellTags -> DeleteDuplicates @ Append[Flatten[{t}], "MTNScreenshot"]), {1}]]
+applyOutputScreenshots[cells_List] := Module[{drop = {}, marks = {}, lastIn = 0},
+    Do[
+        Which[
+            MatchQ[cells[[i]], Cell[_, "Input" | "Code" | "ExampleInput", ___]],
+                lastIn = i,
+            MatchQ[cells[[i]], Cell[oc_BoxData, "Output", ___] /; outputCommentTooLongQ[oc]],
+                AppendTo[drop, i]; If[lastIn > 0, AppendTo[marks, lastIn]]
+        ],
+        {i, Length[cells]}];
+    marks = DeleteDuplicates[marks];
+    Delete[
+        MapIndexed[If[MemberQ[marks, First[#2]], withScreenshotTag[#1], #1] &, cells],
+        List /@ drop]
+]
+
 markdownOfNb[nb : Notebook[_List, ___], opts : OptionsPattern[NotebookToMarkdown]] := Block[
-    {name, blocks, fm, $detailsHeadingDone = False,
-     $metadataCarrier   = OptionValue[NotebookToMarkdown, {opts}, "Metadata"],
-     $preserveOutputs   = TrueQ @ OptionValue[NotebookToMarkdown, {opts}, "PreserveOutputs"],
-     $outputInlineLimit = OptionValue[NotebookToMarkdown, {opts}, "OutputInlineLimit"],
-     $docPageQ          = docNotebookQ[nb]},
+    {name, blocks, fm, cells, $detailsHeadingDone = False,
+     $metadataCarrier    = OptionValue[NotebookToMarkdown, {opts}, "Metadata"],
+     $preserveOutputs    = TrueQ @ OptionValue[NotebookToMarkdown, {opts}, "PreserveOutputs"],
+     $outputInlineLimit  = OptionValue[NotebookToMarkdown, {opts}, "OutputInlineLimit"],
+     $outputCommentLimit = OptionValue[NotebookToMarkdown, {opts}, "OutputCommentLimit"],
+     $docPageQ           = docNotebookQ[nb]},
     name = cellPlain @ FirstCase[nb, Cell[t_, "ObjectName", ___] :> t, "", Infinity];
-    blocks = walkCells[First[nb]];
+    cells = If[resourceDefNotebookQ[nb], prepResourceBody[First[nb], resourceTypeOf[nb] === "Function"], First[nb]];
+    (* the walker is grouping-agnostic, so doc pages run on the flat cell list; the
+       screenshot pre-pass relies on it (Output follows its Input) *)
+    If[$docPageQ, cells = applyOutputScreenshots[flattenCellGroups[cells]]];
+    blocks = walkCells[cells];
     fm = frontmatter[nb, name];
     If[fm =!= "", blocks = dropEmptySections[blocks]];
     fm <> StringRiffle[blocks, "\n\n"] <> "\n"

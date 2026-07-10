@@ -1174,11 +1174,21 @@ asList[x_] := {x}
 
 (* a TemplateSlot's default content, used as both the cell shape to clone and
    the fallback when the markdown supplies nothing for that slot. *)
-slotDefault[opts_List] := FirstCase[opts, (DefaultValue -> v_) :> v, {}]
+(* An unfilled slot keeps the template's default cells; tag each with "MTNUnfilled"
+   so NotebookToMarkdown can recognize untouched placeholder content (the Author
+   Notes stub, the MyFunction[x,y] Tests seed) and omit it from the recovered
+   markdown. The tag is stripped again the moment a slot is actually filled
+   (cleanCell below), so authored content never carries it. *)
+markUnfilled[v_] := v /. {
+    Cell[c_, s_String, o1___, CellTags -> t_, o2___] :>
+        Cell[c, s, o1, CellTags -> DeleteDuplicates @ Append[Flatten[{t}], "MTNUnfilled"], o2],
+    cell : Cell[_, _String, o___] /; FreeQ[{o}, CellTags] :> Append[cell, CellTags -> {"MTNUnfilled"}]
+}
+slotDefault[opts_List] := markUnfilled @ FirstCase[opts, (DefaultValue -> v_) :> v, {}]
 
 (* drop the markers that flag a cell as an unfilled template placeholder *)
 cleanCell[cell_] := DeleteCases[
-    cell /. (CellTags -> t_) :> (CellTags -> DeleteCases[Flatten[{t}], "DefaultContent"]),
+    cell /. (CellTags -> t_) :> (CellTags -> DeleteCases[Flatten[{t}], "DefaultContent" | "MTNUnfilled"]),
     CellID -> _,
     {1}
 ]
@@ -1527,15 +1537,24 @@ applyCollapse[block_, cells_List] := With[{mode = collapseMode[Lookup[block["Opt
    and decorated with any "excluded" / "hidden" per-cell tag. "#| input: false"
    drops the Input cell - the example renders as just its captured Output (the
    Demonstration-snapshot use case). *)
+(* a "#| screenshot: true" cell keeps its directive in the notebook as an
+   "MTNScreenshot" cell tag on the Input, so NotebookToMarkdown can re-emit the
+   directive on the way back (the rasterized twin output itself carries no trace). *)
+withScreenshotMark[block_, cells_List] := If[
+    TrueQ[Lookup[block["Options"], "screenshot", False]],
+    cells /. Cell[c_, "Input", o___] /; FreeQ[{o}, CellTags] :>
+        Cell[c, "Input", o, CellTags -> {"MTNScreenshot"}],
+    cells
+]
 exampleIOFor[block_, n_Integer] :=
-    applyExcluded[block, applyHidden[block, applyCollapse[block, withCellFlag[block, exampleIO[
+    applyExcluded[block, applyHidden[block, applyCollapse[block, withCellFlag[block, withScreenshotMark[block, exampleIO[
         block["Code"], block["OutputBoxes"], n,
         extraOutputOpts[block], Lookup[block, "Messages", {}],
         Lookup[block["Options"], "input", True] === False,
         Lookup[block, "Prints", {}],
         Lookup[block, "ExtraCells", {}],
         Lookup[block, "Outputs", Automatic]
-    ]]]]]
+    ]]]]]]
 
 (* a document-level flag banner ("Flag" frontmatter) prepended to the notebook *)
 applyDocFlag[nb_, ""] := nb
@@ -1543,12 +1562,17 @@ applyDocFlag[Notebook[cells_, o___], v_String] := With[{f = flagCell[v]},
     If[f === Nothing, Notebook[cells, o], Notebook[Prepend[cells, f], o]]]
 applyDocFlag[nb_, _] := nb
 
-(* the filled function-definition cell. It must carry the "DefaultContent" cell
-   tag the official template puts on every content cell, or the resource scraper
-   (and the submission Check) does not recognize it as the function's definition. *)
-functionSlot[opts_, defCode_String] := If[ defCode === "",
-    slotDefault[opts],
-    {Cell[BoxData[defCode], "Code", CellTags -> {"DefaultContent"}, InitializationCell -> True]}
+(* the filled function-definition cells. The code cell must carry the
+   "DefaultContent" cell tag the official template puts on every content cell, or
+   the resource scraper (and the submission Check) does not recognize it as the
+   function's definition. Any prose the author wrote in the "## Definition" section
+   is kept as Text cells ahead of the code so it survives the notebook round-trip. *)
+functionSlot[opts_, defCode_String, sections_ : <||>] := Block[
+    {proseCells = proseBlockCells[Cases[Lookup[sections, "definition", {}], b_ /; b["Type"] === "Prose"]],
+     codeCells},
+    codeCells = If[defCode === "", {},
+        {Cell[BoxData[defCode], "Code", CellTags -> {"DefaultContent"}, InitializationCell -> True]}];
+    If[proseCells === {} && codeCells === {}, slotDefault[opts], Join[proseCells, codeCells]]
 ]
 
 (* the content-defining cells of an Example Repository resource (the "ContentElements"
@@ -2137,7 +2161,7 @@ fillSlot[name_, opts_, data_] := Block[{meta = data["meta"]},
                 fillCheckbox["CompatibilityCloudSupport", If[TrueQ @ meta["CloudSupport"], {True}, {}]],
                 slotDefault[opts]
             ],
-        "Function", functionSlot[opts, data["defCode"]],
+        "Function", functionSlot[opts, data["defCode"], data["sections"]],
         "HeroImage", heroSlot[opts, data["sections"]],
         "Usage", usageSlot[opts, data["sections"]],
         "Notes", notesSlot[opts, data["sections"]],
