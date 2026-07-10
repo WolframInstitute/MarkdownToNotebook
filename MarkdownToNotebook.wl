@@ -1223,8 +1223,12 @@ fillListCells[opts_, items_List] := Block[{def = slotDefault[opts], vals = Delet
    (not inside BoxData) so the label stays a String literal - inside BoxData the
    front end would reparse a multi-word label into a RowBox, which the resource
    scraper's ButtonBox[_String, ...] link pattern would then miss. *)
+(* the URL runs greedily to the LAST closing paren, so a URL containing parens or a
+   paren-adjacent anchor - .../196_(number)#196_algorithm - stays whole (issue seen
+   on save-back: the shortest match cut the link at the first ")"). *)
 linkItemContent[item_String] := Block[{
-    m = StringCases[item, "[" ~~ t : Shortest[Except["]"] ..] ~~ "](" ~~ u : Shortest[Except[")"] ..] ~~ ")" :> {t, u}, 1]
+    m = StringCases[StringTrim[item],
+        StartOfString ~~ "[" ~~ t : Shortest[Except["]"] ..] ~~ "](" ~~ u : __ ~~ ")" ~~ EndOfString :> {t, u}, 1]
 },
     If[ m === {},
         item,

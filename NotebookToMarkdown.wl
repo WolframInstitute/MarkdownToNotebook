@@ -641,14 +641,16 @@ Options[NotebookToMarkdown] = {
     "Metadata" -> Automatic,        (* Automatic | "Comment" | "Inline" | None *)
     "PreserveOutputs" -> False,     (* emit Output cells (else dropped, regenerated on re-run) *)
     "OutputInlineLimit" -> 2048,    (* WXF bytes: <= inline "#| boxes", > spill to a ".wxf" sidecar *)
-    "OutputCommentLimit" -> 240     (* chars: an example result longer than this is marked
-                                       "#| screenshot: true" instead of a "<!-- => v -->" comment *)
+    "OutputCommentLimit" -> 400     (* chars: an example result longer than this is marked
+                                       "#| screenshot: true" instead of a "<!-- => v -->" comment;
+                                       comfortably above a typical list result (the FE can render
+                                       the same boxes slightly longer than a fresh expression) *)
 };
 
 $metadataCarrier  = Automatic;
 $preserveOutputs  = False;
 $outputInlineLimit = 2048;
-$outputCommentLimit = 240;
+$outputCommentLimit = 400;
 $n2mAssetDir   = None;   (* directory for ".wxf" sidecars; None (in-memory) forces inline *)
 $n2mAssetBase  = "cell";
 $n2mOutCounter = 0;
