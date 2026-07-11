@@ -3444,11 +3444,17 @@ symbolNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"]
 ]
 
 (* the palette's "Inline Listing": a function-name chip linking to its ref page,
-   the same typed link the Documentation Tools button produces (issue #20). *)
-guideFnChip[name_String, paclet_String] := With[
+   the same typed link the Documentation Tools button produces (issue #20). A
+   built-in symbol (the *`Sym`* italic form in the markdown) links to the SYSTEM
+   reference page "paclet:ref/Sym" instead of the paclet's. *)
+guideFnChip[name_String, paclet_String, builtinQ_ : False] := With[
     {pkg = packagePath[paclet, $docContext]},
     Cell[
-        BoxData[pacletLinkBox[name, "paclet:" <> If[pkg === "", paclet, pkg] <> "/ref/" <> name]],
+        BoxData[pacletLinkBox[name,
+            If[ TrueQ[builtinQ],
+                "paclet:ref/" <> name,
+                "paclet:" <> If[pkg === "", paclet, pkg] <> "/ref/" <> name
+            ]]],
         "InlineGuideFunction", TaggingRules -> {"PageType" -> "Function"}
     ]
 ]
@@ -3470,20 +3476,28 @@ stripLeadingDash[s0_String] := Block[{s = StringTrim[s0]},
     ]
 ]
 
-(* split a "## Functions" item into its leading run of comma-separated `Sym`
-   spans and the trailing description: "`Sym` desc" -> {{"Sym"}, " desc"};
-   an enumeration "`A`, `B`, `C` desc" -> {{"A","B","C"}, " desc"}. A comma only
-   extends the run when another `code` span follows it, so a description that
-   itself starts with ", ..." or carries an embedded code span is left intact. *)
-guideLeadingSymbols[item_String] := Block[{rest = StringTrim[item], syms, m},
-    m = StringCases[rest,
-        StartOfString ~~ "`" ~~ s : Shortest[__] ~~ "`" ~~ t___ :> {s, t}, 1];
+(* split a "## Functions" item into its leading run of comma-separated symbol
+   spans and the trailing description: "`Sym` desc" -> {{{"Sym", False}}, " desc"};
+   an enumeration "`A`, `B`, `C` desc" -> three entries. Each span is either
+   `Sym` (a paclet symbol) or *`Sym`* (a BUILT-IN symbol, linked to the system
+   documentation) - the {name, builtinQ} pair records which. A comma only
+   extends the run when another span follows it, so a description that itself
+   starts with ", ..." or carries an embedded code span is left intact. *)
+guideSymbolSpan[s_String] := StringCases[s,
+    {
+        StartOfString ~~ "*`" ~~ n : Shortest[__] ~~ "`*" ~~ t___ :> {{n, True}, t},
+        StartOfString ~~ "`" ~~ n : Shortest[__] ~~ "`" ~~ t___ :> {{n, False}, t}
+    }, 1]
+guideLeadingSymbols[item_String] := Block[{rest = StringTrim[item], syms, m, afterComma},
+    m = guideSymbolSpan[rest];
     If[m === {}, Return[{{}, item}]];
     syms = {m[[1, 1]]}; rest = m[[1, 2]];
-    While[
-        (m = StringCases[rest,
-            StartOfString ~~ WhitespaceCharacter ... ~~ "," ~~ WhitespaceCharacter ... ~~
-                "`" ~~ s : Shortest[__] ~~ "`" ~~ t___ :> {s, t}, 1]) =!= {},
+    While[True,
+        afterComma = StringCases[rest,
+            StartOfString ~~ WhitespaceCharacter ... ~~ "," ~~ WhitespaceCharacter ... ~~ t___ :> t, 1];
+        If[afterComma === {}, Break[]];
+        m = guideSymbolSpan[First[afterComma]];
+        If[m === {}, Break[]];
         AppendTo[syms, m[[1, 1]]]; rest = m[[1, 2]]
     ];
     {syms, rest}
@@ -3495,7 +3509,7 @@ guideFunctionItem[item_String, paclet_String] := Block[{syms, rest, desc, chips}
         Return @ Cell[TextData @ inlineTextData[item], "GuideText"]
     ];
     desc  = stripLeadingDash[rest];
-    chips = Riffle[guideFnChip[#, paclet] & /@ syms, ", "];
+    chips = Riffle[guideFnChip[#[[1]], paclet, #[[2]]] & /@ syms, ", "];
     Cell[
         TextData @ If[desc === "", chips,
             Join[chips, {" \[LongDash] "}, inlineTextData[desc]]],
@@ -3581,7 +3595,11 @@ guideFunctionCells[sections_, paclet_String] := Block[{out = {}, cur = {}, head 
             b["Type"] === "Heading" && b["Level"] === 3,
                 flush[]; head = b["Text"]; cur = {},
             b["Type"] === "List",
-                cur = Join[cur, Map[guideFunctionItem[#, paclet] &, b["Items"]]]
+                cur = Join[cur, Map[guideFunctionItem[#, paclet] &, b["Items"]]],
+            (* a "---" between listing blocks is the palette's Delimiter - the
+               thin rule that separates groups of related functions on a guide *)
+            b["Type"] === "Separator",
+                AppendTo[cur, Cell["\t", "GuideDelimiter"]]
         ],
         {b, blocks}
     ];

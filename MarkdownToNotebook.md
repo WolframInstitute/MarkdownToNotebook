@@ -727,6 +727,20 @@ VerificationTest[
 ]
 ```
 
+Inside `## Functions`, a `---` separator becomes the palette's Delimiter - the thin `Cell["\t", "GuideDelimiter"]` rule that visually separates groups of related listings - and an italic-wrapped symbol ``*`Sym`*`` marks a BUILT-IN whose chip links to the system reference page `paclet:ref/Sym` rather than the paclet's own:
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook["---\nTemplate: Guide\nName: G\nContext: Pub`Pkg`\nPaclet: Pub/Pkg\nURI: Pub/Pkg/guide/G\n---\n\n## Functions\n\n- `Foo` does foo\n\n---\n\n- *`TensorContract`* contracts slot pairs\n"]},
+        {Length @ Cases[nb, Cell["\t", "GuideDelimiter", ___], Infinity],
+         Union @ Cases[nb, u_String /; StringStartsQ[u, "paclet:ref/"], Infinity],
+         Length @ Cases[nb, u_String /; StringStartsQ[u, "paclet:Pub/Pkg/ref/"], Infinity] > 0}
+    ],
+    {1, {"paclet:ref/TensorContract"}, True},
+    TestID -> "guide --- becomes a GuideDelimiter; *`Sym`* links to the system ref page (built-in autolink)"
+]
+```
+
 A Symbol page's Notes (Details) slot is filled from the Details section whether it is headed `## Details & Options` (the doc-tools title) or just `## Details`; sections are keyed by heading text, so a lone `## Details` must be matched explicitly or its bullets are silently dropped from the built page:
 
 ```wl
