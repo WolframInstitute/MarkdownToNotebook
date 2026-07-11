@@ -3445,16 +3445,16 @@ symbolNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"]
 
 (* the palette's "Inline Listing": a function-name chip linking to its ref page,
    the same typed link the Documentation Tools button produces (issue #20). A
-   built-in symbol (the *`Sym`* italic form in the markdown) links to the SYSTEM
-   reference page "paclet:ref/Sym" instead of the paclet's. *)
+   built-in symbol (the *`Sym`* italic form in the markdown) keeps the italic on
+   its label and links to the SYSTEM reference page "paclet:ref/Sym" instead of
+   the paclet's, so the listing reads paclet-vs-built-in at a glance. *)
 guideFnChip[name_String, paclet_String, builtinQ_ : False] := With[
     {pkg = packagePath[paclet, $docContext]},
     Cell[
-        BoxData[pacletLinkBox[name,
-            If[ TrueQ[builtinQ],
-                "paclet:ref/" <> name,
-                "paclet:" <> If[pkg === "", paclet, pkg] <> "/ref/" <> name
-            ]]],
+        BoxData @ If[ TrueQ[builtinQ],
+            pacletLinkBox[StyleBox[name, FontSlant -> "Italic"], "paclet:ref/" <> name],
+            pacletLinkBox[name, "paclet:" <> If[pkg === "", paclet, pkg] <> "/ref/" <> name]
+        ],
         "InlineGuideFunction", TaggingRules -> {"PageType" -> "Function"}
     ]
 ]

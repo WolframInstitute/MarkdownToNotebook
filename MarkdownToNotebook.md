@@ -727,17 +727,18 @@ VerificationTest[
 ]
 ```
 
-Inside `## Functions`, a `---` separator becomes the palette's Delimiter - the thin `Cell["\t", "GuideDelimiter"]` rule that visually separates groups of related listings - and an italic-wrapped symbol ``*`Sym`*`` marks a BUILT-IN whose chip links to the system reference page `paclet:ref/Sym` rather than the paclet's own:
+Inside `## Functions`, a `---` separator becomes the palette's Delimiter - the thin `Cell["\t", "GuideDelimiter"]` rule that visually separates groups of related listings - and an italic-wrapped symbol ``*`Sym`*`` marks a BUILT-IN: its chip keeps the italic on the label and links to the system reference page `paclet:ref/Sym` rather than the paclet's own:
 
 ```wl
 VerificationTest[
     With[{nb = MarkdownToNotebook["---\nTemplate: Guide\nName: G\nContext: Pub`Pkg`\nPaclet: Pub/Pkg\nURI: Pub/Pkg/guide/G\n---\n\n## Functions\n\n- `Foo` does foo\n\n---\n\n- *`TensorContract`* contracts slot pairs\n"]},
         {Length @ Cases[nb, Cell["\t", "GuideDelimiter", ___], Infinity],
          Union @ Cases[nb, u_String /; StringStartsQ[u, "paclet:ref/"], Infinity],
-         Length @ Cases[nb, u_String /; StringStartsQ[u, "paclet:Pub/Pkg/ref/"], Infinity] > 0}
+         Length @ Cases[nb, u_String /; StringStartsQ[u, "paclet:Pub/Pkg/ref/"], Infinity] > 0,
+         Length @ Cases[nb, TemplateBox[{Cell[TextData[StyleBox["TensorContract", ___, FontSlant -> "Italic", ___]], ___], "paclet:ref/TensorContract", ___}, ___], Infinity]}
     ],
-    {1, {"paclet:ref/TensorContract"}, True},
-    TestID -> "guide --- becomes a GuideDelimiter; *`Sym`* links to the system ref page (built-in autolink)"
+    {1, {"paclet:ref/TensorContract"}, True, 1},
+    TestID -> "guide --- becomes a GuideDelimiter; *`Sym`* stays italic and links to the system ref page"
 ]
 ```
 
