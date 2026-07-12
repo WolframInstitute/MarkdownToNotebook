@@ -2,7 +2,7 @@
   "name": "mtn-open-as-notebook",
   "displayName": "Markdown ↔ Wolfram Notebook",
   "description": "Open a Markdown file as a Wolfram notebook (MarkdownToNotebook) with a docked toolbar to save it back to Markdown (NotebookToMarkdown).",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "publisher": "wolframinstitute",
   "engines": { "vscode": "^1.70.0" },
   "categories": ["Other"],

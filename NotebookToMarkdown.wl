@@ -612,7 +612,11 @@ $dropStyles = {
     "ExcludedCellLabel", "HiddenMaterialCellLabel",
     "FutureFlag", "ExcisedFlag", "ObsoleteFlag", "TemporaryFlag", "PreviewFlag", "InternalFlag",
     "Categorization", "CategorizationSection",
-    "Keywords", "KeywordsSection",
+    "Keywords", "KeywordsSection", "MetadataSection",
+    (* guide-page metadata recovered into the frontmatter (RelatedGuides / Links)
+       and empty template section headers *)
+    "GuideTutorialsSection", "GuideMoreAboutSection", "GuideMoreAbout",
+    "GuideRelatedLinksSection", "GuideRelatedLinks",
     "Template", "TemplatesSection",
     "History", "HistoryData",
     "TechNotesSection", "Tutorials",
@@ -660,6 +664,8 @@ $n2mFigCounter = 0;      (* authored-figure ".png" counter (issue #34) *)
 $knownBlockStyles = {
     "Title", "Section", "Subsection", "Subsubsection", "ObjectName",
     "Usage", "UsageDescription", "UsageLine", "Notes",
+    "GuideTitle", "GuideAbstract", "GuideFunctionsSection",
+    "GuideFunctionsSubsection", "GuideText", "GuideDelimiter", "GuideTOCLink",
     "2ColumnTableMod", "3ColumnTableMod", "TableNotes",
     "Text", "Quote", "Caption", "ExampleText", "CodeText",
     "Item", "Item1", "Item2", "Bullet", "ItemNumbered", "ItemNumbered1",
@@ -869,6 +875,42 @@ blockFor[("SummaryList" | "Reference" | "TechNoteItem" | "MoreExploreItem" |
     "ResourceItem" | "TakeawaysList" | "KeyConceptsList"), c_] := "- " <> tidy @ inlineMd[c]
 blockFor[("SummaryNote" | "VocabularyText" | "ExerciseNote" | "ExerciseSectionNote" |
     "TechNote" | "QANote"), c_] := tidy @ inlineMd[c]
+
+(* === Guide-page body (the inverse of MarkdownToNotebook's guideNotebook) ===
+   The title / categorization / keywords / related guides live in the frontmatter;
+   the body walks back to "## Abstract", "## Functions" with "- `Sym` desc" items
+   (a built-in chip - one whose link is the system "paclet:ref/Sym" - re-emits the
+   italic *`Sym`* form), "###" subsections, "---" delimiters, and the "## Guides"
+   index. *)
+guideChipMd[TemplateBox[{lbl_, uri_String, ___}, _, ___]] := With[
+    {name = FirstCase[{lbl}, s_String :> s, "", Infinity]},
+    If[StringStartsQ[uri, "paclet:ref/"], "*`" <> name <> "`*", "`" <> name <> "`"]]
+guideItemPart[Cell[BoxData[tb_TemplateBox], "InlineGuideFunction", ___]] := guideChipMd[tb]
+(* a navigation ButtonBox (a "## Guides" index entry) -> a markdown link *)
+guideItemPart[Cell[BoxData[ButtonBox[l_String, ___, ButtonData -> u_String, ___]], "InlineFormula", ___]] :=
+    "[" <> l <> "](" <> u <> ")"
+guideItemPart[s_String] /; StringTrim[s] === "\[LongDash]" := " "
+guideItemPart[s_String] := s
+guideItemPart[other_] := inlineMd[other]
+guideItemMd[TextData[xs_List]] := StringReplace[tidy @ StringJoin[guideItemPart /@ xs], " ," -> ","]
+guideItemMd[TextData[x_]] := guideItemMd[TextData[{x}]]
+guideItemMd[other_] := tidy @ inlineMd[other]
+
+blockFor["GuideTitle", _] := ""                       (* the frontmatter Title *)
+blockFor["GuideAbstract", c_] := "## Abstract\n\n" <> tidy @ inlineMd[c]
+blockFor["GuideFunctionsSection", _] := "## Functions"
+blockFor["GuideFunctionsSubsection", c_] := Which[
+    (* the "Guides" divider heads the sub-guide index *)
+    cellPlain[c] === "Guides", "## Guides",
+    (* a whole-heading guide link: "### [Sub](paclet:.../guide/Sub)" *)
+    MatchQ[c, BoxData[ButtonBox[_String, ___, ButtonData -> _String, ___]]],
+        Replace[c, BoxData[ButtonBox[l_String, ___, ButtonData -> u_String, ___]] :>
+            "### [" <> l <> "](" <> u <> ")"],
+    True, "### " <> cellPlain[c]
+]
+blockFor["GuideText", c_] := "- " <> guideItemMd[c]
+blockFor["GuideDelimiter", _] := "---"
+blockFor["GuideTOCLink", c_] := "- " <> guideItemMd[c]
 
 (* Drop known-decoration / evaluation / metadata styles. *)
 blockFor[s_String, _] /; MemberQ[$dropStyles, s] := ""
@@ -1148,7 +1190,41 @@ resourceFrontmatter[nb_] := Module[
     ]
 ]
 
+(* === Guide-page frontmatter recovery ===
+   A guide built by MarkdownToNotebook carries its metadata in TaggingRules
+   ("Metadata" -> {"title" -> Name, "context", "summary", "paclet", "uri",
+   "keywords", "type" -> "Guide"}); the human Title is the GuideTitle cell, the
+   RelatedGuides are the GuideMoreAbout links, and Links the GuideRelatedLinks. *)
+docMetaOf[nb_] := FirstCase[
+    Cases[nb, (TaggingRules -> v_) :> v, {1}],
+    tr_List /; ! FreeQ[Keys[tr], "Metadata"] :> Association["Metadata" /. tr],
+    <||>, {1}]
+guideFrontmatter[nb_] := Module[{md = docMetaOf[nb], title, rg, links},
+    If[Lookup[md, "type", ""] =!= "Guide", Return[""]];
+    title = cellPlain @ FirstCase[nb, Cell[t_, "GuideTitle", ___] :> t, "", Infinity];
+    rg = DeleteCases[
+        Cases[nb, Cell[c_, "GuideMoreAbout", ___] :> FirstCase[{c}, s_String :> s, "", Infinity], Infinity],
+        ""];
+    links = resourceLinkMd /@ Cases[nb, Cell[c_, "GuideRelatedLinks", ___] :> c, Infinity];
+    StringJoin[
+        "---\n",
+        "Template: Guide\n",
+        fmField["Name", Lookup[md, "title", ""]],
+        fmField["Title", title],
+        fmField["Context", Lookup[md, "context", ""]],
+        fmField["Paclet", Lookup[md, "paclet", ""]],
+        fmField["URI", Lookup[md, "uri", ""]],
+        fmField["Description", Lookup[md, "summary", ""]],
+        fmList["Keywords", Lookup[md, "keywords", {}]],
+        fmList["RelatedGuides", rg],
+        fmQuotedList["Links", links],
+        "---\n\n"
+    ]
+]
+
 frontmatter[nb_, name_] := Module[{cat, paclet, ctx, uri, kw, sa, rg, res},
+    res = guideFrontmatter[nb];
+    If[res =!= "", Return[res]];
     res = resourceFrontmatter[nb];
     If[res =!= "", Return[res]];
     If[! hasObjectNameQ[nb], Return[""]];
@@ -1193,6 +1269,15 @@ dropEmptySections[blocks_List] := Module[{i, out = {}},
         {i, Length[blocks]}
     ];
     out
+]
+
+(* consecutive single-item list blocks (each cell walks to its own "- item")
+   join into ONE tight list, matching how the lists are authored; blocks are
+   riffled with blank lines, which would otherwise render a loose list. *)
+listItemBlockQ[s_String] := StringMatchQ[s, ("- " | "1. ") ~~ __] && StringFreeQ[s, "\n\n"]
+mergeListRuns[blocks_List] := Map[
+    If[MatchQ[#, {__String}] && listItemBlockQ[First[#]], StringRiffle[#, "\n"], Splice[#]] &,
+    Split[blocks, listItemBlockQ[#1] && listItemBlockQ[#2] &]
 ]
 
 (* === core: a Notebook -> faithful literate markdown ===
@@ -1241,7 +1326,7 @@ markdownOfNb[nb : Notebook[_List, ___], opts : OptionsPattern[NotebookToMarkdown
     If[$docPageQ, cells = applyOutputScreenshots[flattenCellGroups[cells]]];
     blocks = walkCells[cells];
     fm = frontmatter[nb, name];
-    If[fm =!= "", blocks = dropEmptySections[blocks]];
+    If[fm =!= "", blocks = mergeListRuns @ dropEmptySections[blocks]];
     fm <> StringRiffle[blocks, "\n\n"] <> "\n"
 ]
 

@@ -37,22 +37,26 @@ If[! MatchQ[nb, _Notebook], fail["MarkdownToNotebook did not return a Notebook"]
    The button action is held; mdPath and the deployed URL are frozen in as string
    literals with With, so the generated notebook is self-contained and needs no
    arguments at click time.  The resource function is fetched on first click. *)
+(* colors via LightDarkSwitched so the bar follows the front end's appearance *)
 dockCell = With[{md = mdPath, label = FileNameTake[mdPath], n2mUrl = $n2mUrl},
     Cell[
         BoxData @ ToBoxes @ Row[{
             Button[
-                Style["\:2193  Save to Markdown", 12, FontWeight -> "SemiBold"],
+                Style["\:2193  Save to Markdown", 12, FontWeight -> "SemiBold",
+                    FontColor -> LightDarkSwitched[GrayLevel[0.15], GrayLevel[0.9]]],
                 ($CloudBase = "https://www.wolframcloud.com";
                  ResourceFunction[n2mUrl][EvaluationNotebook[], md];
                  CurrentValue[EvaluationNotebook[], {TaggingRules, "MTNsaved"}] = md),
                 Method -> "Queued", Appearance -> "DialogBox", ImageMargins -> 4
             ],
             Spacer[14],
-            Style[label, GrayLevel[0.45], 11]
+            Style[label, LightDarkSwitched[GrayLevel[0.45], GrayLevel[0.6]], 11]
         }],
         "DockedCell",
-        CellFrame -> {{0, 0}, {0.5, 0}}, CellFrameColor -> GrayLevel[0.8],
-        CellFrameMargins -> {{14, 14}, {7, 7}}, Background -> GrayLevel[0.96]
+        CellFrame -> {{0, 0}, {0.5, 0}},
+        CellFrameColor -> LightDarkSwitched[GrayLevel[0.8], GrayLevel[0.35]],
+        CellFrameMargins -> {{14, 14}, {7, 7}},
+        Background -> LightDarkSwitched[GrayLevel[0.96], GrayLevel[0.16]]
     ]
 ];
 

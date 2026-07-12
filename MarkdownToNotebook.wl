@@ -3493,8 +3493,11 @@ guideLeadingSymbols[item_String] := Block[{rest = StringTrim[item], syms, m, aft
     If[m === {}, Return[{{}, item}]];
     syms = {m[[1, 1]]}; rest = m[[1, 2]];
     While[True,
+        (* ", `C`" extends the run; so does the Oxford-style ", and `C`" / " and `C`" *)
         afterComma = StringCases[rest,
-            StartOfString ~~ WhitespaceCharacter ... ~~ "," ~~ WhitespaceCharacter ... ~~ t___ :> t, 1];
+            StartOfString ~~ WhitespaceCharacter ... ~~
+                (("," ~~ WhitespaceCharacter ... ~~ RepeatedNull["and" ~~ WhitespaceCharacter .., 1]) |
+                 ("and" ~~ WhitespaceCharacter ..)) ~~ t___ :> t, 1];
         If[afterComma === {}, Break[]];
         m = guideSymbolSpan[First[afterComma]];
         If[m === {}, Break[]];
