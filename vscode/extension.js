@@ -12,10 +12,25 @@ const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
 
+// Resolve the kernel launcher to an absolute path. VS Code launched from the
+// Dock inherits a minimal PATH (/usr/bin:/bin:...), so a bare "wl" would fail
+// with ENOENT even though the terminal finds it; probe the usual install dirs.
+const WL_DIRS = ['/usr/local/bin', '/opt/homebrew/bin', path.join(os.homedir(), 'bin')];
+function resolveWl(cmd) {
+  if (cmd.includes(path.sep)) return cmd; // explicit path in settings wins
+  for (const dir of WL_DIRS) {
+    const cand = path.join(dir, cmd);
+    if (fs.existsSync(cand)) return cand;
+  }
+  return cmd; // on PATH (terminal-launched VS Code) or let ENOENT surface
+}
+
 function runBuilder(wl, builder, env) {
   return new Promise((resolve, reject) => {
-    const child = cp.spawn(wl, ['-t', '300', '-f', builder], {
-      env: Object.assign({}, process.env, env)
+    const child = cp.spawn(resolveWl(wl), ['-t', '300', '-f', builder], {
+      env: Object.assign({}, process.env, env, {
+        PATH: [process.env.PATH || '', ...WL_DIRS].join(path.delimiter)
+      })
     });
     let out = '';
     let err = '';
