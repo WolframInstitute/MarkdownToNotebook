@@ -232,6 +232,8 @@ walkerMath[Cell[BoxData[b_], ___]] := walkerMath[b]
 walkerMath[Cell[c_, ___]] := walkerMath[c]
 (* close-delimiters keep a trailing space so the next RowBox token can't fuse into
    the control word (issue #33: "\rangledt", "\dagger2") *)
+walkerMath[tb : TemplateBox[{_, _String, ___}, "PackageLink" | "RefLink" | "RefLinkPlain", ___]] :=
+    FirstCase[First[tb], s_String :> s, "", Infinity]
 walkerMath[TemplateBox[{x_}, "Ket"]] := "|" <> walkerMath[x] <> "\\rangle "
 walkerMath[TemplateBox[{x_}, "Bra"]] := "\\langle " <> walkerMath[x] <> "|"
 walkerMath[TemplateBox[{x_, y_}, "Braket" | "BraKet"]] := "\\langle " <> walkerMath[x] <> "|" <> walkerMath[y] <> "\\rangle "
@@ -276,6 +278,9 @@ boxToCode[FormBox[b_, ___]] := walkerMath[b]
 boxToCode[InterpretationBox[disp_, ___]] := boxToCode[disp]
 boxToCode[TagBox[disp_, ___]] := boxToCode[disp]
 boxToCode[StyleBox[disp_, ___]] := boxToCode[disp]
+(* an auto-linked symbol in code / math is just its bare name *)
+boxToCode[TemplateBox[{lbl_, ___}, "PackageLink" | "RefLink" | "RefLinkPlain", ___]] :=
+    FirstCase[{lbl}, s_String :> s, "", Infinity]
 boxToCode[TemplateBox[{x_}, "Ket"]] := "|" <> boxToCode[x] <> "\[RightAngleBracket]"
 boxToCode[TemplateBox[{x_}, "Bra"]] := "\[LeftAngleBracket]" <> boxToCode[x] <> "|"
 boxToCode[TemplateBox[{x_, y_}, "Braket" | "BraKet"]] :=
@@ -337,18 +342,35 @@ cellPlain[_] := ""
        MarkdownToNotebook's mathArgsToTemplate round-trips this to a clean
        subscript; the looser *base*$_i$ form round-trips broken)
      - operators / brackets / commas / arrows pass literally. *)
+(* a documentation-link TemplateBox (PackageLink / RefLink / RefLinkPlain) that the
+   front end auto-links into a signature head or an inline symbol mention. Recover
+   the inferred-link markdown "[Name]()" (or "[Name](uri)" when the uri tail is not
+   the name). Without this the raw box dumped into the output as ToString[..]. *)
+$linkTemplates = "PackageLink" | "RefLink" | "RefLinkPlain";
+linkBoxName[TemplateBox[{lbl_, ___}, $linkTemplates, ___]] := FirstCase[{lbl}, s_String :> s, "", Infinity]
+linkBoxUri[TemplateBox[{_, uri_String, ___}, $linkTemplates, ___]] := uri
+linkBoxUri[_] := ""
+linkTemplateBoxQ[TemplateBox[{_, _String, ___}, $linkTemplates, ___]] := True
+linkTemplateBoxQ[_] := False
+inferredLinkMd[tb_] := With[{name = linkBoxName[tb], uri = linkBoxUri[tb]},
+    If[name === "", "", If[StringEndsQ[uri, "/" <> name], "[" <> name <> "]()", "[" <> name <> "](" <> uri <> ")"]]]
+
 sig[s_String] := cleanStr[s]
 sig[bb_ButtonBox] := "[" <> cellPlain[bb[[1]]] <> "]()"
+sig[tb_TemplateBox] /; linkTemplateBoxQ[tb] := inferredLinkMd[tb]
 sig[StyleBox[s_String, "TI", ___]] := emWrap[normStr[s], "*"]
 sig[StyleBox[s_, ___]] := sig[s]
 sig[SubscriptBox[a_, b_]] := "$" <> sigSub[a] <> "_{" <> sigSub[b] <> "}$"
 sig[SuperscriptBox[a_, b_]] := "$" <> sigSub[a] <> "^{" <> sigSub[b] <> "}$"
 sig[SubsuperscriptBox[a_, b_, c_]] := "$" <> sigSub[a] <> "_{" <> sigSub[b] <> "}^{" <> sigSub[c] <> "}$"
 sig[FractionBox[a_, b_]] := sig[a] <> "/" <> sig[b]
-sig[RowBox[xs_List]] := If[
+sig[RowBox[xs_List]] := Which[
     MatchQ[xs, {_String, "[", ___}] && StringMatchQ[First[xs], LetterCharacter ~~ (WordCharacter | "$") ...],
-    "[" <> First[xs] <> "]()" <> StringJoin[sig /@ Rest[xs]],
-    StringJoin[sig /@ xs]]
+        "[" <> First[xs] <> "]()" <> StringJoin[sig /@ Rest[xs]],
+    (* an auto-linked head: "RicciTensor[m]" where RicciTensor is a link chip *)
+    MatchQ[xs, {_?linkTemplateBoxQ, "[", ___}],
+        inferredLinkMd[First[xs]] <> StringJoin[sig /@ Rest[xs]],
+    True, StringJoin[sig /@ xs]]
 sig[FormBox[b_, ___]] := sig[b]
 sig[f_Symbol] := SymbolName[f]
 sig[other_] := normStr @ boxToCode[other]
@@ -450,9 +472,7 @@ inlineMd[Cell[BoxData[TagBox[bb_ButtonBox, ___]], "InlineFormula", ___]] := inli
    name itself (MarkdownToNotebook re-infers the target), and to an explicit
    "[Name](uri)" otherwise. Without this the chip fell through to a plain
    backtick code span, demoting every symbol link on the page. *)
-inlineMd[Cell[BoxData[TemplateBox[{lbl_, uri_String, ___}, "PackageLink" | "RefLink" | "RefLinkPlain", ___]], "InlineFormula", ___]] :=
-    With[{name = FirstCase[{lbl}, s_String :> s, "", Infinity]},
-        If[StringEndsQ[uri, "/" <> name], "[" <> name <> "]()", "[" <> name <> "](" <> uri <> ")"]]
+inlineMd[Cell[BoxData[tb_TemplateBox], "InlineFormula", ___]] /; linkTemplateBoxQ[tb] := inferredLinkMd[tb]
 (* an inferred link "[Manifold]()" builds to a BARE symbol name in an InlineFormula
    (the documentation build auto-links it later), indistinguishable from an authored
    code span. On a doc page the convention is that a bare CamelCase symbol mention
@@ -1361,13 +1381,29 @@ applyOutputScreenshots[cells_List] := Module[{drop = {}, marks = {}, lastIn = 0}
         List /@ drop]
 ]
 
-markdownOfNb[nb : Notebook[_List, ___], opts : OptionsPattern[NotebookToMarkdown]] := Block[
-    {name, blocks, fm, cells, $detailsHeadingDone = False,
+(* When a "PackageLink" / "RefLink" / "RefLinkPlain" template has no display
+   definition in the session, the front end serializes the whole TemplateBox into
+   its literal box InputForm - RowBox[{ButtonBox["TemplateBox",..], "[", <the
+   template's args as boxes>, "]"}] - which otherwise dumps into the markdown as a
+   wall of box language. Recover the intended link box: its symbol name is the first
+   bare-symbol quoted token inside, and the target is re-inferred, so the normal
+   link rules take over. *)
+demangleName[inner_] := FirstCase[
+    StringTrim[#, "\""] & /@ Cases[inner, s_String /; StringMatchQ[s, "\"" ~~ Except["\""] ... ~~ "\""], Infinity],
+    n_String /; StringMatchQ[n, LetterCharacter ~~ WordCharacter ...], "", 1]
+demangleLinkBoxes[expr_] := expr //.
+    RowBox[{ButtonBox["TemplateBox", ___], "[", inner_, "]"}] /;
+        (! FreeQ[inner, s_String /; StringContainsQ[s, "PackageLink" | "RefLink"]] && demangleName[inner] =!= "") :>
+        With[{name = demangleName[inner]},
+            TemplateBox[{Cell[TextData[name]], "paclet:ref/" <> name}, "RefLinkPlain", BaseStyle -> "InlineFormula"]]
+
+markdownOfNb[nb0 : Notebook[_List, ___], opts : OptionsPattern[NotebookToMarkdown]] := Block[
+    {nb = demangleLinkBoxes[nb0], name, blocks, fm, cells, $detailsHeadingDone = False,
      $metadataCarrier    = OptionValue[NotebookToMarkdown, {opts}, "Metadata"],
      $preserveOutputs    = TrueQ @ OptionValue[NotebookToMarkdown, {opts}, "PreserveOutputs"],
      $outputInlineLimit  = OptionValue[NotebookToMarkdown, {opts}, "OutputInlineLimit"],
      $outputCommentLimit = OptionValue[NotebookToMarkdown, {opts}, "OutputCommentLimit"],
-     $docPageQ           = docNotebookQ[nb]},
+     $docPageQ           = docNotebookQ[nb0]},
     name = cellPlain @ FirstCase[nb, Cell[t_, "ObjectName", ___] :> t, "", Infinity];
     cells = If[resourceDefNotebookQ[nb], prepResourceBody[First[nb], resourceTypeOf[nb]], First[nb]];
     (* the walker is grouping-agnostic, so doc pages run on the flat cell list; the
