@@ -188,7 +188,9 @@ walkerMath[StyleBox[s_, ___]] := walkerMath[s]
    emits option-bearing script boxes inline (e.g. UnderscriptBox[sum, m,
    LimitsPositioning -> False]) and without the tail they skip every rule and dump
    the raw box tree into the $...$ span (issue #51). *)
-walkerMath[FractionBox[a_, b_, ___]] := walkerMath[a] <> "/" <> walkerMath[b]
+(* \frac keeps the grouping unambiguous - "\tfrac{R}{n} g" as "R/ng" reads as a
+   single denominator - and parses straight back through LaTeXMathParse *)
+walkerMath[FractionBox[a_, b_, ___]] := "\\frac{" <> walkerMath[a] <> "}{" <> walkerMath[b] <> "}"
 (* a script base with any trailing spacing glue (the "\," walkerMath emits for a
    whitespace leaf) stripped, so a script never lands on a glue node - KaTeX errors
    "Got group of unknown type: 'internal'" on "U\, ^{\dagger}" (issue #33). An
@@ -443,6 +445,22 @@ inlineMd[Cell[BoxData[StyleBox[s_, "TI", ___]], "InlineFormula", ___]] :=
     If[mathLikeQ[s] || ! $docPageQ, "$" <> walkerMath[s] <> "$", "*" <> boxToCode[s] <> "*"]
 inlineMd[Cell[BoxData[ButtonBox[a___]], "InlineFormula", ___]] := inlineMd[ButtonBox[a]]
 inlineMd[Cell[BoxData[TagBox[bb_ButtonBox, ___]], "InlineFormula", ___]] := inlineMd[bb]
+(* a typed documentation link (PackageLink / RefLink / RefLinkPlain TemplateBox) in
+   prose walks back to the inferred-link form "[Name]()" when the URI's tail is the
+   name itself (MarkdownToNotebook re-infers the target), and to an explicit
+   "[Name](uri)" otherwise. Without this the chip fell through to a plain
+   backtick code span, demoting every symbol link on the page. *)
+inlineMd[Cell[BoxData[TemplateBox[{lbl_, uri_String, ___}, "PackageLink" | "RefLink" | "RefLinkPlain", ___]], "InlineFormula", ___]] :=
+    With[{name = FirstCase[{lbl}, s_String :> s, "", Infinity]},
+        If[StringEndsQ[uri, "/" <> name], "[" <> name <> "]()", "[" <> name <> "](" <> uri <> ")"]]
+(* an inferred link "[Manifold]()" builds to a BARE symbol name in an InlineFormula
+   (the documentation build auto-links it later), indistinguishable from an authored
+   code span. On a doc page the convention is that a bare CamelCase symbol mention
+   IS a link, so walk it back to the inferred form rather than demoting to `code`. *)
+inferredSymbolQ[s_String] := StringLength[s] >= 2 &&
+    StringMatchQ[s, (_?UpperCaseQ) ~~ (WordCharacter | "$" | "`") ..]
+inlineMd[c0 : Cell[BoxData[s_String], "InlineFormula", ___]] /;
+    ! decorationCellQ[c0] && $docPageQ && inferredSymbolQ[s] := "[" <> s <> "]()"
 inlineMd[c0 : Cell[BoxData[b_], "InlineFormula", ___]] /; ! decorationCellQ[c0] := Which[
     ! FreeQ[b, BaseStyle -> "Link" | "Hyperlink"], "<code>" <> sigBox[b] <> "</code>",
     sigCallBoxQ[b] && ($docPageQ || MatchQ[b, _FormBox]), "<code>" <> sigBox[b] <> "</code>",
@@ -549,9 +567,14 @@ tidy[s_String] := StringTrim @ StringReplace[s, {"\n" -> " ", "\r" -> " ", White
    reference inside a description from being mistaken for a new statement. *)
 usageMd[TextData[xs_List]] := Module[{lines = {}, cur = {}},
     Do[
-        If[ MatchQ[e, Cell[_, "ModInfo", ___]],
-            If[cur =!= {}, AppendTo[lines, cur]]; cur = {},
-            AppendTo[cur, e]
+        Which[
+            (* a ModInfo placeholder starts a new signature statement; a bare "\n"
+               separates lines, so a FREE prose line (one with no ModInfo) still
+               becomes its own paragraph instead of gluing onto the previous one *)
+            MatchQ[e, Cell[_, "ModInfo", ___]] || e === "\n",
+                If[cur =!= {}, AppendTo[lines, cur]]; cur = {},
+            True,
+                AppendTo[cur, e]
         ],
         {e, xs}
     ];
@@ -801,10 +824,15 @@ blockFor[_, BoxData[TagBox[(GraphicsBox | Graphics3DBox | RasterBox)[___], ___]]
    cell; frontmatter recovery emits it as `Name:`, so the cell itself drops. *)
 (* An explicit "Details & Options" heading (the resource template makes it a real
    Subsection, promoted to a Section for the flat body) also satisfies the Notes
-   slot, so mark it done - otherwise the Notes handler below emits a second one. *)
+   slot, so mark it done - otherwise the Notes handler below emits a second one.
+   The template titles that use "&" walk back to the "and" form the markdown
+   sources author (both spellings rebuild to the same slot). *)
+$andFormTitles = <|"Properties & Relations" -> "Properties and Relations",
+    "Generalizations & Extensions" -> "Generalizations and Extensions"|>;
+andFormTitle[t_String] := Lookup[$andFormTitles, t, t]
 headingMd[level_, c_] := With[{t = cellPlain[c]},
     If[t === "Details & Options", $detailsHeadingDone = True];
-    StringRepeat["#", level] <> " " <> t]
+    StringRepeat["#", level] <> " " <> andFormTitle[t]]
 blockFor["Title", c_] := headingMd[1, c]
 blockFor["Section", c_] := headingMd[2, c]
 blockFor["Subsection", c_] := headingMd[3, c]
@@ -852,8 +880,8 @@ blockFor["Program", c_] := fencedCode[codeText[c], ""]
 
 (* Example-section scaffold (the resource template's nested example structure). *)
 blockFor["PrimaryExamplesSection", _] := "## Basic Examples"
-blockFor["ExampleSection", c_] := "## " <> sectionTitle[c]
-blockFor["ExampleSubsection", c_] := "### " <> sectionTitle[c]
+blockFor["ExampleSection", c_] := "## " <> andFormTitle @ sectionTitle[c]
+blockFor["ExampleSubsection", c_] := "### " <> andFormTitle @ sectionTitle[c]
 blockFor["ExampleSubsubsection", c_] := "#### " <> sectionTitle[c]
 blockFor["ExampleDelimiter", _] := "---"
 
@@ -1228,12 +1256,21 @@ frontmatter[nb_, name_] := Module[{cat, paclet, ctx, uri, kw, sa, rg, res},
     res = resourceFrontmatter[nb];
     If[res =!= "", Return[res]];
     If[! hasObjectNameQ[nb], Return[""]];
-    cat = catList[nb];
-    paclet = If[Length[cat] >= 2, cat[[2]], ""];
-    ctx = If[Length[cat] >= 3, cat[[3]], ""];
-    uri = If[Length[cat] >= 4, cat[[4]], ""];
-    kw = keywordList[nb];
-    sa = linkNames[nb, "SeeAlso"];
+    (* a MarkdownToNotebook-built page stashes the metadata in TaggingRules;
+       the Categorization / Keywords cells are the fallback for hand-built pages *)
+    With[{md = docMetaOf[nb]},
+        cat = catList[nb];
+        paclet = Lookup[md, "paclet", If[Length[cat] >= 2, cat[[2]], ""]];
+        ctx = Lookup[md, "context", If[Length[cat] >= 3, cat[[3]], ""]];
+        uri = Lookup[md, "uri", If[Length[cat] >= 4, cat[[4]], ""]];
+        kw = Replace[Lookup[md, "keywords", {}], {} :> keywordList[nb]];
+    ];
+    (* SeeAlso chips are typed-link TemplateBoxes on a built page, ButtonBoxes on a
+       hand-authored one *)
+    sa = DeleteDuplicates @ Join[
+        Cases[FirstCase[nb, Cell[td_, "SeeAlso", ___] :> td, TextData[{}], Infinity],
+            TemplateBox[{Cell[TextData[n_String]], _String, ___}, _, ___] :> n, Infinity],
+        linkNames[nb, "SeeAlso"]];
     rg = guideIds[nb, "MoreAbout"];
     StringJoin[
         "---\n",
@@ -1273,11 +1310,23 @@ dropEmptySections[blocks_List] := Module[{i, out = {}},
 
 (* consecutive single-item list blocks (each cell walks to its own "- item")
    join into ONE tight list, matching how the lists are authored; blocks are
-   riffled with blank lines, which would otherwise render a loose list. *)
+   riffled with blank lines, which would otherwise render a loose list. A block
+   that bakes its section heading onto the first item ("## Details & Options
+   <blank> - first note", the Notes handler's shape) is split first so the run
+   merges whole; an example's "<!-- => value -->" annotation re-attaches
+   directly under its code fence, where the source style puts it. *)
 listItemBlockQ[s_String] := StringMatchQ[s, ("- " | "1. ") ~~ __] && StringFreeQ[s, "\n\n"]
-mergeListRuns[blocks_List] := Map[
-    If[MatchQ[#, {__String}] && listItemBlockQ[First[#]], StringRiffle[#, "\n"], Splice[#]] &,
-    Split[blocks, listItemBlockQ[#1] && listItemBlockQ[#2] &]
+splitHeadingItem[s_String] := Replace[
+    StringCases[s, StartOfString ~~ h : (("#" ..) ~~ " " ~~ Except["\n"] ..) ~~ "\n\n" ~~ r__ ~~ EndOfString :> {h, r}, 1],
+    {{{h_, r_}} /; listItemBlockQ[r] :> Splice[{h, r}], _ :> s}]
+mergeListRuns[blocks0_List] := Module[{blocks = Flatten[splitHeadingItem /@ blocks0]},
+    blocks = Map[
+        If[MatchQ[#, {__String}] && listItemBlockQ[First[#]], StringRiffle[#, "\n"], Splice[#]] &,
+        Split[blocks, listItemBlockQ[#1] && listItemBlockQ[#2] &]
+    ];
+    (* hug the output annotation to its fence *)
+    blocks //. {a___, code_String /; StringEndsQ[code, "```"], out_String /; StringStartsQ[out, "<!-- => "], b___} :>
+        {a, code <> "\n" <> out, b}
 ]
 
 (* === core: a Notebook -> faithful literate markdown ===

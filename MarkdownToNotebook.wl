@@ -1871,6 +1871,19 @@ usageLineItems[{code_String, desc_String}] := Block[{trimmedDesc = StringTrim[de
         If[trimmedDesc === "", {}, Prepend[inlineTextData[trimmedDesc], "\[LineSeparator]"]]
     ]
 ]
+(* a free prose paragraph in "## Usage" (no leading signature): keep it as its own
+   line of the Usage cell rather than dropping it *)
+usageLineItems[{None, text_String}] := inlineTextData[StringTrim[text]]
+
+(* every "## Usage" prose paragraph as a {signature, description} pair; one that
+   parses to no signature is kept as a free {None, text} line instead of vanishing *)
+usageLines[sections_] := Flatten[
+    Map[
+        Function[t, Replace[usageStatement[t], {} :> {{None, t}}]],
+        Cases[Lookup[sections, "usage", {}], b_ /; b["Type"] === "Prose" :> b["Text"]]
+    ],
+    1
+]
 
 (* the palette's "Double Usage Line" template inserts ONE `Cell[..., "Usage"]`
    whose TextData lists every usage line in the section, separated by
@@ -1894,12 +1907,10 @@ usagePair[{code_String, desc_String}] := {
     Cell[BoxData[stripLinks @ templateBox[code]], "UsageInputs", FontFamily -> "Source Sans Pro"],
     Cell[TextData @ inlineTextData[desc], "UsageDescription"]
 }
+(* a free usage paragraph: description-only, no UsageInputs partner *)
+usagePair[{None, text_String}] := {Cell[TextData @ inlineTextData[StringTrim[text]], "UsageDescription"]}
 
-usageSlot[opts_, sections_] := Block[{pairs},
-    pairs = Flatten[
-        usageStatement /@ Cases[Lookup[sections, "usage", {}], b_ /; b["Type"] === "Prose" :> b["Text"]],
-        1
-    ];
+usageSlot[opts_, sections_] := Block[{pairs = usageLines[sections]},
     If[ pairs === {}, Return[slotDefault[opts]] ];
     {Cell[CellGroupData[Catenate[usagePair /@ pairs], Open]]}
 ]
@@ -3385,10 +3396,7 @@ symbolNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"]
        replace it. Fall back to a whole-text usageCell when the prose does
        not parse into signature+description pairs (e.g. no recognisable head
        before the args). *)
-    usagePairs = Flatten[
-        usageStatement /@ Cases[Lookup[sections, "usage", {}], b_ /; b["Type"] === "Prose" :> b["Text"]],
-        1
-    ];
+    usagePairs = usageLines[sections];
     notes = detailsCells[sections];
     nb = fillDocString[nb, "ObjectName", name];
     Which[
