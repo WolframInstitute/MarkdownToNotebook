@@ -183,6 +183,12 @@ walkerMath[s_String] := StringReplace[StringReplace[normStr[s], $mathAsciiOps], 
    through to the generic rule below. *)
 walkerMath[StyleBox[s_String, "TI", ___]] /; StringMatchQ[s, RegularExpression["[a-zA-Z]{2,}"]] :=
     "\\mathit{" <> s <> "}"
+(* an upright (Plain-slanted) operator name is what LaTeXMathParse emits for \dim,
+   \sin, \log, \det, ... ; walk it back to the "\name " command (with the trailing
+   separator space it needs before its argument) *)
+plainOpQ[StyleBox[_String, opts___]] := ! FreeQ[{opts}, FontSlant -> "Plain"]
+plainOpQ[_] := False
+walkerMath[b : StyleBox[s_String, ___]] /; plainOpQ[b] := "\\" <> s <> " "
 walkerMath[StyleBox[s_, ___]] := walkerMath[s]
 (* every fixed-arity box rule carries a "___" option tail: the forward pipeline
    emits option-bearing script boxes inline (e.g. UnderscriptBox[sum, m,
@@ -224,7 +230,11 @@ walkerMath[RowBox[{"(", g_GridBox, ")"}]] := "\\begin{pmatrix}" <> gridRows[g] <
 walkerMath[RowBox[{"[", g_GridBox, "]"}]] := "\\begin{bmatrix}" <> gridRows[g] <> "\\end{bmatrix}"
 walkerMath[RowBox[{"|", g_GridBox, "|"}]] := "\\begin{vmatrix}" <> gridRows[g] <> "\\end{vmatrix}"
 walkerMath[g_GridBox] := "\\begin{matrix}" <> gridRows[g] <> "\\end{matrix}"
-walkerMath[RowBox[xs_List]] := StringJoin[walkerMath /@ xs]
+(* M2N inserts a separator space (a \[ThinSpace]) after a \dim / \sin operator box;
+   the "\name " command re-emits its own, so drop the box space to keep the round
+   trip from accumulating thin spaces *)
+walkerMath[RowBox[xs_List]] := StringJoin[walkerMath /@
+    SequenceReplace[xs, {op_?plainOpQ, " " | "\[ThinSpace]" | "\[MediumSpace]" | "\[InvisibleSpace]"} :> op]]
 walkerMath[FormBox[box_, ___]] := walkerMath[box]
 walkerMath[TagBox[x_, ___]] := walkerMath[x]
 walkerMath[InterpretationBox[x_, ___]] := walkerMath[x]
@@ -417,8 +427,24 @@ mathyQ[b_] := ! FreeQ[b, _SubscriptBox | _SuperscriptBox | _SubsuperscriptBox |
    so the InlineFormula dispatch routes them to "$...$" rather than the code
    fallback (issue #15). *)
 mathCharQ[c_String] := With[{n = First @ ToCharacterCode[c]},
-    880 <= n <= 1023 || 8448 <= n <= 8527 || 119808 <= n <= 120831 || 63154 <= n <= 63460]
-mathLikeQ[b_] := mathyQ[b] || ! FreeQ[b, s_String /; AnyTrue[Characters[s], mathCharQ]]
+    880 <= n <= 1023 || 8448 <= n <= 8527 || 119808 <= n <= 120831 || 63154 <= n <= 63460 ||
+    n === 8230 || (8704 <= n <= 8959)]   (* … (U+2026) and the Mathematical Operators block *)
+(* flat operator-math with no 2D structure and no math glyphs - "\dim c = c",
+   "a = b", "F = dA + A" - which mathyQ / mathCharQ both miss, sending genuine math
+   to the code fallback. The tells: a Plain-slanted operator name (\dim / \sin / ...,
+   which a code span never carries) or italic math letters joined by a relational /
+   arithmetic operator. A call / Part / list is caught earlier as a code span, so
+   this never fires on a signature. *)
+$mathBinaryOps = {"=", "+", "-", "<", ">", "\[Times]", "\[Equal]", "\[LessEqual]",
+    "\[GreaterEqual]", "\[NotEqual]", "\[PlusMinus]", "\[Wedge]", "\[Element]",
+    "\[TensorProduct]", "\[CircleTimes]", "\[Congruent]", "\[TildeTilde]",
+    "\[TildeEqual]", "\[TildeFullEqual]", "\[Proportional]", "\[RightArrow]"};
+flatMathQ[b_] := ! FreeQ[b, FontSlant -> "Plain"] ||
+    (! FreeQ[b, StyleBox[_, "TI", ___]] && ! FreeQ[b, Alternatives @@ $mathBinaryOps]) ||
+    (* a product of two or more italic math letters with no bracket structure - "$Cc$",
+       "$ab$" - is math, not a code span (a call / Part / list is caught earlier) *)
+    (Count[b, StyleBox[_String, "TI", ___], Infinity] >= 2 && FreeQ[b, "[" | "\[LeftDoubleBracket]"])
+mathLikeQ[b_] := mathyQ[b] || flatMathQ[b] || ! FreeQ[b, s_String /; AnyTrue[Characters[s], mathCharQ]]
 
 (* a non-Link call box (Sym[...], "name"[...], *circ*[...]) is a SIGNATURE, not
    a formula, so it should render as <code> even without a Link BaseStyle.
