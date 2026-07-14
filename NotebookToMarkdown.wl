@@ -353,7 +353,15 @@ linkBoxUri[_] := ""
 linkTemplateBoxQ[TemplateBox[{_, _String, ___}, $linkTemplates, ___]] := True
 linkTemplateBoxQ[_] := False
 inferredLinkMd[tb_] := With[{name = linkBoxName[tb], uri = linkBoxUri[tb]},
-    If[name === "", "", If[StringEndsQ[uri, "/" <> name], "[" <> name <> "]()", "[" <> name <> "](" <> uri <> ")"]]]
+    Which[
+        name === "", "",
+        (* a single letter is a signature placeholder the front end over-linked into
+           a bogus "paclet:ref/A" chip - render it as the italic placeholder it is,
+           not a link (a real one-letter symbol reference is vanishingly rare) *)
+        StringLength[name] === 1, "*" <> name <> "*",
+        StringEndsQ[uri, "/" <> name], "[" <> name <> "]()",
+        True, "[" <> name <> "](" <> uri <> ")"
+    ]]
 
 sig[s_String] := cleanStr[s]
 sig[bb_ButtonBox] := "[" <> cellPlain[bb[[1]]] <> "]()"
@@ -419,7 +427,7 @@ mathLikeQ[b_] := mathyQ[b] || ! FreeQ[b, s_String /; AnyTrue[Characters[s], math
    FormBox; unwrap so it still routes to <code> rather than $...$ math (where
    literal {} / [] would become invisible TeX grouping). *)
 sigCallBoxQ[RowBox[{h_, "[", ___}] ? (FreeQ[#, SqrtBox | FractionBox | RadicalBox | UnderoverscriptBox] &)] :=
-    MatchQ[h, _Symbol | _String | StyleBox[_, "TI", ___]]
+    MatchQ[h, _Symbol | _String | StyleBox[_, "TI", ___]] || linkTemplateBoxQ[h]
 sigCallBoxQ[FormBox[b_, ___]] := sigCallBoxQ[b]
 sigCallBoxQ[_] := False
 
@@ -481,9 +489,14 @@ inferredSymbolQ[s_String] := StringLength[s] >= 2 &&
     StringMatchQ[s, (_?UpperCaseQ) ~~ (WordCharacter | "$" | "`") ..]
 inlineMd[c0 : Cell[BoxData[s_String], "InlineFormula", ___]] /;
     ! decorationCellQ[c0] && $docPageQ && inferredSymbolQ[s] := "[" <> s <> "]()"
+(* a list / association literal ("{{A}}") on a doc page is inline WL code, written
+   <code>...</code> like a call so the choice is consistent across code spans *)
+docListBoxQ[RowBox[{"{" | "\[LeftAssociation]", ___}]] := True
+docListBoxQ[_] := False
 inlineMd[c0 : Cell[BoxData[b_], "InlineFormula", ___]] /; ! decorationCellQ[c0] := Which[
     ! FreeQ[b, BaseStyle -> "Link" | "Hyperlink"], "<code>" <> sigBox[b] <> "</code>",
     sigCallBoxQ[b] && ($docPageQ || MatchQ[b, _FormBox]), "<code>" <> sigBox[b] <> "</code>",
+    $docPageQ && docListBoxQ[b], "<code>" <> sigBox[b] <> "</code>",
     sigCallBoxQ[b], "$" <> callFormMath[b] <> "$",
     (* narrative notebook (no signature DSL): TI content in an InlineFormula is a
        "$...$" span of italic letters, e.g. $cz$ -> RowBox of TI (issue #53) *)
