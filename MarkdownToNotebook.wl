@@ -3451,15 +3451,23 @@ symbolNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"]
     setDocMetadata[fillCategorization[nb, "Symbol", meta], meta, "Symbol"]
 ]
 
+(* a listing symbol is a built-in when it resolves to a System` symbol AND the
+   paclet does not (re)define it; the paclet context is only consulted when the
+   paclet is actually loaded, so a bare conversion still infers correctly from
+   System. No markup needed - "`Sym`", "*`Sym`*", "`Sym` (WL)" all infer the same. *)
+builtinSymbolQ[name_String] :=
+    Names["System`" <> name] =!= {} && Names[$docContext <> name] === {}
+
 (* the palette's "Inline Listing": a function-name chip linking to its ref page,
    the same typed link the Documentation Tools button produces (issue #20). A
-   built-in symbol (the *`Sym`* italic form in the markdown) keeps the italic on
-   its label and links to the SYSTEM reference page "paclet:ref/Sym" instead of
-   the paclet's, so the listing reads paclet-vs-built-in at a glance. *)
-guideFnChip[name_String, paclet_String, builtinQ_ : False] := With[
-    {pkg = packagePath[paclet, $docContext]},
+   built-in links to the SYSTEM reference page "paclet:ref/Sym" (with an italic
+   label so the listing reads paclet-vs-built-in at a glance); a paclet symbol
+   links to the paclet's own ref page. The kind is inferred from context. *)
+guideFnChip[name_String, paclet_String, builtinQ_ : Automatic] := With[
+    {pkg = packagePath[paclet, $docContext],
+     builtin = If[builtinQ === Automatic, builtinSymbolQ[name], TrueQ[builtinQ]]},
     Cell[
-        BoxData @ If[ TrueQ[builtinQ],
+        BoxData @ If[ builtin,
             pacletLinkBox[StyleBox[name, FontSlant -> "Italic"], "paclet:ref/" <> name],
             pacletLinkBox[name, "paclet:" <> If[pkg === "", paclet, pkg] <> "/ref/" <> name]
         ],
@@ -3491,10 +3499,13 @@ stripLeadingDash[s0_String] := Block[{s = StringTrim[s0]},
    documentation) - the {name, builtinQ} pair records which. A comma only
    extends the run when another span follows it, so a description that itself
    starts with ", ..." or carries an embedded code span is left intact. *)
+(* a bare "`Sym`" leaves the kind to context inference (Automatic); the explicit
+   "*`Sym`*" italic form (or a trailing "(WL)", handled in guideFunctionItem)
+   forces a built-in when the author wants to override the inference. *)
 guideSymbolSpan[s_String] := StringCases[s,
     {
         StartOfString ~~ "*`" ~~ n : Shortest[__] ~~ "`*" ~~ t___ :> {{n, True}, t},
-        StartOfString ~~ "`" ~~ n : Shortest[__] ~~ "`" ~~ t___ :> {{n, False}, t}
+        StartOfString ~~ "`" ~~ n : Shortest[__] ~~ "`" ~~ t___ :> {{n, Automatic}, t}
     }, 1]
 guideLeadingSymbols[item_String] := Block[{rest = StringTrim[item], syms, m, afterComma},
     m = guideSymbolSpan[rest];
@@ -3519,7 +3530,14 @@ guideFunctionItem[item_String, paclet_String] := Block[{syms, rest, desc, chips}
     If[ syms === {},
         Return @ Cell[TextData @ inlineTextData[item], "GuideText"]
     ];
-    desc  = stripLeadingDash[rest];
+    desc = stripLeadingDash[rest];
+    (* a "(WL)" marker right after the symbol(s) - an alternative to the *`Sym`*
+       italic form - flags them as built-ins that link to the SYSTEM reference page
+       (paclet:ref/Sym) rather than the paclet's; strip the marker from the blurb *)
+    If[ StringMatchQ[desc, "(WL)" ~~ ___, IgnoreCase -> True],
+        desc = StringTrim @ StringDrop[desc, StringLength["(WL)"]];
+        syms = {First[#], True} & /@ syms
+    ];
     chips = Riffle[guideFnChip[#[[1]], paclet, #[[2]]] & /@ syms, ", "];
     Cell[
         TextData @ If[desc === "", chips,

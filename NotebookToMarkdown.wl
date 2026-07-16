@@ -966,12 +966,11 @@ blockFor[("SummaryNote" | "VocabularyText" | "ExerciseNote" | "ExerciseSectionNo
 (* === Guide-page body (the inverse of MarkdownToNotebook's guideNotebook) ===
    The title / categorization / keywords / related guides live in the frontmatter;
    the body walks back to "## Abstract", "## Functions" with "- `Sym` desc" items
-   (a built-in chip - one whose link is the system "paclet:ref/Sym" - re-emits the
-   italic *`Sym`* form), "###" subsections, "---" delimiters, and the "## Guides"
-   index. *)
-guideChipMd[TemplateBox[{lbl_, uri_String, ___}, _, ___]] := With[
-    {name = FirstCase[{lbl}, s_String :> s, "", Infinity]},
-    If[StringStartsQ[uri, "paclet:ref/"], "*`" <> name <> "`*", "`" <> name <> "`"]]
+   "###" subsections, "---" delimiters, and the "## Guides" index. A listing chip
+   is always a bare "`Sym`" - the forward path re-infers built-in vs paclet from the
+   symbol's context, so no *`Sym`* / (WL) marker is needed or emitted. *)
+guideChipMd[TemplateBox[{lbl_, _String, ___}, _, ___]] :=
+    "`" <> FirstCase[{lbl}, s_String :> s, "", Infinity] <> "`"
 guideItemPart[Cell[BoxData[tb_TemplateBox], "InlineGuideFunction", ___]] := guideChipMd[tb]
 (* a navigation ButtonBox (a "## Guides" index entry) -> a markdown link *)
 guideItemPart[Cell[BoxData[ButtonBox[l_String, ___, ButtonData -> u_String, ___]], "InlineFormula", ___]] :=
