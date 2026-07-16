@@ -3501,14 +3501,22 @@ stripLeadingDash[s0_String] := Block[{s = StringTrim[s0]},
    documentation) - the {name, builtinQ} pair records which. A comma only
    extends the run when another span follows it, so a description that itself
    starts with ", ..." or carries an embedded code span is left intact. *)
-(* a bare "`Sym`" leaves the kind to context inference (Automatic); the explicit
-   "*`Sym`*" italic form (or a trailing "(WL)", handled in guideFunctionItem)
-   forces a built-in when the author wants to override the inference. *)
-guideSymbolSpan[s_String] := StringCases[s,
-    {
-        StartOfString ~~ "*`" ~~ n : Shortest[__] ~~ "`*" ~~ t___ :> {{n, True}, t},
-        StartOfString ~~ "`" ~~ n : Shortest[__] ~~ "`" ~~ t___ :> {{n, Automatic}, t}
-    }, 1]
+(* one leading symbol span. A bare "`Sym`" leaves the kind to context inference
+   (Automatic); the explicit "*`Sym`*" italic form forces a built-in. A "(WL)"
+   marker immediately after the span (the per-symbol form used in comma
+   enumerations, "`Ball` (WL), `Point` (WL), ...") is CONSUMED here - both to force
+   the built-in and, crucially, so it does not break the comma-run detection or leak
+   into the blurb. *)
+guideSymbolSpan[s_String] := Module[{m, name, forced, rest, afterWL},
+    m = StringCases[s, {
+        StartOfString ~~ "*`" ~~ n : Shortest[__] ~~ "`*" ~~ t___ :> {n, True, t},
+        StartOfString ~~ "`" ~~ n : Shortest[__] ~~ "`" ~~ t___ :> {n, Automatic, t}
+    }, 1];
+    If[m === {}, Return[{}]];
+    {name, forced, rest} = First[m];
+    afterWL = StringCases[rest, StartOfString ~~ WhitespaceCharacter ... ~~ "(WL)" ~~ t___ :> t, 1, IgnoreCase -> True];
+    If[afterWL =!= {}, {{{name, True}, First[afterWL]}}, {{{name, forced}, rest}}]
+]
 guideLeadingSymbols[item_String] := Block[{rest = StringTrim[item], syms, m, afterComma},
     m = guideSymbolSpan[rest];
     If[m === {}, Return[{{}, item}]];
