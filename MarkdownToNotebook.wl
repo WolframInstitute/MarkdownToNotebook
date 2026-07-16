@@ -3452,11 +3452,13 @@ symbolNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"]
 ]
 
 (* a listing symbol is a built-in when it resolves to a System` symbol AND the
-   paclet does not (re)define it; the paclet context is only consulted when the
-   paclet is actually loaded, so a bare conversion still infers correctly from
-   System. No markup needed - "`Sym`", "*`Sym`*", "`Sym` (WL)" all infer the same. *)
-builtinSymbolQ[name_String] :=
-    Names["System`" <> name] =!= {} && Names[$docContext <> name] === {}
+   paclet does not (re)define it. The paclet guard uses a FULLY-QUALIFIED lookup and
+   only applies when $docContext is a real context - "$docContext<>name" with an
+   empty (or non-context) $docContext would resolve through $ContextPath and match
+   the System symbol itself, falsely marking every built-in as paclet-defined. No
+   markup needed: "`Sym`", "*`Sym`*", "`Sym` (WL)" all infer the same. *)
+builtinSymbolQ[name_String] := Names["System`" <> name] =!= {} &&
+    (! StringEndsQ[$docContext, "`"] || Names[$docContext <> name] === {})
 
 (* the palette's "Inline Listing": a function-name chip linking to its ref page,
    the same typed link the Documentation Tools button produces (issue #20). A
