@@ -440,9 +440,16 @@ attachDirectives[blocks_List] := Module[{out = {}, pend = <||>, flush},
             pend = Join[pend, b["Options"]],
             If[ contentDirectiveQ[pend],
                 flush[]; AppendTo[out, b],
-                AppendTo[out, If[pend === <||>, b,
-                    Append[b, "Options" -> Join[Lookup[b, "Options", <||>], pend]]]];
-                pend = <||>
+                (* a modifier run (annotation / style / tags) attaches to the next
+                   real content block; pass OVER a delimiter that carries no cell
+                   metadata so a standalone "#| annotation:" placed just before a
+                   "---" still lands on a cell instead of being dropped *)
+                If[ pend =!= <||> && b["Type"] === "Separator",
+                    AppendTo[out, b],
+                    AppendTo[out, If[pend === <||>, b,
+                        Append[b, "Options" -> Join[Lookup[b, "Options", <||>], pend]]]];
+                    pend = <||>
+                ]
             ]
         ],
         {b, blocks}
@@ -475,7 +482,12 @@ stripComments[s_String] := Module[{lines = StringSplit[s, "\n", All], out = {}, 
     flushProse[] := If[buf =!= {},
         AppendTo[out, StringReplace[StringRiffle[buf, "\n"],
             "<!--" ~~ inner : Shortest[___] ~~ "-->" :>
-                If[StringStartsQ[StringTrim[inner], "#|"], StringTrim[inner], ""]]];
+                (* a multi-line "<!-- #| annotation: ... -->" is hard-wrapped prose;
+                   join the wrapped lines into one so the line-based block parser
+                   keeps the whole directive value, not just its first line *)
+                If[StringStartsQ[StringTrim[inner], "#|"],
+                    StringReplace[StringTrim[inner], "\n" ~~ WhitespaceCharacter ... -> " "],
+                    ""]]];
         buf = {}
     ];
     Do[

@@ -769,6 +769,20 @@ VerificationTest[
 ]
 ```
 
+A `<!-- #| annotation: ... -->` written across several hard-wrapped lines keeps its whole value - the wrapped lines are joined into one directive rather than only the first line surviving - and a standalone annotation placed just before a `---` delimiter lands on the following cell instead of the (metadata-less) delimiter:
+
+```wl
+VerificationTest[
+    With[{note = FirstCase[
+        MarkdownToNotebook["---\nTitle: T\n---\n\n<!-- #| annotation: line one\nwrapped two\nwrapped three -->\n\n---\n\nbody text\n"],
+        (CellFrameLabels -> {{_, _}, {_, Cell[TextData[{n_String, ___}], "TextAnnotation", ___]}}) :> n, "", Infinity]},
+        {StringContainsQ[note, "wrapped three"], StringContainsQ[note, "line one wrapped two wrapped three"]}
+    ],
+    {True, True},
+    TestID -> "#| annotation: multi-line value joined and attached past a --- delimiter"
+]
+```
+
 A `#| annotation:` directive on a **section heading** (e.g. before `## Details` on a structured doc page) annotates the section's first cell - a structured heading has no cell of its own, so the note lands once on the first content cell rather than being dropped or repeated on every item:
 
 ```wl
