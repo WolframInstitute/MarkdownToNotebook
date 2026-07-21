@@ -3552,7 +3552,7 @@ guideFunctionItem[item_String, paclet_String] := Block[{syms, rest, desc, chips}
         Riffle[
             (With[{nm = First[#], note = Last[#]},
                 If[note === "", {guideFnChip[nm, paclet]}, {guideFnChip[nm, paclet], note}]] &) /@ syms,
-            {", "}],
+            ", "],
         1];
     Cell[
         TextData @ If[desc === "", chips,
