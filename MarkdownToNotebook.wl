@@ -3467,8 +3467,7 @@ symbolNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"]
    paclet does not (re)define it. The paclet guard uses a FULLY-QUALIFIED lookup and
    only applies when $docContext is a real context - "$docContext<>name" with an
    empty (or non-context) $docContext would resolve through $ContextPath and match
-   the System symbol itself, falsely marking every built-in as paclet-defined. No
-   markup needed: "`Sym`", "*`Sym`*", "`Sym` (WL)" all infer the same. *)
+   the System symbol itself, falsely marking every built-in as paclet-defined. *)
 builtinSymbolQ[name_String] := Names["System`" <> name] =!= {} &&
     (! StringEndsQ[$docContext, "`"] || Names[$docContext <> name] === {})
 
@@ -3476,12 +3475,12 @@ builtinSymbolQ[name_String] := Names["System`" <> name] =!= {} &&
    the same typed link the Documentation Tools button produces (issue #20). A
    built-in links to the SYSTEM reference page "paclet:ref/Sym" (with an italic
    label so the listing reads paclet-vs-built-in at a glance); a paclet symbol
-   links to the paclet's own ref page. The kind is inferred from context. *)
-guideFnChip[name_String, paclet_String, builtinQ_ : Automatic] := With[
-    {pkg = packagePath[paclet, $docContext],
-     builtin = If[builtinQ === Automatic, builtinSymbolQ[name], TrueQ[builtinQ]]},
+   links to the paclet's own ref page. The kind is inferred from context - there is
+   no marker to read. *)
+guideFnChip[name_String, paclet_String] := With[
+    {pkg = packagePath[paclet, $docContext]},
     Cell[
-        BoxData @ If[ builtin,
+        BoxData @ If[ builtinSymbolQ[name],
             pacletLinkBox[StyleBox[name, FontSlant -> "Italic"], "paclet:ref/" <> name],
             pacletLinkBox[name, "paclet:" <> If[pkg === "", paclet, pkg] <> "/ref/" <> name]
         ],
@@ -3506,28 +3505,22 @@ stripLeadingDash[s0_String] := Block[{s = StringTrim[s0]},
     ]
 ]
 
-(* split a "## Functions" item into its leading run of comma-separated symbol
-   spans and the trailing description: "`Sym` desc" -> {{{"Sym", False}}, " desc"};
-   an enumeration "`A`, `B`, `C` desc" -> three entries. Each span is either
-   `Sym` (a paclet symbol) or *`Sym`* (a BUILT-IN symbol, linked to the system
-   documentation) - the {name, builtinQ} pair records which. A comma only
-   extends the run when another span follows it, so a description that itself
-   starts with ", ..." or carries an embedded code span is left intact. *)
-(* one leading symbol span. A bare "`Sym`" leaves the kind to context inference
-   (Automatic); the explicit "*`Sym`*" italic form forces a built-in. A "(WL)"
-   marker immediately after the span (the per-symbol form used in comma
-   enumerations, "`Ball` (WL), `Point` (WL), ...") is CONSUMED here - both to force
-   the built-in and, crucially, so it does not break the comma-run detection or leak
-   into the blurb. *)
-guideSymbolSpan[s_String] := Module[{m, name, forced, rest, afterWL},
+(* the leading code span of a "## Functions" item -> {{name, note}, rest}. Accepts
+   the bare "`Sym`" and the markdown-emphasis "*`Sym`*" form (the "*" wrappers are
+   just stripped). A trailing parenthetical right after the span - any "(...)", the
+   authored "(WL)" cue among them - is captured VERBATIM as `note` (never
+   interpreted; the symbol's kind is inferred from context), and pulling it off the
+   front is what lets a comma run continue through "`A` (WL), `B` (WL), ...". *)
+guideSymbolSpan[s_String] := Module[{m, name, rest, paren},
     m = StringCases[s, {
-        StartOfString ~~ "*`" ~~ n : Shortest[__] ~~ "`*" ~~ t___ :> {n, True, t},
-        StartOfString ~~ "`" ~~ n : Shortest[__] ~~ "`" ~~ t___ :> {n, Automatic, t}
+        StartOfString ~~ "*`" ~~ n : Shortest[__] ~~ "`*" ~~ t___ :> {n, t},
+        StartOfString ~~ "`" ~~ n : Shortest[__] ~~ "`" ~~ t___ :> {n, t}
     }, 1];
     If[m === {}, Return[{}]];
-    {name, forced, rest} = First[m];
-    afterWL = StringCases[rest, StartOfString ~~ WhitespaceCharacter ... ~~ "(WL)" ~~ t___ :> t, 1, IgnoreCase -> True];
-    If[afterWL =!= {}, {{{name, True}, First[afterWL]}}, {{{name, forced}, rest}}]
+    {name, rest} = First[m];
+    paren = StringCases[rest,
+        StartOfString ~~ p : (WhitespaceCharacter ... ~~ "(" ~~ Shortest[Except[")"] ...] ~~ ")") ~~ t___ :> {p, t}, 1];
+    If[paren === {}, {{{name, ""}, rest}}, {{{name, paren[[1, 1]]}, paren[[1, 2]]}}]
 ]
 guideLeadingSymbols[item_String] := Block[{rest = StringTrim[item], syms, m, afterComma},
     m = guideSymbolSpan[rest];
@@ -3553,14 +3546,14 @@ guideFunctionItem[item_String, paclet_String] := Block[{syms, rest, desc, chips}
         Return @ Cell[TextData @ inlineTextData[item], "GuideText"]
     ];
     desc = stripLeadingDash[rest];
-    (* a "(WL)" marker right after the symbol(s) - an alternative to the *`Sym`*
-       italic form - flags them as built-ins that link to the SYSTEM reference page
-       (paclet:ref/Sym) rather than the paclet's; strip the marker from the blurb *)
-    If[ StringMatchQ[desc, "(WL)" ~~ ___, IgnoreCase -> True],
-        desc = StringTrim @ StringDrop[desc, StringLength["(WL)"]];
-        syms = {First[#], True} & /@ syms
-    ];
-    chips = Riffle[guideFnChip[#[[1]], paclet, #[[2]]] & /@ syms, ", "];
+    (* each entry is {name, note}: the context-linked chip followed by its verbatim
+       parenthetical note (e.g. " (WL)"), units joined by ", " *)
+    chips = Flatten[
+        Riffle[
+            (With[{nm = First[#], note = Last[#]},
+                If[note === "", {guideFnChip[nm, paclet]}, {guideFnChip[nm, paclet], note}]] &) /@ syms,
+            {", "}],
+        1];
     Cell[
         TextData @ If[desc === "", chips,
             Join[chips, {" \[LongDash] "}, inlineTextData[desc]]],

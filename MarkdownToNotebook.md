@@ -727,19 +727,18 @@ VerificationTest[
 ]
 ```
 
-Inside `## Functions`, a `---` separator becomes the palette's Delimiter - the thin `Cell["\t", "GuideDelimiter"]` rule that visually separates groups of related listings. Whether a listed symbol links to its paclet ref page or the **system** ref page (`paclet:ref/Sym`) is *inferred from context*: a name that resolves to a `System`` built-in (and the paclet does not redefine) links to the system page with an italic label; a paclet symbol links to the paclet's own page. No markup is needed - a bare ``` `TensorContract` ``` (a WL built-in) infers to `paclet:ref/TensorContract` just as the explicit ``*`Sym`*`` / `` `Sym` (WL)`` overrides do, while `Foo` (not a built-in) stays on the paclet:
+Inside `## Functions`, a `---` separator becomes the palette's Delimiter - the thin `Cell["\t", "GuideDelimiter"]` rule that visually separates groups of related listings. Whether a listed symbol links to its paclet ref page or the **system** ref page (`paclet:ref/Sym`) is *inferred entirely from context* - no markup: a name that resolves to a `System`` built-in (and the paclet does not redefine) links to the system page with an italic label; a paclet symbol links to the paclet's own page. A bare ``` `TensorContract` ``` (a WL built-in) infers to `paclet:ref/TensorContract`, while `Foo` (not a built-in) stays on the paclet:
 
 ```wl
 VerificationTest[
-    With[{nb = MarkdownToNotebook["---\nTemplate: Guide\nName: G\nContext: Pub`Pkg`\nPaclet: Pub/Pkg\nURI: Pub/Pkg/guide/G\n---\n\n## Functions\n\n- `Foo` does foo\n\n---\n\n- `TensorContract` contracts slot pairs\n\n- `TensorReduce` (WL) canonicalizes\n"]},
+    With[{nb = MarkdownToNotebook["---\nTemplate: Guide\nName: G\nContext: Pub`Pkg`\nPaclet: Pub/Pkg\nURI: Pub/Pkg/guide/G\n---\n\n## Functions\n\n- `Foo` does foo\n\n---\n\n- `TensorContract`, `TensorReduce` two built-ins\n"]},
         {Length @ Cases[nb, Cell["\t", "GuideDelimiter", ___], Infinity],
          Sort @ Cases[nb, u_String /; StringStartsQ[u, "paclet:ref/"], Infinity],
          Length @ Cases[nb, u_String /; StringStartsQ[u, "paclet:Pub/Pkg/ref/Foo"], Infinity],
-         Length @ Cases[nb, TemplateBox[{Cell[TextData[StyleBox["TensorContract", ___, FontSlant -> "Italic", ___]], ___], "paclet:ref/TensorContract", ___}, ___], Infinity],
-         ! FreeQ[nb, s_String /; StringContainsQ[s, "(WL)"]]}
+         Length @ Cases[nb, TemplateBox[{Cell[TextData[StyleBox["TensorContract", ___, FontSlant -> "Italic", ___]], ___], "paclet:ref/TensorContract", ___}, ___], Infinity]}
     ],
-    {1, {"paclet:ref/TensorContract", "paclet:ref/TensorReduce"}, 1, 1, False},
-    TestID -> "guide listing: built-in vs paclet ref inferred from context; (WL) marker stripped"
+    {1, {"paclet:ref/TensorContract", "paclet:ref/TensorReduce"}, 1, 1},
+    TestID -> "guide listing: built-in vs paclet ref inferred from context, no markup"
 ]
 ```
 
