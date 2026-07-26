@@ -51,7 +51,7 @@ ensureParser[] := If[! TrueQ[$parserReady],
         DirectoryQ[$parserDir], PacletDirectoryLoad[$parserDir],
         pacletInstalledQ["Wolfram/Parser", $parserVersion], Null,
         ! FailureQ[PacletInstall["Wolfram/Parser"]], Null,
-        True, PacletInstall[ResourceObject["https://wolfr.am/1ECIxdqhB"]]
+        True, PacletInstall[ResourceObject["https://wolfr.am/1ENEqrOlP"]]
     ];
     Quiet @ Check[Needs["Wolfram`Parser`"], Null];
     $parserReady = True
