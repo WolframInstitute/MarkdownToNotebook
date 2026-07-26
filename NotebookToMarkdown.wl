@@ -218,23 +218,47 @@ walkerMath[OverscriptBox[a_, b_, ___]] := "\\overset{" <> walkerMath[b] <> "}{" 
 walkerMath[UnderoverscriptBox[a_, b_, c_, ___]] := walkerMath[a] <> "_{" <> walkerMath[b] <> "}^{" <> walkerMath[c] <> "}"
 walkerMath[ButtonBox[n_, ___]] := walkerMath[n]
 (* GridBox -> a TeX matrix environment (issue #33: a bare grid hit the catch-all
-   and dumped its box tree). The author's own delimiters sit OUTSIDE the grid as
-   sibling RowBox tokens, so a wrapping ( ) / [ ] / | | promotes matrix ->
-   pmatrix / bmatrix / vmatrix; a leading \[Piecewise] column -> cases. (These
-   specific patterns auto-sort ahead of the generic GridBox / RowBox rules.) *)
+   and dumped its box tree). The author's delimiters sit OUTSIDE the grid as sibling
+   tokens - ( ) -> pmatrix, [ ] -> bmatrix, { } -> Bmatrix, | | -> vmatrix - and a
+   leading \[Piecewise] column -> cases. The forward converter FLATTENS nested RowBoxes,
+   so in a real built notebook the fence and the grid are siblings inside a LARGER RowBox
+   (e.g. H = ( g )), not a tidy 3-element RowBox; matching only the 3-element shape demoted
+   every such matrix to a bare \begin{matrix} with its parens left as literal characters
+   (issue #63). So the fence/grid/fence run is fused wherever it sits, over SUBSEQUENCES of
+   the RowBox handler below (fuseMatrixFences). A vmatrix / Vmatrix arrives as an Abs / Norm
+   TemplateBox wrapping the grid (the parser's modulus form), promoted here ahead of the
+   scalar \lvert / \lVert rules. *)
 gridRows[GridBox[rows_List, ___]] := StringRiffle[
     Function[row, StringRiffle[walkerMath /@ row, " & "]] /@ rows, " \\\\ "]
 walkerMath[GridBox[{{"\[Piecewise]", inner_GridBox}}, ___]] :=
     "\\begin{cases}" <> gridRows[inner] <> "\\end{cases}"
-walkerMath[RowBox[{"(", g_GridBox, ")"}]] := "\\begin{pmatrix}" <> gridRows[g] <> "\\end{pmatrix}"
-walkerMath[RowBox[{"[", g_GridBox, "]"}]] := "\\begin{bmatrix}" <> gridRows[g] <> "\\end{bmatrix}"
-walkerMath[RowBox[{"|", g_GridBox, "|"}]] := "\\begin{vmatrix}" <> gridRows[g] <> "\\end{vmatrix}"
+walkerMath[TemplateBox[{g_GridBox}, "Abs"]] := "\\begin{vmatrix}" <> gridRows[g] <> "\\end{vmatrix}"
+walkerMath[TemplateBox[{g_GridBox}, "Norm"]] := "\\begin{Vmatrix}" <> gridRows[g] <> "\\end{Vmatrix}"
 walkerMath[g_GridBox] := "\\begin{matrix}" <> gridRows[g] <> "\\end{matrix}"
+
+(* Fuse a delimited-matrix run {open, GridBox, close} - possibly buried among siblings in a
+   flattened RowBox - into the right environment. Keyed on the fence's character so a StyleBox
+   sized paren (SpanMaxSize -> 1, how a rebuilt literal fence comes back) fuses just the same.
+   The PUA bracketing bars are covered too, defensively, in case a grid arrives bar-delimited. *)
+$matrixEnv = <|
+    "(" -> {"pmatrix", ")"}, "[" -> {"bmatrix", "]"}, "{" -> {"Bmatrix", "}"},
+    "|" -> {"vmatrix", "|"},
+    "\[LeftBracketingBar]" -> {"vmatrix", "\[RightBracketingBar]"},
+    "\[LeftDoubleBracketingBar]" -> {"Vmatrix", "\[RightDoubleBracketingBar]"}
+|>;
+fenceChar[s_String] := s
+fenceChar[StyleBox[s_String, ___]] := s
+fenceChar[_] := None
+matrixEnvFor[o_, c_] := With[{e = Lookup[$matrixEnv, fenceChar[o], None]},
+    If[MatchQ[e, {_String, _String}] && Last[e] === fenceChar[c], First[e], None]]
+walkerMath[matrixEnvBox[env_String, g_GridBox]] := "\\begin{" <> env <> "}" <> gridRows[g] <> "\\end{" <> env <> "}"
+fuseMatrixFences[xs_List] := SequenceReplace[xs,
+    {o_, g_GridBox, c_} /; StringQ[matrixEnvFor[o, c]] :> matrixEnvBox[matrixEnvFor[o, c], g]]
 (* M2N inserts a separator space (a \[ThinSpace]) after a \dim / \sin operator box;
    the "\name " command re-emits its own, so drop the box space to keep the round
    trip from accumulating thin spaces *)
 walkerMath[RowBox[xs_List]] := StringJoin[walkerMath /@
-    SequenceReplace[xs, {op_?plainOpQ, " " | "\[ThinSpace]" | "\[MediumSpace]" | "\[InvisibleSpace]"} :> op]]
+    fuseMatrixFences @ SequenceReplace[xs, {op_?plainOpQ, " " | "\[ThinSpace]" | "\[MediumSpace]" | "\[InvisibleSpace]"} :> op]]
 walkerMath[FormBox[box_, ___]] := walkerMath[box]
 walkerMath[TagBox[x_, ___]] := walkerMath[x]
 walkerMath[InterpretationBox[x_, ___]] := walkerMath[x]

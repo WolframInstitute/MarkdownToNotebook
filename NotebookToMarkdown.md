@@ -263,6 +263,22 @@ VerificationTest[
 ]
 ```
 
+A delimited matrix keeps its environment even when the fence and the grid are **siblings** in a flattened `RowBox` (`H = ( g )`, not a tidy three-element `RowBox`) - the fence/grid/fence run is fused wherever it sits, so `( )` / `[ ]` / `{ }` give `pmatrix` / `bmatrix` / `Bmatrix` instead of demoting to a bare `matrix` with literal parens; and a `vmatrix` / `Vmatrix`, which arrives as an `Abs` / `Norm` `TemplateBox` wrapping the grid, is recovered as that environment rather than a norm-of-matrix (issue #63):
+
+```wl
+VerificationTest[
+    {walkerMath[RowBox[{"H", "=", "(", GridBox[{{"1", "2"}, {"3", "4"}}], ")"}]],
+     walkerMath[RowBox[{"H", "=", "{", GridBox[{{"1", "2"}, {"3", "4"}}], "}"}]],
+     walkerMath[TemplateBox[{GridBox[{{"1", "2"}, {"3", "4"}}]}, "Abs"]],
+     walkerMath[TemplateBox[{GridBox[{{"1", "2"}, {"3", "4"}}]}, "Norm"]]},
+    {"H=\\begin{pmatrix}1 & 2 \\\\ 3 & 4\\end{pmatrix}",
+     "H=\\begin{Bmatrix}1 & 2 \\\\ 3 & 4\\end{Bmatrix}",
+     "\\begin{vmatrix}1 & 2 \\\\ 3 & 4\\end{vmatrix}",
+     "\\begin{Vmatrix}1 & 2 \\\\ 3 & 4\\end{Vmatrix}"},
+    TestID -> "delimited matrix with siblings fuses to the right env; Abs/Norm-of-grid -> v/Vmatrix (issue #63)"
+]
+```
+
 An inline call-form (`Sym[...]`, a `sigCallBoxQ` box) renders as the `<code>[Sym]()[...]</code>` signature DSL only on a documentation page (an `ObjectName` cell, where MTN round-trips it); in a narrative notebook it becomes real inline math with the head upright via `\mathrm` (issue #38):
 
 ```wl
