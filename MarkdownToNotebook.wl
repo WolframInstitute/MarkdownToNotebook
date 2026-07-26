@@ -961,7 +961,14 @@ captureCellRun[code_String, opts_Association : <||>] := Block[{stmts, outs, cell
                     If[ MatchQ[heldStmt, Hold[CompoundExpression[___, Null]]],
                         (* suppressed - evaluate for side effects, no Output *)
                         ReleaseHold[heldStmt],
-                        AppendTo[outs, outputBoxes[ReleaseHold[heldStmt], opts]]
+                        (* Quiet Syntax:: while rendering the result: typesetting a
+                           TraditionalForm[HoldForm[...]] display label (e.g. a Manipulate Item
+                           showing a vector/fraction) reparses its ASCII form and fires a spurious
+                           Syntax::sntx, spamming the build though the notebook is correct (issue
+                           #59). The statement itself already parsed at the top-level ToExpression,
+                           so a syntax message here is never a real parse error. *)
+                        AppendTo[outs, Quiet[outputBoxes[ReleaseHold[heldStmt], opts],
+                            {Syntax::sntx, Syntax::sntxi, Syntax::sntxb, Syntax::tsntxi}]]
                     ]
                 ],
                 {i, Length[stmts]}
