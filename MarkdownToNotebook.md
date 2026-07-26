@@ -670,6 +670,17 @@ VerificationTest[
 ]
 ```
 
+On the same fallback the built-in importer maps `\hbar` to an empty box - the reduced Planck constant simply vanishes - so it is swapped for `\hslash`, which imports to the identical `\[HBar]` (U+210F) glyph the primary parser emits and that the inverse maps back to `\hbar`; every other Greek/physics symbol imports fine, so only `\hbar` needs the swap (issue #61):
+
+```wl
+VerificationTest[
+    {texImportStrip["E = \\hbar \\omega"],
+     ! FreeQ[texBoxesViaImport["\\hbar"], s_String /; StringContainsQ[s, "\[HBar]"]]},
+    {"E = \\hslash \\omega", True},
+    TestID -> "\\hbar imports as its glyph instead of a blank box on the ImportString fallback (issue #61)"
+]
+```
+
 A single-backtick inline code span that reads as a filesystem path, URL, dotted filename (`` `~/.prime/config.json` ``), or hyphen-joined identifier (`` `claude-opus-4-7` ``) is kept verbatim instead of reparsed as Wolfram code - otherwise the front end tokenizes its `/` `.` `~` `-` as operators (ReplaceAll, Dot, Subtract, ...) and it renders with stray operator spacing (`config . json`, `claude - opus - 4 - 7`). Genuine WL inline code (`` `Range[5]` ``, `` `x_1` ``) still reparses to boxes:
 
 ```wl

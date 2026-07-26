@@ -2893,6 +2893,10 @@ wolframParserTeX[math_String] :=
 texImportStrip[math_String] := StringReplace[math, {
     "\\!" -> "",
     "\\left." -> "", "\\right." -> "",
+    (* the built-in TeX importer maps \hbar to an empty box (it vanishes); \hslash
+       imports to the same U+210F glyph (\[HBar]) the primary parser emits and that
+       NotebookToMarkdown maps back to \hbar, so swap it in on this fallback (issue #61) *)
+    RegularExpression["\\\\hbar(?![a-zA-Z])"] -> "\\hslash",
     RegularExpression["\\\\[Bb]igg?[lrm]?(?![a-zA-Z])"] -> ""
 }]
 texBoxesViaImport[math_String] :=
