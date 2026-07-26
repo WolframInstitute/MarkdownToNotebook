@@ -1094,11 +1094,17 @@ preloadContextPath[ctxPath_List] := (
        Block-scoped $ContextPath never sees them - so bare documented names
        would parse into the private example context and stay unevaluated.
        Put every non-Private subcontext of the requested contexts on the path
-       explicitly. *)
+       explicitly. A context is a private-implementation context when its final
+       segment ends in "Private" - test the whole string with StringEndsQ so
+       this catches BOTH the conventional `Foo`Private`` and the named
+       `Foo`BarPrivate`` forms (a paclet that keeps LaTeX internals in
+       `Foo`LaTeXPrivate`` must not have that context leak onto the example
+       path, or its scoped temporaries - a$, b$ from a Function[{a,b},...] -
+       become visible and fire spurious General::shdw when a cell evaluates). *)
     $ContextPath = DeleteDuplicates @ Join[
         $ContextPath,
         Flatten @ Map[
-            Function[ctx, Select[Contexts[ctx <> "*"], ! StringContainsQ[#, "`Private`"] &]],
+            Function[ctx, Select[Contexts[ctx <> "*"], ! StringEndsQ[#, "Private`"] &]],
             DeleteCases[ctxPath, "System`"]
         ]
     ]
