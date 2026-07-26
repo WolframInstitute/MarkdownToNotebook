@@ -97,7 +97,35 @@ yamlLine[line_String] := Block[{parts = StringSplit[line, ":", 2]},
     StringTrim[First[parts]] -> parseFmValue[Last[parts]]
 ]
 
-parseYamlish[lines_List] := Association @ Map[yamlLine, Select[lines, StringContainsQ[#, ":"] &]]
+(* A frontmatter list written in flow style, key: ["a", "b", ...], may WRAP across
+   several physical lines (long Links: / Authors: lists routinely do). The line-oriented
+   parse below would then read only the opening line - an unterminated "[...", which fails
+   the [___] list test and collapses to a truncated scalar - and treat each continuation
+   line as its own key:value (URLs contain ":", so they parse as garbage keys). Fold those
+   continuations back first: accumulate lines while an unquoted "[" is still open and break
+   a logical line only once the flow list closes. Brackets INSIDE "..." are literal (markdown
+   link labels are full of them), so quoted spans are skipped when tracking depth. *)
+foldFrontmatterLines[lines_List] := Block[{out = {}, buf = "", depth = 0, inQ = False},
+    Scan[
+        Function[line,
+            Do[
+                Which[
+                    c === "\"", inQ = ! inQ,
+                    ! inQ && c === "[", depth++,
+                    ! inQ && c === "]", depth--
+                ],
+                {c, Characters[line]}
+            ];
+            buf = If[buf === "", line, buf <> " " <> line];
+            If[depth <= 0, AppendTo[out, buf]; buf = ""; depth = 0]
+        ],
+        lines
+    ];
+    If[buf =!= "", AppendTo[out, buf]];
+    out
+]
+
+parseYamlish[lines_List] := Association @ Map[yamlLine, Select[foldFrontmatterLines[lines], StringContainsQ[#, ":"] &]]
 
 extractFrontmatter[text_String] := Block[{lines, close},
     lines = StringSplit[text, "\n"];
@@ -1248,10 +1276,16 @@ linkItemContent[item_String] := Block[{
     ]
 ]
 
+(* Every generated link cell is a copy of the SAME template default cell, so without an
+   explicit CellID they share one (or, after cleanCell strips it, none). The ref-page
+   scraper (ResourceSystemClient's validateHyperlinks -> itemCellContents) keys the link
+   Item cells by CellID, so non-distinct IDs collapse the whole list to a single link.
+   Stamp each with a stable per-item CellID (Hash of the source markdown, so rebuilds are
+   idempotent) to keep every link distinct. *)
 fillLinkCells[opts_, items_List] := Block[{def = slotDefault[opts], vals = DeleteCases[items, ""]},
     If[ def === {} || vals === {},
         def,
-        Map[cleanCell @ ReplacePart[First[def], 1 -> linkItemContent[#]] &, vals]
+        Map[Append[cleanCell @ ReplacePart[First[def], 1 -> linkItemContent[#]], CellID -> Hash[#]] &, vals]
     ]
 ]
 
@@ -2765,7 +2799,31 @@ $closeDBar = "\[RightDoubleBracketingBar]" | StyleBox["\[RightDoubleBracketingBa
 $barSpacer = " " | "\[ThinSpace]" | "\[VeryThinSpace]" | "\[MediumSpace]" | "\[NegativeThinSpace]" | "\[NegativeVeryThinSpace]" | FromCharacterCode[16^^200A]
 barContent[parts_List] := With[{c = DeleteCases[parts, $barSpacer]},
     Which[c === {}, "", Length[c] === 1, First[c], True, RowBox[c]]]
+
+(* A norm whose bars never became the PUA bracketing pair - a bare \[DoubleVerticalBar]
+   (U+2225, which is ALSO how \parallel is spelled) or a SpanMaxSize -> 1 pinned bar - slips
+   past the two rules below, so around a TALL argument (a ket taller than a text line) the
+   relational glyph cannot stretch and renders as two one-line ticks (issue #64). Several TeX
+   spellings converge on this shape (\|...\| has no matchfix production; a bare-bar ket poisons
+   the \lVert..\rVert matchfix). Promote such a pair to Norm as well - straightenTallBars then
+   draws it as a scaled full-height rule and NotebookToMarkdown round-trips it to \lVert. Bare
+   U+2225 is ambiguous (\parallel vs norm), so three guards carry the distinction: the bars are
+   the SAME glyph (matched by one pattern), the argument is TALL (a scalar \|x\| is already
+   correct at nominal size and is left alone), and the pair is NOT flanked by an operand - a
+   binary relation a || x || c has operands on both outer sides, whereas a delimiter's opener
+   follows an operator, an opening bracket, or nothing. *)
+$bareDBar = "\[DoubleVerticalBar]" | StyleBox["\[DoubleVerticalBar]", ___]
+operandBoxQ[b_] := MatchQ[b, _TemplateBox | _RowBox | _SqrtBox | _FractionBox | _RadicalBox |
+        SuperscriptBox[__] | SubscriptBox[__] | SubsuperscriptBox[__] | UnderoverscriptBox[__]] ||
+    (StringQ[b] && StringMatchQ[b, (LetterCharacter | DigitCharacter) ..])
+normPairUnflankedQ[pre_List, post_List] := With[
+    {p = DeleteCases[pre, $barSpacer], q = DeleteCases[post, $barSpacer]},
+    (p === {} || ! operandBoxQ[Last[p]]) && (q === {} || ! operandBoxQ[First[q]])
+]
 templatizeBars[boxes_] := boxes //. {
+    RowBox[{pre___, $bareDBar, mid : Except[$bareDBar] .., $bareDBar, post___}] /;
+        tallArgQ[barContent[{mid}]] && normPairUnflankedQ[{pre}, {post}] :>
+        RowBox[{pre, TemplateBox[{barContent[{mid}]}, "Norm"], post}],
     RowBox[{pre___, $openDBar, mid : Except[$openDBar | $closeDBar] .., $closeDBar, post___}] :>
         RowBox[{pre, TemplateBox[{barContent[{mid}]}, "Norm"], post}],
     RowBox[{pre___, $openBar, mid : Except[$openBar | $closeBar] .., $closeBar, post___}] :>

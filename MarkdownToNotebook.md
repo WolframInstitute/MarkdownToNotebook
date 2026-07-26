@@ -742,6 +742,29 @@ VerificationTest[
 ]
 ```
 
+A guide listing joins its symbol chips with a *scalar* `", "` separator. The list form `Riffle[units, {", "}]` interposes its separator cyclically **and appends a trailing copy** after a lone element, so a single-symbol item - or the last symbol of an enumeration - would carry a stray `", "` ahead of its ` \[LongDash] ` description; `NotebookToMarkdown` echoes it and the next build re-appends, drifting an extra comma into the rendered text on every save-back. A one-symbol item must therefore carry no separator, and two symbols on one line exactly one between them:
+
+```wl
+VerificationTest[
+    {Count[FirstCase[MarkdownToNotebook["---\nTemplate: Guide\nName: G\nContext: P`Q`\nPaclet: P/Q\nURI: P/Q/guide/G\n---\n\n## Functions\n\n- `Foo` does foo\n"], Cell[TextData[td_], "GuideText", ___] :> td, {}, Infinity], ", "],
+     Count[FirstCase[MarkdownToNotebook["---\nTemplate: Guide\nName: G\nContext: P`Q`\nPaclet: P/Q\nURI: P/Q/guide/G\n---\n\n## Functions\n\n- `Aa`, `Bb` do stuff\n"], Cell[TextData[td_], "GuideText", ___] :> td, {}, Infinity], ", "]},
+    {0, 1},
+    TestID -> "guide listing: scalar comma separator leaves no trailing comma after chips"
+]
+```
+
+The frontmatter parser folds a flow list, `key: ["a", "b", ...]`, that wraps across several physical lines back into one logical line before reading it - a long `Links:` or `Authors:` list routinely wraps. Brackets inside `"..."` are literal (a markdown link label is full of them), so only *unquoted* `[` `]` count toward the fold. Without it a wrapped list parses as a truncated scalar plus one garbage `key: value` per continuation line (every URL carries a `:`), and the External Links section then shows only the first entry:
+
+```wl
+VerificationTest[
+    Lookup[
+        First @ extractFrontmatter["---\nName: R\nLinks: [\"[a](https://x/1)\",\n\"[b](https://y/2)\",\n\"[c](https://z/3)\"]\nType: Paclet\n---\n\nbody\n"],
+        "Links"],
+    {"[a](https://x/1)", "[b](https://y/2)", "[c](https://z/3)"},
+    TestID -> "frontmatter: a flow list wrapped across physical lines parses fully"
+]
+```
+
 A Symbol page's Notes (Details) slot is filled from the Details section whether it is headed `## Details & Options` (the doc-tools title) or just `## Details`; sections are keyed by heading text, so a lone `## Details` must be matched explicitly or its bullets are silently dropped from the built page:
 
 ```wl
@@ -903,6 +926,18 @@ VerificationTest[
      ! FreeQ[MarkdownToNotebook["$|\\alpha|^2$", "Evaluate" -> False], TemplateBox[_, "Abs"]]},
     {True, True, True},
     TestID -> "tall braket modulus drawn with a straight vertical line, scalar keeps the Abs template (issue #48)"
+]
+```
+
+A norm whose bars never became the bracketing pair - `\|…\|` has no matchfix production and a bare-bar ket poisons the `\lVert…\rVert` matchfix, so both spellings emit a bare `\[DoubleVerticalBar]` (U+2225, a *relational* glyph that cannot stretch) - is still promoted around a **tall** argument, so `$\||\psi\rangle\|$` draws a full-height rule instead of two one-line ticks. Bare U+2225 is also how `\parallel` is spelled, so the promotion is guarded: a genuine relation `a \parallel b` (an operand on each outer side, scalar argument) keeps its plain glyph (issue #64):
+
+```wl
+VerificationTest[
+    {! FreeQ[MarkdownToNotebook["$\\||\\psi\\rangle\\| = 1$", "Evaluate" -> False], StyleBox["\[DoubleVerticalBar]", FontSize -> _]],
+     FreeQ[MarkdownToNotebook["$a \\parallel b$", "Evaluate" -> False], StyleBox["\[DoubleVerticalBar]", FontSize -> _]],
+     FreeQ[MarkdownToNotebook["$\\|x\\|$", "Evaluate" -> False], StyleBox["\[DoubleVerticalBar]", FontSize -> _]]},
+    {True, True, True},
+    TestID -> "tall bare-double-bar norm drawn full-height, \\parallel relation and scalar left alone (issue #64)"
 ]
 ```
 
