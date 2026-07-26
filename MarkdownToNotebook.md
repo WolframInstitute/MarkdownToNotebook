@@ -776,6 +776,29 @@ VerificationTest[
 ]
 ```
 
+A Paclet page's main description prose fills from `## Basic Description` when there is no `## Usage`, and its example surface carries only the sections actually written - not the eight empty `Basic Examples`..`Neat Examples` placeholder subsections the generic Function template scaffolds:
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook["---\nTemplate: Paclet\nName: P\nPaclet: Pub/P\n---\n\n## Basic Description\n\nhello world desc\n"]},
+        {! FreeQ[nb, s_String /; StringContainsQ[s, "hello world desc"]],
+         Cases[nb, Cell[t_String, "Subsection", ___] /; MemberQ[{"Basic Examples", "Scope", "Neat Examples"}, t] :> t, Infinity]}],
+    {True, {}},
+    TestID -> "Paclet: LongDescription fills from ## Basic Description; empty example subsections dropped"
+]
+```
+
+A `TechNote` source builds with the modern `Tutorial` entity type (`DocumentationBuild` gives it the same TechNote page styling), and a Guide's `RelatedTutorials:` frontmatter fills the Tech Notes section's `GuideTutorial` placeholders - one link per entry:
+
+```wl
+VerificationTest[
+    {FirstCase[MarkdownToNotebook["---\nTemplate: TechNote\nName: T\nContext: P`Q`\nPaclet: P/Q\nURI: P/Q/tutorial/T\n---\n\n## Overview\n\ntext\n"], Cell[et_String, "Categorization", o___] /; (CellLabel /. Flatten[{o}]) === "Entity Type" :> et, "none", Infinity],
+     Length @ Cases[MarkdownToNotebook["---\nTemplate: Guide\nName: G\nContext: P`Q`\nPaclet: P/Q\nURI: P/Q/guide/G\nRelatedTutorials: [Foo, Bar]\n---\n\n## Functions\n\n- `X` does x\n"], Cell[_, "GuideTutorial", ___], Infinity]},
+    {"Tutorial", 2},
+    TestID -> "TechNote -> Tutorial entity type; Guide RelatedTutorials -> GuideTutorial cells"
+]
+```
+
 A Symbol page's Notes (Details) slot is filled from the Details section whether it is headed `## Details & Options` (the doc-tools title) or just `## Details`; sections are keyed by heading text, so a lone `## Details` must be matched explicitly or its bullets are silently dropped from the built page:
 
 ```wl

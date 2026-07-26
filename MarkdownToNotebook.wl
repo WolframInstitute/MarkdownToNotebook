@@ -2164,24 +2164,24 @@ exampleContent[sectionBlocks_, textStyle_String] := Block[{counter = 0, chunks =
    slot). Keep the template's ExampleInitialization group (the PacletDirectoryLoad
    + Needs cells, filled from PacletDirectory/Context), then build one Subsection
    group per example section with the markdown's prose and evaluated I/O. *)
-exampleNotebookSlot[opts_, sections_] := Block[{def = slotDefault[opts], initGroup},
+exampleNotebookSlot[opts_, sections_] := Block[{def = slotDefault[opts], initGroup, keys, groups},
     initGroup = FirstCase[def,
         g : Cell[CellGroupData[{Cell[_, "Subsection", "Excluded", ___], _TemplateSlot, ___}, _], ___] :> g,
         Nothing, Infinity];
-    (* emit every standard example section in canonical order, heading-only when
-       absent (see $resourceExampleOrder); the ExampleInitialization group is
-       kept as the first section's lead-in. *)
-    MapIndexed[
-        Function[{key, pos},
-            With[{grp = exampleSubsectionGroup[sections, key]},
-                If[ First[pos] === 1,
-                    Replace[grp, Cell[CellGroupData[cells_, st_], o___] :>
-                        Cell[CellGroupData[Join[Flatten[{initGroup}], cells], st], o]],
-                    grp
-                ]
-            ]
-        ],
-        $resourceExampleOrder
+    (* emit only the example sections the author actually wrote (in canonical order) - a Paclet
+       home page should not ship the eight empty Basic Examples..Neat Examples placeholder
+       subsections the generic Function template scaffolds. The ExampleInitialization group
+       (PacletDirectoryLoad + Needs) is kept as the first surviving section's lead-in, or on its
+       own when no example section has content. *)
+    keys = Select[$resourceExampleOrder, exampleContent[Lookup[sections, #, {}], "Text"] =!= {} &];
+    groups = exampleSubsectionGroup[sections, #] & /@ keys;
+    Which[
+        groups =!= {},
+            Prepend[Rest[groups],
+                Replace[First[groups], Cell[CellGroupData[cells_, st_], o___] :>
+                    Cell[CellGroupData[Join[Flatten[{initGroup}], cells], st], o]]],
+        initGroup === Nothing, {},
+        True, Flatten[{initGroup}]
     ]
 ]
 
@@ -2227,7 +2227,10 @@ fillSlot[name_, opts_, data_] := Block[{meta = data["meta"]},
         "Usage", usageSlot[opts, data["sections"]],
         "Notes", notesSlot[opts, data["sections"]],
         "Details", notesSlot[opts, data["sections"]],
-        "LongDescription", fillTextDataCells[opts, rawSectionText[data["sections"], "usage"]],
+        (* the main description prose: a resource keys it under "## Usage", a Paclet page
+           under "## Basic Description" - fall back so the Paclet LongDescription fills too *)
+        "LongDescription", fillTextDataCells[opts,
+            Replace[rawSectionText[data["sections"], "usage"], "" :> rawSectionText[data["sections"], "basic description"]]],
         "PrimaryContext", fillTextCells[opts, Lookup[meta, "Context", ""]],
         "Examples", examplesSlot[opts, data["sections"]],
         "ExampleNotebook", exampleNotebookSlot[opts, data["sections"]],
@@ -3364,7 +3367,7 @@ fillCategorization[nb_, type_String, meta_] := Block[{
    Bare-symbol names "CellGroup" / "Notebook" / "InheritFromParent" map
    to the corresponding symbol; anything else passes through as a literal
    context string (e.g. `"Global`"`). *)
-$docCellContextDefault = <|"Symbol" -> CellGroup, "Guide" -> CellGroup, "Tech Note" -> CellGroup|>
+$docCellContextDefault = <|"Symbol" -> CellGroup, "Guide" -> CellGroup, "Tech Note" -> CellGroup, "Tutorial" -> CellGroup|>
 parseCellContextValue[v_Symbol] := v
 parseCellContextValue[s_String] := Switch[StringTrim[s],
     "CellGroup", CellGroup,
@@ -3744,6 +3747,12 @@ guideNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"],
     With[{paclet = Lookup[meta, "Paclet", ""]},
         nb = fillDocCells[nb, "GuideMoreAbout", guideLinkContent[#, paclet, "guide"] & /@ asList @ Lookup[meta, "RelatedGuides", {}]]
     ];
+    (* Tech Notes: the Guide template's GuideTutorial placeholders take one tutorial
+       link per RelatedTutorials entry (mirrors GuideMoreAbout above). Without this the
+       section header shipped empty and the XXXX placeholders were dropped below. *)
+    With[{paclet = Lookup[meta, "Paclet", ""]},
+        nb = fillDocCells[nb, "GuideTutorial", guideLinkContent[#, paclet, "tutorial"] & /@ asList @ Lookup[meta, "RelatedTutorials", {}]]
+    ];
     (* Related Links are labeled hyperlinks; the template has only the section
        header (no placeholder), so insert one GuideRelatedLinks cell per link. *)
     With[{links = asList @ Lookup[meta, "Links", {}]},
@@ -3805,7 +3814,10 @@ tutorialNotebook[data_] := Block[{meta = data["meta"], nb, title, body, paclet, 
         Cell[BoxData["XXXX"], _, ___] :> Nothing,
         Cell[c_, _, ___] /; ! FreeQ[c, FrameBox["XXXX"]] :> Nothing
     };
-    setDocMetadata[fillCategorization[nb, "Tech Note", meta], meta, "Tech Note"]
+    (* emit the modern "Tutorial" entity type, not the legacy "Tech Note" - DocumentationBuild
+       renders it with the same TechNote page styling. CellContext stays CellGroup via the
+       matching $docCellContextDefault entry, so cross-section state threading is unchanged. *)
+    setDocMetadata[fillCategorization[nb, "Tutorial", meta], meta, "Tutorial"]
 ]
 
 (* === Overview (paclet table-of-contents) builder ===
