@@ -5101,8 +5101,10 @@ markdownWithImages[blocks_, meta_, target_String] := Block[{dir, base, imgDir, n
 
 (* === example-output cache ===
    Evaluated example outputs are cached with the built-in persistence framework -
-   a PersistentSymbol per cell, keyed by the cumulative hash, at the "Local"
-   location so it survives sessions. No cache option: manage it the standard way -
+   a PersistentSymbol per cell, keyed by the cumulative code hash, at the "Local"
+   location so it survives sessions. Pass "UseCache" -> False to ignore the cached
+   contents and regenerate (e.g. after the documented library changed but the
+   example code did not); otherwise manage it the standard way -
    PersistentObjects["MarkdownToNotebook/**"] to list, DeleteObject to clear, and
    $PersistencePath / PersistenceLocation to relocate. *)
 $cacheLocation = "Local"
@@ -5183,7 +5185,7 @@ withMarkdownSource[Notebook[cells_, o : OptionsPattern[]], src_String, tmpl_Stri
 ]
 withMarkdownSource[other_, _, _] := other
 
-Options[MarkdownToNotebook] = {"Evaluate" -> True, "PreserveSource" -> False, "EvaluateSeparator" -> Automatic, "MathFont" -> None, "LightDark" -> Automatic}
+Options[MarkdownToNotebook] = {"Evaluate" -> True, "PreserveSource" -> False, "EvaluateSeparator" -> Automatic, "MathFont" -> None, "LightDark" -> Automatic, "UseCache" -> True}
 
 (* spec is an *optional* second argument (default Automatic). Do not split this
    into a separate 1-argument form that forwards to the 3-argument one: an empty
@@ -5200,6 +5202,7 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
        which re-expands without end (RecursionLimit on every call). *)
     $convertDepth = If[IntegerQ[$convertDepth], $convertDepth, 0] + 1,
     evalExamples = TrueQ[OptionValue["Evaluate"]],
+    useCache = TrueQ[OptionValue["UseCache"]],
     preserveSource = TrueQ[OptionValue["PreserveSource"]],
     evalSeparator = OptionValue["EvaluateSeparator"],
     (* "LightDark" -> "Dark" | "Light" pins the appearance the evaluated
@@ -5266,8 +5269,15 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
         Lookup[meta, "Context", Nothing], Lookup[meta, "ContextPath", {}],
         docPacletContext[] /. "" -> Nothing, "System`"};
     installSelfAlias[ctx];
-    cached = AssociationThread[hashes -> Map[exampleCacheGet, cacheNames]];
-    allHit = hashes =!= {} && AllTrue[cached, ! MissingQ[#] &];
+    (* "UseCache" -> False ignores the persistent cache's CONTENTS: every example
+       re-evaluates and the fresh outputs are written back (below), refreshing the
+       cache to match the current environment. The cache key is the cell's code
+       hash with NO library version, so when the documented library changes but the
+       example code does not, a warm cache would otherwise serve stale outputs;
+       this is the knob to regenerate them (the standard alternative is to
+       DeleteObject the PersistentObjects by hand). *)
+    cached = If[useCache, AssociationThread[hashes -> Map[exampleCacheGet, cacheNames]], <||>];
+    allHit = useCache && hashes =!= {} && AllTrue[cached, ! MissingQ[#] &];
     (* "Evaluate" -> False leaves the example cells unevaluated (input only). An
        example may itself convert another document (so its screenshot shows that
        document's own evaluated cells), which is one level of nesting; beyond that a
