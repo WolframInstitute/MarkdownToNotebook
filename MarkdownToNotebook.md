@@ -525,7 +525,7 @@ VerificationTest[
             Missing[],
             Infinity
         ],
-        Cell[TextData[{"A ", Cell[BoxData["foo"], "InlineFormula", ___], " heading"}], "Section"]
+        Cell[TextData[{"A ", Cell[BoxData["foo"], "InlineFormula", ___], " heading"}], "Section", ___]
     ],
     True,
     TestID -> "headings parse inline markup (backticks -> InlineFormula)"

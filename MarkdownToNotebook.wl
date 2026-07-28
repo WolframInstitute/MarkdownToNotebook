@@ -1713,14 +1713,12 @@ annotationButtonsCell[] := With[{author = annotatorName[]}, Cell[BoxData[GridBox
 annotationFrameLabels[note_String] := CellFrameLabels -> {{Inherited, Inherited}, {Inherited,
     Cell[TextData[{note, "\n\n", annotationButtonsCell[], "\n"}], "TextAnnotation", CellSize -> {590, Inherited}]}}
 
-(* a CellID for an annotated cell. GenerateAnnotationDialog (the Edit button) reads
-   the cell's CellID, aborts with "SelectedCellNoCellID" if it has none, and
-   NotebookFind locates the cell by that value - so it must be present AND unique
-   within the notebook (a content-derived hash would collide for two cells with the
-   same body + note, sending Edit to the wrong cell). A fresh random 9-digit integer,
-   the scheme the FrontEnd itself uses to stamp CellIDs; the round-trip compares only
-   Input-cell code, so non-determinism here is irrelevant. *)
-annotationCellID[] := RandomInteger[{100000000, 999999999}]
+(* An annotated cell needs a present, unique CellID: GenerateAnnotationDialog
+   (the Edit button) reads it and NotebookFind locates the cell by that value.
+   That CellID is supplied deterministically by withDeterministicIDs when the
+   notebook is finalized - from the cell's structural position, so it is unique
+   and stable across rebuilds (a content-derived hash would collide for two cells
+   with the same body + note) - so nothing needs to be stamped here. *)
 
 (* Idempotent: re-applying the same options is a no-op (existing CellTags are
    replaced, not duplicated), so a cell may pass through applyCellMeta more than
@@ -1733,9 +1731,7 @@ applyCellMeta[Cell[c_, st_String, rest___], opts_Association] := Module[{r = {re
     If[KeyExistsQ[opts, "tags"] || KeyExistsQ[opts, "annotation"],
         r = Append[DeleteCases[r, CellTags -> _], CellTags -> DeleteDuplicates[tags]]];
     If[KeyExistsQ[opts, "annotation"],
-        r = Append[DeleteCases[r, CellFrameLabels -> _], annotationFrameLabels[opts["annotation"]]];
-        (* the Edit button needs a unique CellID; add one only if the cell lacks one *)
-        If[FreeQ[r, CellID -> _], AppendTo[r, CellID -> annotationCellID[]]]];
+        r = Append[DeleteCases[r, CellFrameLabels -> _], annotationFrameLabels[opts["annotation"]]]];
     Cell[c, Lookup[opts, "style", st], Sequence @@ r]
 ]
 (* an evaluated code cell is wrapped as Cell[CellGroupData[{Input, Output}, ...]];
@@ -4911,15 +4907,54 @@ buildNotebook["LLMTool", data_] := resourceNotebook["LLMTool", data]
 buildNotebook[_, data_] := defaultNotebook[data]
 
 (* Every cell needs a CellID for the resource scraper to locate the definition and
-   example cells. The interactive front end assigns them when a notebook is opened,
-   but a notebook deployed headlessly (build.wls, never opened by hand) keeps
-   whatever the expression carries - and without CellIDs the scraper reports the
-   function definition as missing and deploys an empty resource. Setting the
-   notebook's CreateCellID option makes the front end assign the missing CellIDs as
-   soon as it opens the notebook, the idiomatic equivalent of clicking into it. *)
-withCreateCellID[Notebook[cells_, o : OptionsPattern[]]] :=
-    Notebook[cells, CreateCellID -> True, Sequence @@ FilterRules[{o}, Except[CreateCellID]]]
-withCreateCellID[other_] := other
+   example cells. The interactive front end normally stamps the missing CellIDs
+   (and a fresh ExpressionUUID per cell) when the notebook is first opened - both
+   drawn from system randomness, so two builds of the same source, or the same
+   build opened twice, produce different notebooks. To keep MarkdownToNotebook
+   DETERMINISTIC (reproducible builds, diffable output, stable scraper / annotation
+   IDs) we assign the CellIDs ourselves (from each cell's structural position) and
+   normalize the ExpressionUUIDs that Export injects (below), and drop CreateCellID
+   so the front end does not re-randomize what we set. *)
+
+(* Stamp a CellID on each STRUCTURAL cell (a notebook / cell-group member) that
+   lacks one - never on the inline cells nested inside a cell's content, which
+   carry no CellID. The key is the cell's structural path: unique within the
+   notebook and stable across rebuilds. Cells that already carry a CellID (e.g.
+   the Hash-keyed link items, fillLinkCells) keep it. Export[..., "NB"] preserves
+   CellIDs, so stamping them on the expression is enough. *)
+stampCellID[Cell[CellGroupData[inner_List, gopts___], copts___], idx_] :=
+    Cell[CellGroupData[MapIndexed[stampCellID[#1, Join[idx, #2]] &, inner], gopts], copts]
+stampCellID[Cell[content_, style_String, opts___], idx_] :=
+    If[FreeQ[{opts}, CellID],
+        Cell[content, style, opts, CellID -> Hash[Prepend[idx, "MTNCellID"]]],
+        Cell[content, style, opts]]
+stampCellID[other_, _] := other
+
+withDeterministicIDs[Notebook[cells_List, o : OptionsPattern[]]] :=
+    Notebook[MapIndexed[stampCellID[#1, #2] &, cells],
+        Sequence @@ FilterRules[{o}, Except[CreateCellID]]]
+withDeterministicIDs[other_] := other
+
+(* ExpressionUUIDs are the other half of the non-determinism, but unlike CellIDs
+   they are NOT in the built expression - Export[..., "NB"] stamps a fresh RANDOM
+   one on every cell as it serializes. So we normalize them in the exported text:
+   rewrite each ExpressionUUID string with a value keyed by its occurrence order
+   (deterministic, since Export's cell order is fixed for a given expression).
+   This preserves Export's canonical .nb header / options / stylesheet exactly -
+   only the id strings change. *)
+deterministicUUID[n_Integer] := StringInsert[
+    IntegerString[Hash[{"MTNuuidHi", n}], 16, 16] <> IntegerString[Hash[{"MTNuuidLo", n}], 16, 16],
+    "-", {9, 13, 17, 21}]
+
+deterministicUUIDText[txt_String] := Module[{i = 0},
+    StringReplace[txt,
+        pre : ("ExpressionUUID" ~~ WhitespaceCharacter ... ~~ "->" ~~ WhitespaceCharacter ... ~~ "\"") ~~
+            Except["\""] .. ~~ "\"" :> (pre <> deterministicUUID[i++] <> "\"")]]
+
+exportDeterministicNB[spec_, nb_] := (
+    Export[spec, nb, "NB"];
+    Export[spec, deterministicUUIDText @ Import[spec, "Text"], "Text"];
+    spec)
 
 (* === markdown-out: a rendered markdown twin ===
    MarkdownToNotebook[source, "out.md"] re-serializes the document to markdown but
@@ -5266,14 +5301,17 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
     sections = sectionsFrom[blocks];
     defCode = StringRiffle[#["Code"] & /@ sectionCells[sections, "definition"], "\n\n"];
     data = <|"meta" -> meta, "blocks" -> blocks, "sections" -> sections, "defCode" -> defCode|>;
-    filled = withCreateCellID @ applyDocFlag[buildNotebook[tmplName, data], Lookup[meta, "Flag", ""]];
+    filled = applyDocFlag[buildNotebook[tmplName, data], Lookup[meta, "Flag", ""]];
     If[preserveSource, filled = withMarkdownSource[filled, text, tmplName]];
+    (* assign deterministic CellIDs / ExpressionUUIDs last, so it also covers any
+       cell added by withMarkdownSource *)
+    filled = withDeterministicIDs[filled];
 
     Which[
         spec === Automatic || spec === "Notebook", filled,
         spec === "Association",
             <|"Notebook" -> filled, "Metadata" -> meta, "Sections" -> Keys[sections], "Template" -> tmplName|>,
         StringQ[spec] && StringEndsQ[ToLowerCase[spec], ".md"], markdownWithImages[blocks, meta, spec],
-        True, Export[spec, filled, "NB"]
+        True, exportDeterministicNB[spec, filled]
     ]
 ]
