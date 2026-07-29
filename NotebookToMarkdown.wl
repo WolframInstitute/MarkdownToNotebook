@@ -546,7 +546,7 @@ $knownBlockStyles = {
     "GuideFunctionsSubsection", "GuideText", "GuideDelimiter", "GuideTOCLink",
     "2ColumnTableMod", "3ColumnTableMod", "TableNotes",
     "Text", "Quote", "Caption", "ExampleText", "CodeText",
-    "Item", "Item1", "Item2", "Bullet", "ItemNumbered", "ItemNumbered1",
+    "Item", "Item1", "Item2", "Bullet", "Subitem", "Subsubitem", "ItemNumbered", "ItemNumbered1",
     "Input", "Code", "ExampleInput", "Program",
     "PrimaryExamplesSection", "ExampleSection", "ExampleSubsection",
     "ExampleSubsubsection", "ExampleDelimiter", "InlineFormula",
@@ -712,8 +712,12 @@ blockFor["Text" | "Quote", c_] := tidy @ inlineMd[c]
 blockFor["Caption", c_] := tidy @ inlineMd[c]
 blockFor["ExampleText" | "CodeText", c_] := tidy @ inlineMd[c]
 
-(* Lists. *)
+(* Lists. Nested bullets carry their depth as 2-space indent per level, the
+   convention MarkdownToNotebook's listLineIndent reads back into Subitem/
+   Subsubitem cells - so a nested list round-trips through both directions. *)
 blockFor["Item" | "Item1" | "Item2" | "Bullet", c_] := "- " <> tidy @ inlineMd[c]
+blockFor["Subitem", c_] := "  - " <> tidy @ inlineMd[c]
+blockFor["Subsubitem", c_] := "    - " <> tidy @ inlineMd[c]
 blockFor["ItemNumbered" | "ItemNumbered1", c_] := "1. " <> tidy @ inlineMd[c]
 
 (* Code cells: verbatim Input source via FE InputText (with kernel fallback).
@@ -1169,7 +1173,11 @@ dropEmptySections[blocks_List] := Module[{i, out = {}},
    <blank> - first note", the Notes handler's shape) is split first so the run
    merges whole; an example's "<!-- => value -->" annotation re-attaches
    directly under its code fence, where the source style puts it. *)
-listItemBlockQ[s_String] := StringMatchQ[s, ("- " | "1. ") ~~ __] && StringFreeQ[s, "\n\n"]
+(* accept a leading-space indent so nested "  - sub" / "    - subsub" bullets
+   (Subitem/Subsubitem cells) join their list run instead of being split off as
+   loose blocks - otherwise the blank line between them would break the nesting
+   when MarkdownToNotebook re-reads the list. *)
+listItemBlockQ[s_String] := StringMatchQ[StringTrim[s], ("- " | "1. ") ~~ __] && StringFreeQ[s, "\n\n"]
 splitHeadingItem[s_String] := Replace[
     StringCases[s, StartOfString ~~ h : (("#" ..) ~~ " " ~~ Except["\n"] ..) ~~ "\n\n" ~~ r__ ~~ EndOfString :> {h, r}, 1],
     {{{h_, r_}} /; listItemBlockQ[r] :> Splice[{h, r}], _ :> s}]

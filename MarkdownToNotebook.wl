@@ -243,6 +243,29 @@ listItemQ[line_String] := Block[{t = StringTrim[line]},
 
 listText[line_String] := taskCheckbox @ StringTrim @ StringDrop[StringTrim[line], 2]
 
+(* leading-whitespace width of a list line, tabs counted as 4 columns. Used to
+   recover the nesting depth of an indented sub-bullet, which listItemQ/listText
+   otherwise discard by trimming. *)
+listLineIndent[line_String] := Module[
+    {m = StringCases[line, StartOfString ~~ w : (" " | "\t") .. :> w, 1]},
+    If[m === {}, 0, StringLength[StringReplace[First[m], "\t" -> "    "]]]
+]
+
+(* map each item's raw indent width to a 0-based nesting depth. A stack of the
+   indent columns seen along the current branch turns *any* indent increase into
+   exactly one deeper level (CommonMark nests by alignment, not by a fixed step),
+   so both 2- and 4-space sub-bullets nest, and an outdent pops back to the
+   matching ancestor level. *)
+listDepths[indents_List] := Module[{stack = {}, out = {}},
+    Do[
+        While[stack =!= {} && Last[stack] > ind, stack = Most[stack]];
+        If[stack === {} || Last[stack] < ind, AppendTo[stack, ind]];
+        AppendTo[out, Length[stack] - 1],
+        {ind, indents}
+    ];
+    out
+]
+
 (* a GitHub task-list item "[ ] ..." / "[x] ..." -> a ballot-box glyph before the
    text (unchecked U+2610, checked U+2611), so the checkbox renders instead of a
    literal "[ ]". *)
@@ -333,14 +356,25 @@ listSplit[{}, collected_] := {Reverse[collected], {}}
 listSplit[lines_List, collected_] := With[{line = First[lines]},
     Which[
         listItemQ[line],
-            listSplit[Rest[lines], Prepend[collected, listText[line]]],
+            listSplit[Rest[lines], Prepend[collected, {listLineIndent[line], listText[line]}]],
         collected =!= {} && listContinuationQ[line],
             listSplit[Rest[lines],
-                Prepend[Rest[collected], First[collected] <> " " <> StringTrim[line]]],
+                Prepend[Rest[collected],
+                    MapAt[# <> " " <> StringTrim[line] &, First[collected], 2]]],
         True,
             {Reverse[collected], lines}
     ]
 ]
+
+(* Turn the {indent, text} pairs listSplit collected into a List block, keeping
+   Items as bare strings (every downstream reader still expects that) and adding
+   a parallel Depths list so nesting-aware renderers can pick Item/Subitem/... . *)
+listBlock[pairs_List] := <|
+    "Type" -> "List",
+    "Items" -> pairs[[All, 2]],
+    "Depths" -> listDepths[pairs[[All, 1]]]
+|>
+
 
 (* GitHub-flavored tables: a "| a | b |" row whose next line is a "|---|---|"
    separator. Cells are split on "|" with the outer pipes trimmed. *)
@@ -433,7 +467,7 @@ blockLoop[lines_List, acc_] := Block[{line = First[lines], rest = Rest[lines], s
         ,
         listItemQ[line],
             split = listSplit[lines, {}];
-            blockLoop[Last[split], Prepend[acc, <|"Type" -> "List", "Items" -> First[split]|>]]
+            blockLoop[Last[split], Prepend[acc, listBlock[First[split]]]]
         ,
         orderedItemQ[line],
             split = orderedSplit[lines, {}];
@@ -1982,10 +2016,25 @@ quoteCell[text_String] := Cell[TextData @ inlineTextData[text], "Text",
     CellMargins -> {{40, 10}, {7, 7}},
     Background -> LightDarkSwitched[GrayLevel[0.96], GrayLevel[0.2]]]
 
-(* list items as cells of the given bullet style, numbered ("ItemNumbered") when the
-   block is an ordered list. *)
-listItemCells[block_, base_String] := With[{style = If[TrueQ[block["Ordered"]], "ItemNumbered", base]},
-    Map[Cell[TextData @ inlineTextData[#], style] &, block["Items"]]
+(* the nested-bullet style ladder for each base style: an indented sub-bullet
+   steps to the next entry (Item -> Subitem -> Subsubitem, the doc-stylesheet
+   names). A base with no known ladder just keeps its style at every depth. *)
+$itemStyleHierarchy = <|"Item" -> {"Item", "Subitem", "Subsubitem"}|>;
+nestedItemStyle[base_String, d_Integer] := With[
+    {levels = Lookup[$itemStyleHierarchy, base, {base}]},
+    levels[[Min[d + 1, Length[levels]]]]
+]
+
+(* list items as cells of the given bullet style, numbered ("ItemNumbered") when
+   the block is an ordered list. An unordered block carries a parallel "Depths"
+   list (from listBlock); each item's depth selects its nested style. *)
+listItemCells[block_, base_String] := If[TrueQ[block["Ordered"]],
+    Map[Cell[TextData @ inlineTextData[#], "ItemNumbered"] &, block["Items"]],
+    With[{depths = Lookup[block, "Depths", ConstantArray[0, Length[block["Items"]]]]},
+        MapThread[
+            Cell[TextData @ inlineTextData[#1], nestedItemStyle[base, #2]] &,
+            {block["Items"], depths}]
+    ]
 ]
 
 detailsCells[sections_] := Catenate @ Map[
