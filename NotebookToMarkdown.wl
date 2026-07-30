@@ -44,7 +44,12 @@ decorationCellQ[_] := False
 $n2mParserDir = FileNameJoin[{Replace[DirectoryName[$InputFileName], "" :> Directory[]], "examples", "Paclet", "WolframParser"}]
 $n2mParserReady = False
 ensureExportLaTeX[] := If[! TrueQ[$n2mParserReady],
-    If[DirectoryQ[$n2mParserDir], PacletDirectoryLoad[$n2mParserDir]];
+    If[ DirectoryQ[$n2mParserDir],
+        PacletDirectoryLoad[$n2mParserDir],
+        (* standalone use (no vendored submodule): the paclet is published, so
+           install from the Paclet Repository; a no-op when already installed *)
+        Quiet @ PacletInstall["Wolfram/Parser"]
+    ];
     Quiet @ Check[Needs["Wolfram`Parser`"], Null];
     $n2mParserReady = True]
 ensureExportLaTeX[]

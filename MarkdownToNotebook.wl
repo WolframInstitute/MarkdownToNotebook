@@ -17,7 +17,7 @@
 
 Needs["GeneralUtilities`"]
 
-(* The LaTeX math pipeline wants Wolfram/Parser >= $parserVersion - its
+(* The LaTeX math pipeline wants the published Wolfram/Parser paclet - its
    LaTeXMathParse handles \frac / \mathbb / scripts / sized delimiters that
    the ImportString[..., "TeX"] fallback (wolframParserTeX) loses.
 
@@ -28,11 +28,6 @@ Needs["GeneralUtilities`"]
    called, in the caller's kernel - the same reason $convertDepth is read at
    call time below. Only the vendored-submodule path is resolved here, while
    $InputFileName still points at this file. *)
-$parserVersion = "0.2.3"
-pacletInstalledQ[paclet_String, version_String] := AnyTrue[
-    Through[PacletFind[paclet]["Version"]],
-    ResourceFunction["VersionOrder"][#, version] <= 0 &
-]
 (* the vendored submodule, resolved against THIS file's location so it is found
    from any working directory - the old cwd-relative check silently degraded to
    ImportString when MTN ran from elsewhere (issue #25) *)
@@ -41,17 +36,15 @@ $parserDir = FileNameJoin[{
 $parserReady = False
 (* Make Wolfram`Parser` available, once per session. Prefer the vendored submodule
    (PacletDirectoryLoad makes the paclet manager serve the highest version, so a
-   stale installed copy can't shadow it); else install the published paclet,
-   skipping the install when an adequate version is already present. Best-effort:
-   if no parser is reachable the math path falls back to ImportString (see
-   wolframParserTeX, which gates on the symbol existing at call time rather than on
-   this succeeding). *)
+   stale installed copy can't shadow it); else install the published paclet from
+   the Paclet Repository (PacletInstall is a no-op when it is already installed).
+   Best-effort: if no parser is reachable the math path falls back to ImportString
+   (see wolframParserTeX, which gates on the symbol existing at call time rather
+   than on this succeeding). *)
 ensureParser[] := If[! TrueQ[$parserReady],
-    Which[
-        DirectoryQ[$parserDir], PacletDirectoryLoad[$parserDir],
-        pacletInstalledQ["Wolfram/Parser", $parserVersion], Null,
-        ! FailureQ[PacletInstall["Wolfram/Parser"]], Null,
-        True, PacletInstall[ResourceObject["https://wolfr.am/1ENEqrOlP"]]
+    If[ DirectoryQ[$parserDir],
+        PacletDirectoryLoad[$parserDir],
+        Quiet @ PacletInstall["Wolfram/Parser"]
     ];
     Quiet @ Check[Needs["Wolfram`Parser`"], Null];
     $parserReady = True
