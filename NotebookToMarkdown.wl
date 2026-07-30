@@ -507,7 +507,19 @@ $dropStyles = {
     "RelatedLinks", "RelatedLinksSection",
     "SeeAlso", "SeeAlsoSection",
     "MoreAbout", "MoreAboutSection",
-    "ExtendedExamplesSection", "ExamplesInitializationSection"
+    "ExtendedExamplesSection", "ExamplesInitializationSection",
+    (* reference-subtype / workflow page link sections, recovered into the
+       frontmatter by subtypeFrontmatter below *)
+    "TutorialsSection",
+    "RelatedWorkflows", "RelatedWorkflowsSection",
+    "RelatedInterpreters", "RelatedInterpreterSection",
+    "RelatedEntities", "RelatedEntitySection",
+    "RelatedFunctions", "RelatedFunctionsSection",
+    "RelatedGuides", "RelatedGuidesSection",
+    "TechNotes",
+    "WorkflowGuideRelatedWorkflowGuide", "WorkflowGuideRelatedWorkflowGuidesSection",
+    "WorkflowGuideRelatedGuide", "WorkflowGuideRelatedGuidesSection",
+    "WorkflowGuideRelatedLink", "WorkflowGuideRelatedLinksSection"
 }
 
 (* ====================================================================== *)
@@ -552,6 +564,17 @@ $knownBlockStyles = {
     "2ColumnTableMod", "3ColumnTableMod", "TableNotes",
     "Text", "Quote", "Caption", "ExampleText", "CodeText",
     "Item", "Item1", "Item2", "Bullet", "Subitem", "Subsubitem", "ItemNumbered", "ItemNumbered1",
+    (* reference-subtype / workflow page structure: sections and structural
+       prose whose plain-markdown form rebuilds the same style under the
+       page's own Template *)
+    "ImportExportSection", "NotebookInterfaceSection", "ElementsSection", "ExportElementsSection",
+    "OptionsSection", "ImportOptionsSection", "ExportOptionsSection", "FormatBackground",
+    "ServiceSubsection", "DeviceSubsection", "InterpreterSection", "EntitySection",
+    "ProgramSection", "ProgramSubsection", "WorkflowGuideSection",
+    "WorkflowPlatform", "WorkflowHeader", "WorkflowStep",
+    "ServiceAbstract", "DeviceAbstract", "WorkflowDescription", "WorkflowText",
+    "WorkflowParenthetical", "WorkflowGuideText", "WorkflowGuideEntry", "WeakDivider",
+    "ObjectNameAlt", "CharacterName", "DeviceSubtitle", "WorkflowTitle", "WorkflowGuideTitle",
     "Input", "Code", "ExampleInput", "Program",
     "PrimaryExamplesSection", "ExampleSection", "ExampleSubsection",
     "ExampleSubsubsection", "ExampleDelimiter", "InlineFormula",
@@ -698,6 +721,25 @@ blockFor["Section", c_] := headingMd[2, c]
 blockFor["Subsection", c_] := headingMd[3, c]
 blockFor["Subsubsection", c_] := headingMd[4, c]
 blockFor["ObjectName", _] := ""
+
+(* reference-subtype / workflow page structure: section headings back to `##`,
+   steps and subsections to `###`, the structural prose to plain paragraphs.
+   The title cells drop - the frontmatter (subtypeFrontmatter) carries Name /
+   Title / Subtitle / Character. *)
+blockFor[("ImportExportSection" | "NotebookInterfaceSection" | "ElementsSection" |
+    "ExportElementsSection" | "OptionsSection" | "ImportOptionsSection" |
+    "ExportOptionsSection" | "FormatBackground" | "ServiceSubsection" |
+    "DeviceSubsection" | "InterpreterSection" | "EntitySection" |
+    "ProgramSection" | "WorkflowGuideSection" | "WorkflowPlatform" |
+    "WorkflowHeader"), c_] := headingMd[2, c]
+blockFor["ProgramSubsection" | "WorkflowStep", c_] := headingMd[3, c]
+blockFor["ServiceAbstract" | "DeviceAbstract" | "WorkflowDescription" |
+    "WorkflowText" | "WorkflowGuideText", c_] := tidy @ inlineMd[c]
+blockFor["WorkflowParenthetical", c_] := "> " <> tidy @ inlineMd[c]
+blockFor["WeakDivider", _] := "---"
+blockFor["WorkflowGuideEntry", c_] := "- " <> tidy @ inlineMd[c]
+blockFor["ObjectNameAlt" | "CharacterName" | "DeviceSubtitle" |
+    "WorkflowTitle" | "WorkflowGuideTitle", _] := ""
 
 (* Usage / Notes / property tables - the doc template's headings are implicit,
    so we emit the corresponding `##` / `- ` markers ourselves. The "## Details
@@ -1113,10 +1155,89 @@ guideFrontmatter[nb_] := Module[{md = docMetaOf[nb], title, rg, links},
     ]
 ]
 
+(* === reference-subtype / workflow frontmatter recovery ===
+   These pages carry their metadata in TaggingRules ("type" is the
+   Categorization entity-type string); map it back to the Template name and
+   recover the title decoration (Extension / Subtitle / Character) and the
+   link sections from their style-specific cells. *)
+$docTypeToTemplate = <|
+    "Format" -> "Format", "Service Connection" -> "ServiceConnection",
+    "Device Connection" -> "Device", "Interpreter" -> "Interpreter",
+    "Entity" -> "Entity", "Character Name" -> "Character",
+    "Message" -> "Message", "Program" -> "Program",
+    "Workflow" -> "Workflow", "Workflow Guide" -> "WorkflowGuide"|>
+
+(* names out of a linkRowCell row: RefLinkPlain TemplateBoxes on a built row,
+   ButtonBoxes on a hand-authored one *)
+rowLinkNames[nb_, style_] := DeleteDuplicates @ Join[
+    Cases[FirstCase[nb, Cell[td_, style, ___] :> td, TextData[{}], Infinity],
+        TemplateBox[{Cell[TextData[n_String]], _String, ___}, _, ___] :> n, Infinity],
+    linkNames[nb, style]]
+
+(* external [label](url) hyperlink cells of the given style *)
+rowExternalLinks[nb_, style_] := Cases[nb,
+    Cell[td_, style, ___] :> Cases[{td},
+        ButtonBox[lbl_String, ___, ButtonData -> {URL[u_String], _} | u_String /; StringStartsQ[u, "http"], ___] :>
+            "[" <> lbl <> "](" <> u <> ")", Infinity],
+    Infinity] // Flatten // DeleteDuplicates
+
+(* the frontmatter link keys each template recovers, key -> item cell style *)
+$subtypeLinkKeys["Workflow"] = {
+    {"SeeAlso", "SeeAlso"}, {"RelatedFunctions", "RelatedFunctions"},
+    {"RelatedGuides", "RelatedGuides"}, {"RelatedTutorials", "TechNotes"}}
+$subtypeLinkKeys["WorkflowGuide"] = {
+    {"RelatedWorkflowGuides", "WorkflowGuideRelatedWorkflowGuide"},
+    {"RelatedGuides", "WorkflowGuideRelatedGuide"}}
+$subtypeLinkKeys["Interpreter"] = {
+    {"SeeAlso", "SeeAlso"}, {"RelatedTutorials", "Tutorials"}, {"RelatedWorkflows", "RelatedWorkflows"},
+    {"RelatedGuides", "MoreAbout"}, {"RelatedInterpreters", "RelatedInterpreters"}}
+$subtypeLinkKeys["Entity"] = {
+    {"SeeAlso", "SeeAlso"}, {"RelatedTutorials", "Tutorials"}, {"RelatedWorkflows", "RelatedWorkflows"},
+    {"RelatedGuides", "MoreAbout"}, {"RelatedEntities", "RelatedEntities"},
+    {"RelatedInterpreters", "RelatedInterpreters"}}
+$subtypeLinkKeys[_] = {
+    {"SeeAlso", "SeeAlso"}, {"RelatedTutorials", "Tutorials"}, {"RelatedWorkflows", "RelatedWorkflows"},
+    {"RelatedGuides", "MoreAbout"}}
+
+subtypeFrontmatter[nb_] := Module[{md = docMetaOf[nb], tmpl, name, humanTitle, ext, sub, ch, linksStyle},
+    tmpl = Lookup[$docTypeToTemplate, Lookup[md, "type", ""], ""];
+    If[tmpl === "", Return[""]];
+    name = Lookup[md, "title", ""];
+    humanTitle = cellPlain @ FirstCase[nb,
+        Cell[t_, "WorkflowTitle" | "WorkflowGuideTitle", ___] :> t, "", Infinity];
+    ext = FirstCase[nb, StyleBox[s_String, "FilenameExtension", ___] :>
+        StringTrim[s, "(" | ")"], "", Infinity];
+    sub = StringTrim[cellPlain @ FirstCase[nb, Cell[t_, "DeviceSubtitle", ___] :> t, "", Infinity], "(" | ")"];
+    ch = FirstCase[nb, Cell[c_String, "CharacterName", ___] :> c, "", Infinity];
+    linksStyle = If[tmpl === "WorkflowGuide", "WorkflowGuideRelatedLink", "RelatedLinks"];
+    StringJoin[
+        "---\n",
+        "Template: ", tmpl, "\n",
+        fmField["Name", name],
+        If[humanTitle =!= "" && humanTitle =!= name, fmField["Title", humanTitle], ""],
+        If[ext =!= "", fmField["Extension", ext], ""],
+        If[sub =!= "", fmField["Subtitle", sub], ""],
+        If[ch =!= "" && tmpl === "Character", fmField["Character", ch], ""],
+        fmField["Context", Lookup[md, "context", ""]],
+        fmField["Paclet", Lookup[md, "paclet", ""]],
+        fmField["URI", Lookup[md, "uri", ""]],
+        fmField["Description", Lookup[md, "summary", ""]],
+        fmList["Keywords", Lookup[md, "keywords", {}]],
+        Map[With[{names = rowLinkNames[nb, #[[2]]]},
+            If[names === {}, "", fmList[#[[1]], names]]] &,
+            $subtypeLinkKeys[tmpl]],
+        With[{ln = rowExternalLinks[nb, linksStyle]},
+            If[ln === {}, "", fmQuotedList["Links", ln]]],
+        "---\n\n"
+    ]
+]
+
 frontmatter[nb_, name_] := Module[{cat, paclet, ctx, uri, kw, sa, rg, res},
     res = guideFrontmatter[nb];
     If[res =!= "", Return[res]];
     res = resourceFrontmatter[nb];
+    If[res =!= "", Return[res]];
+    res = subtypeFrontmatter[nb];
     If[res =!= "", Return[res]];
     If[! hasObjectNameQ[nb], Return[""]];
     (* a MarkdownToNotebook-built page stashes the metadata in TaggingRules;
@@ -1252,6 +1373,11 @@ markdownOfNb[nb0 : Notebook[_List, ___], opts : OptionsPattern[NotebookToMarkdow
      $outputCommentLimit = OptionValue[NotebookToMarkdown, {opts}, "OutputCommentLimit"],
      $docPageQ           = docNotebookQ[nb0]},
     name = cellPlain @ FirstCase[nb, Cell[t_, "ObjectName", ___] :> t, "", Infinity];
+    (* a reference-subtype / workflow page keeps its Notes cells inside its own
+       type sections - suppress the Symbol-page "## Details & Options" header
+       injection blockFor["Notes"] does on the first Notes cell *)
+    If[ KeyExistsQ[$docTypeToTemplate, Lookup[docMetaOf[nb], "type", ""]],
+        $detailsHeadingDone = True];
     cells = If[resourceDefNotebookQ[nb], prepResourceBody[First[nb], resourceTypeOf[nb]], First[nb]];
     (* the walker is grouping-agnostic, so doc pages run on the flat cell list; the
        screenshot pre-pass relies on it (Output follows its Input) *)

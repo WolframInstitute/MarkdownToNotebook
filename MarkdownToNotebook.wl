@@ -3318,7 +3318,8 @@ usageCell[rawUsage_String] := Block[{
    styles - rendering an *TableMod cell there leaks unstyled / wrong-looking
    tables. For those templates we fall through to the generic GridBox path
    with the TableNotes / Text cell wrapper that has always shipped. *)
-$tableModTemplates = {"Symbol", "Guide", "TechNote", "Overview", "Chapter", "BookChapter", "ComputationalEssay", "Essay", "Default"}
+$tableModTemplates = {"Symbol", "Guide", "TechNote", "Overview", "Chapter", "BookChapter", "ComputationalEssay", "Essay", "Default",
+    "Format", "ServiceConnection", "Device", "Interpreter", "Entity", "Character", "Message", "Program", "Workflow", "WorkflowGuide"}
 
 tableModStyleFor[2] /; MemberQ[$tableModTemplates, $docTemplate] := "2ColumnTableMod"
 tableModStyleFor[3] /; MemberQ[$tableModTemplates, $docTemplate] := "3ColumnTableMod"
@@ -3418,7 +3419,12 @@ fillCategorization[nb_, type_String, meta_] := Block[{
    Bare-symbol names "CellGroup" / "Notebook" / "InheritFromParent" map
    to the corresponding symbol; anything else passes through as a literal
    context string (e.g. `"Global`"`). *)
-$docCellContextDefault = <|"Symbol" -> CellGroup, "Guide" -> CellGroup, "Tech Note" -> CellGroup, "Tutorial" -> CellGroup|>
+$docCellContextDefault = <|"Symbol" -> CellGroup, "Guide" -> CellGroup, "Tech Note" -> CellGroup, "Tutorial" -> CellGroup,
+    (* the reference subtypes + workflow pages (setDocMetadata is keyed by the
+       Categorization entity-type string, not the Template name) *)
+    "Format" -> CellGroup, "Service Connection" -> CellGroup, "Device Connection" -> CellGroup,
+    "Interpreter" -> CellGroup, "Entity" -> CellGroup, "Character Name" -> CellGroup,
+    "Message" -> CellGroup, "Program" -> CellGroup, "Workflow" -> CellGroup, "Workflow Guide" -> CellGroup|>
 parseCellContextValue[v_Symbol] := v
 parseCellContextValue[s_String] := Switch[StringTrim[s],
     "CellGroup", CellGroup,
@@ -4158,6 +4164,467 @@ essayNotebook[data_] := Block[{meta = data["meta"], counter = 0, header, body,
         data["blocks"]
     ];
     Notebook[Join[header, body], Sequence @@ templateOpts]
+]
+
+(* === reference-subtype page builders ===
+   The documentation system has reference page types beyond Symbol / Guide /
+   TechNote: Format, ServiceConnection, Device, Interpreter, Entity, Character,
+   Message, and Program pages (plus the Workflow / WorkflowGuide pages below).
+   DocumentationTools ships no authoring template for any of them, so the
+   authoring notebook is synthesized natively: the Categorization / Keywords
+   metadata block, the type's title decoration, the body sections mapped from
+   `## headings` to the type's section cell styles, the frontmatter link
+   sections, and the examples group. The cell shapes mirror the corresponding
+   DocuTools *BaseTemplate.nb authoring templates and the built pages shipped in
+   the system documentation; every style referenced resolves in the shipped
+   Reference.nb stylesheet, which the produced notebook uses as its
+   StyleDefinitions. DocumentationBuild renames the generic content styles to
+   the page-type forms at build time (Notes -> FormatNotes / ProgramNotes /
+   ..., ObjectNameAlt -> ProgramName, ...), so the authored page carries the
+   GENERIC styles plus the type-specific SECTION and title styles - the same
+   split the DocuTools templates use. *)
+
+$referenceStyleDefinitions = FrontEnd`FileName[{"Wolfram"}, "Reference.nb", CharacterEncoding -> "UTF-8"]
+
+(* the Documentation/English subdirectory each doc template's built page ships
+   in, for build scripts laying out a paclet (the URI kind is the matching
+   PacletManager mapping: ReferencePages/Formats <-> ref/format, ... ). *)
+$docTemplateDirectories = <|
+    "Symbol" -> {"ReferencePages", "Symbols"},
+    "Guide" -> {"Guides"},
+    "TechNote" -> {"Tutorials"},
+    "Overview" -> {"Tutorials"},
+    "Format" -> {"ReferencePages", "Formats"},
+    "ServiceConnection" -> {"ReferencePages", "Services"},
+    "Device" -> {"ReferencePages", "Devices"},
+    "Interpreter" -> {"ReferencePages", "Interpreters"},
+    "Entity" -> {"ReferencePages", "Entities"},
+    "Character" -> {"ReferencePages", "Characters"},
+    "Message" -> {"ReferencePages", "Messages"},
+    "Program" -> {"ReferencePages", "Programs"},
+    "Workflow" -> {"Workflows"},
+    "WorkflowGuide" -> {"WorkflowGuides"}
+|>
+
+(* the closed Categorization + Keywords groups every authoring template carries;
+   the same CellLabel-keyed rows fillCategorization fills on the shipped
+   templates, here synthesized directly from the frontmatter. *)
+docMetaCells[entityType_String, meta_] := {
+    Cell[CellGroupData[Join[
+        {Cell["Categorization", "CategorizationSection"],
+         Cell[entityType, "Categorization", CellLabel -> "Entity Type"]},
+        If[Lookup[meta, "Paclet", ""] =!= "", {Cell[meta["Paclet"], "Categorization", CellLabel -> "Paclet Name"]}, {}],
+        If[Lookup[meta, "Context", ""] =!= "", {Cell[meta["Context"], "Categorization", CellLabel -> "Context"]}, {}],
+        If[Lookup[meta, "URI", ""] =!= "", {Cell[meta["URI"], "Categorization", CellLabel -> "URI"]}, {}]
+    ], Closed]],
+    With[{kw = asList @ Lookup[meta, "Keywords", {}]},
+        If[kw === {}, Nothing,
+            Cell[CellGroupData[Join[
+                {Cell["Keywords", "KeywordsSection"]},
+                Map[Cell[#, "Keywords"] &, kw]
+            ], Closed]]
+        ]
+    ]
+}
+
+(* a quoted title: the name wrapped in literal straight quotes (each its own
+   InterpreterTitleQuotes inline cell) followed by a parenthesized subtitle -
+   the shape ServiceConnection / Device / Interpreter pages use. *)
+quotedTitleCell[name_String, subtitle_String, subtitleStyle_String] := Cell[TextData[{
+    Cell["\"", "InterpreterTitleQuotes"], name, Cell["\"", "InterpreterTitleQuotes"],
+    " ", Cell["(" <> subtitle <> ")", subtitleStyle]
+}], "ObjectNameAlt"]
+
+(* per-type title cells. Device keeps the DocuTools template's separate
+   DeviceSubtitle cell; Format appends the gray FilenameExtension when the
+   frontmatter carries `Extension: .xyz`; Character emits the glyph grid
+   (TraditionalForm / StandardForm at 72pt) over a raw-string CharacterName -
+   DocumentationBuild extracts the title with a _String pattern, so the name
+   cell must NOT be TextData-wrapped. *)
+refTitleCells["Format", meta_, name_] := With[{ext = Lookup[meta, "Extension", ""]},
+    {If[ext === "",
+        Cell[name, "ObjectNameAlt"],
+        Cell[TextData[{name <> " ", StyleBox["(" <> ext <> ")", "FilenameExtension"]}], "ObjectNameAlt"]]}
+]
+refTitleCells["ServiceConnection", meta_, name_] := {quotedTitleCell[name, "Service Connection", "ServiceSubtitle"]}
+refTitleCells["Device", meta_, name_] := Join[
+    With[{sub = Lookup[meta, "Subtitle", ""]},
+        If[sub === "", {}, {Cell["(" <> sub <> ")", "DeviceSubtitle"]}]],
+    {Cell[TextData[{Cell["\"", "InterpreterTitleQuotes"], name, Cell["\"", "InterpreterTitleQuotes"], " "}], "ObjectNameAlt"]}
+]
+refTitleCells["Interpreter", meta_, name_] := {quotedTitleCell[name, "Interpreter Type", "InterpreterSubtitle"]}
+refTitleCells["Entity", meta_, name_] := {Cell[name, "ObjectNameAlt"]}
+refTitleCells["Character", meta_, name_] := With[{ch = Lookup[meta, "Character", name]},
+    {Cell[BoxData[GridBox[{{StyleBox[ch, "TradFormChar"], StyleBox[ch, "StandFormChar"]}},
+         GridBoxAlignment -> {"Columns" -> {{Center}}}]], "CharacterImage"],
+     Cell[ch, "CharacterName"]}
+]
+refTitleCells["Message", meta_, name_] := {Cell[name, "ObjectName"]}
+refTitleCells["Program", meta_, name_] := {Cell[name, "ObjectNameAlt"]}
+refTitleCells[_, meta_, name_] := {Cell[name, "ObjectNameAlt"]}
+
+(* markdown `## heading` -> the type's section cell style; keys are
+   sectionKey-normalized. A heading not in the map takes the type's default
+   (custom sections are normal on these pages - a Program page's extra
+   ALL-CAPS sections, a service's request groups). *)
+$refSubtypeConfig = <|
+    "Format" -> <|
+        "EntityType" -> "Format",
+        "AbstractStyle" -> "Usage",
+        "DefaultSectionStyle" -> "ImportExportSection",
+        "SectionStyles" -> <|
+            "background and context" -> "FormatBackground",
+            "import and export" -> "ImportExportSection",
+            "notebook interface" -> "NotebookInterfaceSection",
+            "import elements" -> "ElementsSection",
+            "export elements" -> "ExportElementsSection",
+            "options" -> "OptionsSection",
+            "import options" -> "ImportOptionsSection",
+            "export options" -> "ExportOptionsSection"|>
+    |>,
+    "ServiceConnection" -> <|
+        "EntityType" -> "Service Connection",
+        "AbstractStyle" -> "ServiceAbstract",
+        "DefaultSectionStyle" -> "ServiceSubsection",
+        "SectionStyles" -> <||>,
+        "SubsectionStyle" -> "GuideFunctionsSubsection"
+    |>,
+    "Device" -> <|
+        "EntityType" -> "Device Connection",
+        "AbstractStyle" -> "DeviceAbstract",
+        "DefaultSectionStyle" -> "DeviceSubsection",
+        "SectionStyles" -> <||>
+    |>,
+    "Interpreter" -> <|
+        "EntityType" -> "Interpreter",
+        "AbstractStyle" -> "Usage",
+        "DefaultSectionStyle" -> "InterpreterSection",
+        "SectionStyles" -> <||>,
+        "ExtraLinkSections" -> {{"RelatedInterpreters", "RelatedInterpreterSection", "Related Interpreters", "RelatedInterpreters", "ref/interpreter"}}
+    |>,
+    "Entity" -> <|
+        "EntityType" -> "Entity",
+        "AbstractStyle" -> "Usage",
+        "DefaultSectionStyle" -> "EntitySection",
+        "SectionStyles" -> <||>,
+        "ExtraLinkSections" -> {
+            {"RelatedEntities", "RelatedEntitySection", "Related Entity Types", "RelatedEntities", "ref/entity"},
+            {"RelatedInterpreters", "RelatedInterpreterSection", "Related Interpreters", "RelatedInterpreters", "ref/interpreter"}}
+    |>,
+    "Character" -> <|
+        "EntityType" -> "Character Name",
+        "AbstractStyle" -> "Notes",
+        "DefaultSectionStyle" -> "Section",
+        "SectionStyles" -> <||>
+    |>,
+    "Message" -> <|
+        "EntityType" -> "Message",
+        "AbstractStyle" -> "Notes",
+        "DefaultSectionStyle" -> "Section",
+        "SectionStyles" -> <||>
+    |>,
+    "Program" -> <|
+        "EntityType" -> "Program",
+        "AbstractStyle" -> "Usage",
+        "DefaultSectionStyle" -> "ProgramSection",
+        "SectionStyles" -> <||>,
+        "SubsectionStyle" -> "ProgramSubsection"
+    |>
+|>
+
+(* the frontmatter link sections every subtype page understands; each entry is
+   {frontmatter key, section cell style, section title, item cell style, link
+   kind}. kind None marks external links ([label](url) markdown, rendered by
+   inlineTextData as hyperlink ButtonBoxes). *)
+$refCommonLinkSections = {
+    {"SeeAlso", "SeeAlsoSection", "See Also", "SeeAlso", "ref"},
+    {"RelatedTutorials", "TutorialsSection", "Tech Notes", "Tutorials", "tutorial"},
+    {"RelatedWorkflows", "RelatedWorkflowsSection", "Related Workflows", "RelatedWorkflows", "workflow"},
+    {"RelatedGuides", "MoreAboutSection", "Related Guides", "MoreAbout", "guide"},
+    {"Links", "RelatedLinksSection", "Related Links", "RelatedLinks", None}
+}
+
+refLinkSectionCells[meta_, linkSections_] := Block[{paclet = Lookup[meta, "Paclet", ""]},
+    Catenate @ Map[
+        Function[{spec},
+            With[{names = asList @ Lookup[meta, spec[[1]], {}]},
+                If[ names === {}, {},
+                    {Cell[CellGroupData[Join[
+                        {Cell[spec[[3]], spec[[2]]]},
+                        If[ spec[[5]] === None,
+                            Map[Cell[TextData @ inlineTextData[#], spec[[4]]] &, names],
+                            {linkRowCell[names, spec[[4]], paclet, spec[[5]]]}
+                        ]
+                    ], Open]]}
+                ]
+            ]
+        ],
+        linkSections
+    ]
+]
+
+(* body-section content: prose / lists / tables as Notes-context cells (the
+   authored form the DocuTools templates use; DocumentationBuild renames them
+   to the type's *Notes styles), a `---` rule as the WeakDivider that separates
+   an import group from an export group, and code as evaluated Input / Output
+   pairs. $refCounter is dynamically scoped from the page builder's Block so
+   In / Out numbering runs through all body sections. A Program page's
+   `- <code>form</code> -- text` bullets split into the ProgramCodeText +
+   ProgramNameNotes pair of the man-page layout; its foreign-language fences
+   become ProgramInput cells. *)
+programPairCells[item_String] := With[{
+    m = StringCases[item, StartOfString ~~ "`" ~~ c__ ~~ "`" ~~ Whitespace ~~ "--" ~~ Whitespace ~~ d__ ~~ EndOfString :> {c, d}]
+},
+    If[ m === {},
+        {Cell[TextData @ inlineTextData[item], "Notes"]},
+        {Cell[m[[1, 1]], "ProgramCodeText"],
+         Cell[TextData @ inlineTextData[m[[1, 2]]], "ProgramNameNotes"]}
+    ]
+]
+
+refSectionContent[type_String, blocks_, subsectionStyle_String] := Catenate @ Map[
+    Function[{block},
+        Switch[block["Type"],
+            "Heading",
+                {Cell[headingText[block["Text"]], subsectionStyle]},
+            "Prose",
+                applyBlockMeta[{Cell[TextData @ inlineTextData[block["Text"]], "Notes"]}, block],
+            "List",
+                applyBlockMeta[
+                    If[ type === "Program",
+                        Catenate @ Map[programPairCells, block["Items"]],
+                        listItemCells[block, "Notes"]
+                    ], block],
+            "Table",
+                applyBlockMeta[{tableCell[block]}, block],
+            "Quote",
+                applyBlockMeta[{quoteCell[block["Text"]]}, block],
+            "MathBlock",
+                applyBlockMeta[{mathBlockCell[block["Text"]]}, block],
+            "Image",
+                applyBlockMeta[{imageCell[block]}, block],
+            "Separator",
+                {Cell["", "WeakDivider"]},
+            "Code",
+                If[ executableQ[block],
+                    $refCounter++; applyBlockMeta[exampleIOFor[block, $refCounter], block],
+                    applyBlockMeta[withCellFlag[block,
+                        {If[ type === "Program" && ! MemberQ[{"wl", "wolfram", "mathematica"}, block["Lang"]],
+                            Cell[block["Code"], "ProgramInput"],
+                            nonExecutableCell[block]]}], block]
+                ],
+            _, {}
+        ]
+    ],
+    blocks
+]
+
+(* split the block stream into ordered {heading | None, blocks} section chunks:
+   Split starts a new run at every level-2 heading, the H1 (the page title -
+   the frontmatter Name renders it) is dropped, and content before the first H2
+   is the intro chunk. *)
+refSectionChunks[blocks_] := Map[
+    If[ #[[1]]["Type"] === "Heading" && #[[1]]["Level"] === 2,
+        {#[[1]], Rest[#]},
+        {None, #}
+    ] &,
+    Split[
+        DeleteCases[blocks, b_ /; b["Type"] === "Heading" && b["Level"] === 1],
+        ! (#2["Type"] === "Heading" && #2["Level"] === 2) &
+    ]
+]
+
+(* the abstract-flavored section titles: their prose lands in the type's
+   abstract style directly under the title instead of opening a body section. *)
+$refAbstractKeys = {"abstract", "usage", "basic description", "description"}
+
+(* the section titles that open the examples group; "basic examples" is the
+   form a NotebookToMarkdown twin emits for the PrimaryExamplesSection cell,
+   so accepting it keeps the round-trip a fixpoint. *)
+$refExamplesKeys = {"examples", "basic examples", "more examples"}
+
+(* one chunk -> its cells, tagged by role so the assembly can order
+   abstract / body / examples without growing lists imperatively *)
+refChunkCells[type_String, cfg_, subStyle_String, {heading_, blocks_}] := Block[{
+    key = If[heading === None, "", sectionKey[heading["Text"]]]
+},
+    Which[
+        heading === None || MemberQ[$refAbstractKeys, key],
+            "abstract" -> Catenate @ Map[
+                Function[{b}, Switch[b["Type"],
+                    "Prose", applyBlockMeta[{Cell[TextData @ inlineTextData[b["Text"]], cfg["AbstractStyle"]]}, b],
+                    "List", listItemCells[b, "Notes"],
+                    _, refSectionContent[type, {b}, subStyle]
+                ]],
+                blocks],
+        MemberQ[$refExamplesKeys, key],
+            "examples" -> {Cell[CellGroupData[Join[
+                {Cell["Examples", "PrimaryExamplesSection", CellTags -> "PrimaryExamplesSection"]},
+                exampleContent[blocks, "ExampleText"]
+            ], Open]]},
+        True,
+            "body" -> Join[
+                {Cell[headingText[heading["Text"]], Lookup[cfg["SectionStyles"], key, cfg["DefaultSectionStyle"]]]},
+                refSectionContent[type, blocks, subStyle]
+            ]
+    ]
+]
+
+refSubtypeNotebook[type_String, data_] := Block[{
+    meta = data["meta"], cfg = $refSubtypeConfig[type], name, subStyle,
+    tagged, $refCounter = 0
+},
+    name = Lookup[meta, "Name", Lookup[meta, "Title", ""]];
+    subStyle = Lookup[cfg, "SubsectionStyle", "Subsection"];
+    tagged = Map[refChunkCells[type, cfg, subStyle, #] &, refSectionChunks[data["blocks"]]];
+    setDocMetadata[
+        Notebook[Join[
+            docMetaCells[cfg["EntityType"], meta],
+            refTitleCells[type, meta, name],
+            Catenate @ Cases[tagged, ("abstract" -> cells_) :> cells],
+            Catenate @ Cases[tagged, ("body" -> cells_) :> cells],
+            Catenate @ Cases[tagged, ("examples" -> cells_) :> cells],
+            refLinkSectionCells[meta, Join[$refCommonLinkSections, Lookup[cfg, "ExtraLinkSections", {}]]]
+        ], StyleDefinitions -> $referenceStyleDefinitions, LightDark -> "Light"],
+        meta, cfg["EntityType"]
+    ]
+]
+
+(* === Workflow / WorkflowGuide page builders ===
+   A Workflow page is a numbered step-by-step procedure: the WorkflowStep style
+   renders its own circled counter (reset by every WorkflowHeader / platform
+   cell), so steps are authored as plain `### heading` cells with NO literal
+   numbers. Markdown mapping: `## On Desktop` (and the other platform names) ->
+   WorkflowPlatform, any other `## X` -> WorkflowHeader, `### X` ->
+   WorkflowStep, prose -> WorkflowText, `> note` -> WorkflowParenthetical,
+   `---` -> WorkflowDelimiter, code -> evaluated Input / Output. The footer
+   link sections use the authoring styles (SeeAlso here means related
+   WORKFLOWS; RelatedFunctions carries the symbol links). *)
+$workflowPlatformKeys = {"on desktop", "on the web", "on mobile", "in the cloud", "on ios", "on android"}
+
+(* the first prose block before any level-2 heading - the description blurb
+   when the frontmatter has no Description. It moves INTO the
+   WorkflowDescription cell, so the body walk skips it. *)
+firstLeadingProse[blocks_] := Replace[
+    FirstCase[
+        TakeWhile[blocks, ! (#["Type"] === "Heading" && #["Level"] === 2) &],
+        b_ /; b["Type"] === "Prose" :> b["Text"]],
+    _Missing -> ""]
+
+workflowNotebook[data_] := Block[{meta = data["meta"], name, desc, bodyBlocks, body, counter = 0},
+    name = Lookup[meta, "Title", Lookup[meta, "Name", ""]];
+    (* an explicit Description wins; else the leading prose is promoted to the
+       description blurb and dropped from the body *)
+    desc = Lookup[meta, "Description", ""];
+    bodyBlocks = If[ desc === "",
+        desc = firstLeadingProse[data["blocks"]];
+        If[ desc === "", data["blocks"],
+            DeleteCases[data["blocks"], b_ /; b["Type"] === "Prose" && b["Text"] === desc, {1}, 1]],
+        data["blocks"]
+    ];
+    body = Catenate @ Map[
+        Function[{b},
+            Switch[b["Type"],
+                "Heading",
+                    Which[
+                        b["Level"] <= 1, {},
+                        b["Level"] === 2 && MemberQ[$workflowPlatformKeys, sectionKey[b["Text"]]],
+                            {Cell[headingText[b["Text"]], "WorkflowPlatform"]},
+                        b["Level"] === 2,
+                            {Cell[headingText[b["Text"]], "WorkflowHeader"]},
+                        True,
+                            {Cell[headingText[b["Text"]], "WorkflowStep"]}
+                    ],
+                "Prose", applyBlockMeta[{Cell[TextData @ inlineTextData[b["Text"]], "WorkflowText"]}, b],
+                "List", applyBlockMeta[listItemCells[b, "WorkflowText"], b],
+                "Quote", applyBlockMeta[{Cell[TextData @ inlineTextData[b["Text"]], "WorkflowParenthetical"]}, b],
+                "Separator", {Cell["", "WorkflowDelimiter"]},
+                "Table", applyBlockMeta[{tableCell[b]}, b],
+                "MathBlock", applyBlockMeta[{mathBlockCell[b["Text"]]}, b],
+                "Image", applyBlockMeta[{imageCell[b]}, b],
+                "Code",
+                    If[ executableQ[b],
+                        counter++; applyBlockMeta[exampleIOFor[b, counter], b],
+                        applyBlockMeta[withCellFlag[b, {nonExecutableCell[b]}], b]
+                    ],
+                _, {}
+            ]
+        ],
+        bodyBlocks
+    ];
+    setDocMetadata[
+        Notebook[Join[
+            docMetaCells["Workflow", meta],
+            {Cell[name, "WorkflowTitle"]},
+            If[desc === "", {}, {Cell[TextData @ inlineTextData[desc], "WorkflowDescription"]}],
+            body,
+            refLinkSectionCells[meta, {
+                {"SeeAlso", "SeeAlsoSection", "See Also", "SeeAlso", "workflow"},
+                {"RelatedFunctions", "RelatedFunctionsSection", "Related Functions", "RelatedFunctions", "ref"},
+                {"RelatedGuides", "RelatedGuidesSection", "Related Guides", "RelatedGuides", "guide"},
+                {"RelatedTutorials", "TechNotesSection", "Tech Notes", "TechNotes", "tutorial"},
+                {"Links", "RelatedLinksSection", "Related Links", "RelatedLinks", None}
+            }]
+        ], StyleDefinitions -> $referenceStyleDefinitions, LightDark -> "Light"],
+        meta, "Workflow"
+    ]
+]
+
+(* A WorkflowGuide is a curated index of workflow pages: `## X` ->
+   WorkflowGuideSection, each `- [label](target)` bullet -> a WorkflowGuideEntry
+   link, `---` -> WorkflowGuideDelimiter, prose -> WorkflowGuideText. An empty
+   target infers the workflow kind (paclet:<paclet>/workflow/<label>, spaces
+   dropped from the page name); an explicit target is used verbatim, gaining
+   the paclet: scheme when it is a bare URI. A plain-text bullet stays a plain
+   entry. *)
+workflowGuideEntryCell[item_String, paclet_String] := Block[{
+    m = StringCases[StringTrim[item],
+        StartOfString ~~ "[" ~~ label : Shortest[Except["]"] ..] ~~ "](" ~~ url : Shortest[Except[")"] ...] ~~ ")" ~~ EndOfString :> {label, url}, 1]
+},
+    If[ m === {},
+        Cell[TextData @ inlineTextData[item], "WorkflowGuideEntry"],
+        With[{label = m[[1, 1]], url = m[[1, 2]]},
+            Cell[TextData[{ButtonBox[label, BaseStyle -> "Link",
+                ButtonData -> Which[
+                    url === "",
+                        "paclet:" <> If[paclet === "", "", paclet <> "/"] <> "workflow/" <> StringReplace[label, " " -> ""],
+                    StringStartsQ[url, "paclet:" | "http"],
+                        url,
+                    True,
+                        "paclet:" <> url
+                ]]}], "WorkflowGuideEntry"]
+        ]
+    ]
+]
+
+workflowGuideNotebook[data_] := Block[{meta = data["meta"], name, paclet, body},
+    name = Lookup[meta, "Title", Lookup[meta, "Name", ""]];
+    paclet = Lookup[meta, "Paclet", ""];
+    body = Catenate @ Map[
+        Function[{b},
+            Switch[b["Type"],
+                "Heading", If[b["Level"] <= 1, {}, {Cell[headingText[b["Text"]], "WorkflowGuideSection"]}],
+                "Prose", applyBlockMeta[{Cell[TextData @ inlineTextData[b["Text"]], "WorkflowGuideText"]}, b],
+                "List", applyBlockMeta[Map[workflowGuideEntryCell[#, paclet] &, b["Items"]], b],
+                "Separator", {Cell["", "WorkflowGuideDelimiter"]},
+                _, {}
+            ]
+        ],
+        data["blocks"]
+    ];
+    setDocMetadata[
+        Notebook[Join[
+            docMetaCells["Workflow Guide", meta],
+            {Cell[name, "WorkflowGuideTitle"]},
+            body,
+            refLinkSectionCells[meta, {
+                {"RelatedWorkflowGuides", "WorkflowGuideRelatedWorkflowGuidesSection", "Related Workflow Guides", "WorkflowGuideRelatedWorkflowGuide", "workflowguide"},
+                {"RelatedGuides", "WorkflowGuideRelatedGuidesSection", "Related Guides", "WorkflowGuideRelatedGuide", "guide"},
+                {"Links", "WorkflowGuideRelatedLinksSection", "Related Links", "WorkflowGuideRelatedLink", None}
+            }]
+        ], StyleDefinitions -> $referenceStyleDefinitions, LightDark -> "Light"],
+        meta, "Workflow Guide"
+    ]
 ]
 
 (* === template registry === *)
@@ -4946,6 +5413,16 @@ buildNotebook["Essay", data_] := essayNotebook[data]
 buildNotebook["Chapter", data_] := chapterNotebook[data]
 buildNotebook["BookChapter", data_] := chapterNotebook[data]
 buildNotebook["LLMTool", data_] := resourceNotebook["LLMTool", data]
+buildNotebook["Format", data_] := refSubtypeNotebook["Format", data]
+buildNotebook["ServiceConnection", data_] := refSubtypeNotebook["ServiceConnection", data]
+buildNotebook["Device", data_] := refSubtypeNotebook["Device", data]
+buildNotebook["Interpreter", data_] := refSubtypeNotebook["Interpreter", data]
+buildNotebook["Entity", data_] := refSubtypeNotebook["Entity", data]
+buildNotebook["Character", data_] := refSubtypeNotebook["Character", data]
+buildNotebook["Message", data_] := refSubtypeNotebook["Message", data]
+buildNotebook["Program", data_] := refSubtypeNotebook["Program", data]
+buildNotebook["Workflow", data_] := workflowNotebook[data]
+buildNotebook["WorkflowGuide", data_] := workflowGuideNotebook[data]
 buildNotebook[_, data_] := defaultNotebook[data]
 
 (* Every cell needs a CellID for the resource scraper to locate the definition and
