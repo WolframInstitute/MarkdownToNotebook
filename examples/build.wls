@@ -17,7 +17,17 @@ Get[FileNameJoin[{ParentDirectory[dir], "MarkdownToNotebook.wl"}]]
 (* cold run: clear the persistent example cache so the examples re-evaluate *)
 Scan[DeleteObject, PersistentObjects["MarkdownToNotebook/ExampleOutput/*", "Local"]]
 
-sources = Select[FileNames["*.md", dir], ! StringEndsQ[#, "-out.md"] &]
+(* examples/ is organised by template: examples/<Template>/<Name>.md, the
+   directory named exactly as the Template: frontmatter value. Derive the
+   directory set from the converter's buildNotebook registry so a new
+   template's examples build without touching this script. (Project dirs -
+   AccessibleColors, PAdic, WolframParser, ... - have their own build
+   scripts and are not swept here.) *)
+templateDirNames = DeleteDuplicates @ Cases[DownValues[buildNotebook],
+    HoldPattern[Verbatim[HoldPattern][buildNotebook[t_String, _]] :> _] :> t]
+sources = Select[
+    FileNames["*.md", FileNameJoin[{dir, #}] & /@ templateDirNames],
+    ! StringEndsQ[#, "-out.md"] &]
 Print["build: ", Length[sources], " example document(s) in ", FileNameTake[dir]]
 
 (* Same deploy idiom as ../build.wls phase 5: open the notebook in a real front
@@ -36,12 +46,12 @@ deployResource[outNb_, template_String, name_String] := UsingFrontEnd @ Block[
     CurrentValue[nbObj, CreateCellID] = True;
     SelectionMove[nbObj, All, Notebook];
     FrontEndTokenExecute[nbObj, "Save"];
-    (* a Computational Essay has no resource-system metadata to scrape - the
-       deployable artifact is just the notebook itself, hosted at a public
-       CloudObject URL (the way Notebook Archive does for its essay
-       collection). For every other template, build a ResourceObject from
-       the notebook so the deploy carries the resource definition. *)
-    If[template === "ComputationalEssay" || template === "Essay",
+    (* Only the repository-resource templates carry resource-system metadata a
+       ResourceObject can scrape. Everything else - a Computational Essay, and
+       every documentation page type (Symbol / Guide / TechNote / Format /
+       ServiceConnection / Device / ...) - deploys as the bare notebook at a
+       public CloudObject URL (the way Notebook Archive hosts essays). *)
+    If[! MemberQ[{"FunctionResource", "Paclet", "Example", "Data", "Prompt", "Demonstration", "LLMTool"}, template],
         payload = NotebookGet[nbObj]
         ,
         ro = ResourceObject[nbObj];
@@ -74,7 +84,7 @@ Scan[
     src |-> Block[{result, nb, outNb, deployed},
         result = MarkdownToNotebook[src, "Association", "EvaluateSeparator" -> None];
         nb = result["Notebook"];
-        outNb = MarkdownToNotebook[src, FileNameJoin[{dir, FileBaseName[src] <> ".nb"}], "EvaluateSeparator" -> None];
+        outNb = MarkdownToNotebook[src, FileNameJoin[{DirectoryName[src], FileBaseName[src] <> ".nb"}], "EvaluateSeparator" -> None];
         Print["  ", FileNameTake[src]];
         Print["    Template:       ", result["Template"]];
         Print["    Name:           ", result["Metadata"]["Name"]];

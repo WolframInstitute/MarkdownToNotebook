@@ -1,9 +1,9 @@
 [submodule "examples/AccessibleColors"]
-	path = examples/AccessibleColors
+	path = examples/Paclet/AccessibleColors
 	url = git@github.com:sw1sh/AccessibleColors.git
 [submodule "examples/PAdic"]
-	path = examples/PAdic
+	path = examples/Paclet/PAdic
 	url = git@github.com:sw1sh/PAdic.git
 [submodule "examples/WolframParser"]
-	path = examples/WolframParser
+	path = examples/Paclet/WolframParser
 	url = git@github.com:sw1sh/WolframParser.git

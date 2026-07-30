@@ -37,7 +37,7 @@ pacletInstalledQ[paclet_String, version_String] := AnyTrue[
    from any working directory - the old cwd-relative check silently degraded to
    ImportString when MTN ran from elsewhere (issue #25) *)
 $parserDir = FileNameJoin[{
-    Replace[DirectoryName[$InputFileName], "" :> Directory[]], "examples", "WolframParser"}]
+    Replace[DirectoryName[$InputFileName], "" :> Directory[]], "examples", "Paclet", "WolframParser"}]
 $parserReady = False
 (* Make Wolfram`Parser` available, once per session. Prefer the vendored submodule
    (PacletDirectoryLoad makes the paclet manager serve the highest version, so a

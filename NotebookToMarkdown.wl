@@ -41,7 +41,7 @@ decorationCellQ[_] := False
    at load time (mirrors MarkdownToNotebook's ensureParser) so the definitions
    below that reference normStr / $mathTeX unqualified resolve to the paclet's
    versions. *)
-$n2mParserDir = FileNameJoin[{Replace[DirectoryName[$InputFileName], "" :> Directory[]], "examples", "WolframParser"}]
+$n2mParserDir = FileNameJoin[{Replace[DirectoryName[$InputFileName], "" :> Directory[]], "examples", "Paclet", "WolframParser"}]
 $n2mParserReady = False
 ensureExportLaTeX[] := If[! TrueQ[$n2mParserReady],
     If[DirectoryQ[$n2mParserDir], PacletDirectoryLoad[$n2mParserDir]];

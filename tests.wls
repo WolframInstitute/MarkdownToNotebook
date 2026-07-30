@@ -131,11 +131,24 @@ sourceTexts[nb_] := normWS @ boxToCode[#] & /@ Select[
     Cases[nb, Cell[BoxData[b_], "Input" | "Code" | "ExampleInput" | "Program", ___] :> b, Infinity],
     sourceBoxQ]
 
+(* examples/ is organised by template: examples/<Template>/<Name>.md, one
+   directory per page / resource type, named exactly as its Template:
+   frontmatter value. Derive the directory set from the converter's own
+   buildNotebook registry so a newly added template's examples are picked up
+   without touching this script. Project examples (AccessibleColors, PAdic,
+   WolframParser, ...) carry their own docs/ trees, swept separately below. *)
+templateDirNames = DeleteDuplicates @ Cases[DownValues[buildNotebook],
+    HoldPattern[Verbatim[HoldPattern][buildNotebook[t_String, _]] :> _] :> t]
+
 sources = Join[
     {FileNameJoin[{dir, "MarkdownToNotebook.md"}],
      FileNameJoin[{dir, "NotebookToMarkdown.md"}]},
-    Select[FileNames["*.md", FileNameJoin[{dir, "examples"}]], ! StringEndsQ[#, "-out.md"] &],
-    FileNames["*.md", FileNameJoin[{dir, "examples", "*", "docs"}], Infinity]
+    Select[FileNames["*.md", FileNameJoin[{dir, "examples", #}] & /@ templateDirNames],
+        ! StringEndsQ[#, "-out.md"] &],
+    (* complete project examples: paclets live under examples/Paclet/<Name>/docs,
+       other projects under examples/<Name>/docs *)
+    FileNames["*.md", FileNameJoin[{dir, "examples", "*", "docs"}], Infinity],
+    FileNames["*.md", FileNameJoin[{dir, "examples", "Paclet", "*", "docs"}], Infinity]
 ]
 
 (* Multiset comparison: the forward-path template reshuffles cells into the
