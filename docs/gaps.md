@@ -10,7 +10,8 @@ loses a distinction the palette draws; "Missing" = no md form at all.
 
 | Gap | Palette / toolbar | Markdown form | Notes |
 |---|---|---|---|
-| ~~**Missing**: `Overview` template~~ **Done** | "New Overview Page" + `TOCChapter` / `TOCSection` / `TOCSubsection` / `TOCSubsubsection` styles + `GenerateOverviewDialog[]` | `Template: Overview`; heading levels map `#`/`##`/`###`/`####`/`#####` -> `TOCDocumentTitle` / `TOCChapter` / `TOCSection` / `TOCSubsection` / `TOCSubsubsection`; list items become TOC leaves one level deeper than the surrounding heading; each entry's `[label](paclet:…)` becomes a clickable `ButtonBox` (worked sample: `examples/AccessibleColors/docs/Tutorials/Overview.md`) | done |
+| ~~**Missing**: `Overview` template~~ **Done** | "New Overview Page" + `TOCChapter` / `TOCSection` / `TOCSubsection` / `TOCSubsubsection` styles + `GenerateOverviewDialog[]` | `Template: Overview`; heading levels map `#`/`##`/`###`/`####`/`#####` -> `TOCDocumentTitle` / `TOCChapter` / `TOCSection` / `TOCSubsection` / `TOCSubsubsection`; list items become TOC leaves one level deeper than the surrounding heading; each entry's `[label](paclet:…)` becomes a clickable `ButtonBox` (worked sample: `examples/Paclet/AccessibleColors/docs/Tutorials/Overview.md`) | done |
+| ~~**Missing**: the reference-subtype page types~~ **Done** | DocuTools' `FormatBaseTemplate` / `ServiceBaseTemplate` / `DeviceBaseTemplate` / `InterpreterBaseTemplate` / `EntityBaseTemplate` / `CharacterBaseTemplate` / `MessageBaseTemplate` / `ProgramBaseTemplate` / `WorkflowTemplate` / `WorkflowGuideTemplate` (internal WRI authoring tool - nothing ships in DocumentationTools) | `Template: Format` / `ServiceConnection` / `Device` / `Interpreter` / `Entity` / `Character` / `Message` / `Program` / `Workflow` / `WorkflowGuide`; `## sections` map to the type's section styles, the title carries the type's decoration (quoted names + subtitles, `Extension:` gray suffix, glyph grid, `Symbol::tag`), links/categorization/URI kinds per type; worked samples: one page of every type in `examples/Paclet/DocPageExamples/docs/`, each backed by real code | done |
 | **Missing**: TooltipBox annotations | "Annotate" / "Annotation Search ↑↓" / "Annotation Remove" | no md form | inline tooltips on a span of prose; usually authoring scratchwork |
 | **Missing**: Reviewer comments | "Insert comment for reviewer" / "Reply »" cells | no md form | a review-loop construct; the markdown source is the canonical artifact, so reviews don't round-trip |
 | ~~**Missing**: `Excluded` cell tag~~ **Done** | cell-tools "Mark/unmark as excluded" | `#\| excluded: true` (appends `"Excluded"` after the base style; the scraper strips the cell from the deployed resource but it stays in the source `.nb`) | done |
@@ -110,7 +111,7 @@ In rough priority order, the markdown side is still missing:
 
 Done since the last revision:
 
-- `Template: Overview` with the `TOC*` heading hierarchy (worked sample: `examples/AccessibleColors/docs/Tutorials/Overview.md`).
+- `Template: Overview` with the `TOC*` heading hierarchy (worked sample: `examples/Paclet/AccessibleColors/docs/Tutorials/Overview.md`).
 - `#| excluded: true` (appends `"Excluded"`; the scraper drops the cell) and `#| hidden: true` (adds `"HiddenMaterial"` + `CellOpen -> False`; the cell is closed on the web page, open in the downloadable notebook).
 - `"PreserveSource" -> True` (opt-in, default `False`): stamps the original markdown source into the produced notebook's `TaggingRules`. `NotebookToMarkdown` does NOT read this stash (the walker runs on every input by design, so an edited `.nb` round-trips with the edits visible) - the stash is for external tooling that wants the source side-loaded.
 

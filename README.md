@@ -40,17 +40,19 @@ ResourceFunction["https://www.wolframcloud.com/obj/nikm/DeployedResources/Functi
 - [`docs/`](docs/) - the markdown <-> notebook mapping, the palette/button catalog,
   formatting and resource-notebook references, hard-won [subtleties](docs/subtleties.md),
   and [`update-screenshots.wls`](docs/update-screenshots.wls).
-- [`examples/`](examples/) - worked example documents (see below).
+- [`examples/`](examples/) - worked example documents, one directory per
+  `Template:` value (`examples/<Template>/<Name>.md`), plus complete project
+  examples (see below).
 
 ## Applications
 
 End-to-end markdown-authored Wolfram artifacts built with `MarkdownToNotebook`:
 
-- [`examples/AccessibleColors`](examples/AccessibleColors) - a complete
+- [`examples/Paclet/AccessibleColors`](examples/Paclet/AccessibleColors) - a complete
   paclet (submodule), authored entirely in markdown and published as
   [Wolfram/AccessibleColors](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/AccessibleColors/):
   a guide, four symbol pages, a tutorial, and the Paclet Repository definition.
-- [`examples/IntroToQuantumComputing`](examples/IntroToQuantumComputing) - a
+- [`examples/Chapter/IntroToQuantumComputing`](examples/Chapter/IntroToQuantumComputing) - a
   two-chapter book using the new `Template: Chapter` (Wolfram Book Tools
   styles): exercises with solutions, vocabulary tables, Q&A, solved
   examples, theorem/proof blocks, tech notes, summary, and references.
@@ -62,10 +64,19 @@ End-to-end markdown-authored Wolfram artifacts built with `MarkdownToNotebook`:
   - [Contents](https://www.wolframcloud.com/obj/nikm/IntroToQuantumComputing/Contents.nb)
   - [Chapter 1: What Is Quantum Computation?](https://www.wolframcloud.com/obj/nikm/IntroToQuantumComputing/01-what-is-quantum-computation.nb)
   - [Chapter 2: Building Blocks of Quantum Circuits](https://www.wolframcloud.com/obj/nikm/IntroToQuantumComputing/02-building-blocks-of-quantum-circuits.nb)
-- Other markdown -> notebook samples under [`examples/`](examples/)
-  (AdaLovelace, BlochSphereGates, PiIsMostlyRandom, PrimeSpiralPoints,
-  QuantumWalk, ReverseAddSequence, WallpaperGroups) - each a single notebook
-  rendered with the `Default` / `Essay` templates.
+- [`examples/Paclet/DocPageExamples`](examples/Paclet/DocPageExamples) - a
+  minimal REAL paclet carrying one markdown-authored page of every other
+  documentation page type: `Format` (a registered MAZE import/export format),
+  `ServiceConnection` (a working local `ServiceConnect["Lorem"]`), `Device`
+  (a registered simulated device), `Interpreter`, `Entity` (a registered
+  `EntityStore`), `Character`, `Message` (a real message), `Program` (a
+  shipping wolframscript CLI), `Workflow`, and `WorkflowGuide` - every
+  example cell evaluates for real at build time.
+- Single-document samples under [`examples/`](examples/), one directory per
+  resource template: `FunctionResource/` (ReverseAddSequence), `Example/`
+  (PrimeSpiralPoints, QuantumWalk), `Data/` (WallpaperGroups,
+  TPTPProblemLibrary), `Prompt/` (AdaLovelace), `Demonstration/`
+  (BlochSphereGates), `ComputationalEssay/` (PiIsMostlyRandom).
 
 ## Quick start
 
