@@ -4506,9 +4506,17 @@ refChunkCells[type_String, cfg_, subStyle_String, {heading_, blocks_}] := Block[
                 ]],
                 blocks],
         MemberQ[$refExamplesKeys, key],
+            (* A "### Basic Examples" heading inside the examples section is
+               dropped: DocumentationBuild already wraps the primary examples in
+               its own "Basic Examples" ExampleSection, so keeping ours rendered
+               the title twice (Examples > Basic Examples > Basic Examples).
+               Any other subsection heading is a real extra example section. *)
             "examples" -> {Cell[CellGroupData[Join[
                 {Cell["Examples", "PrimaryExamplesSection", CellTags -> "PrimaryExamplesSection"]},
-                exampleContent[blocks, "ExampleText"]
+                exampleContent[
+                    DeleteCases[blocks,
+                        b_ /; b["Type"] === "Heading" && sectionKey[b["Text"]] === "basic examples"],
+                    "ExampleText"]
             ], Open]]},
         True,
             "body" -> Join[
