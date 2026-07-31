@@ -19,6 +19,7 @@ loses a distinction the palette draws; "Missing" = no md form at all.
 | **Lossy**: Span First Column | `TableSpanToggle[]` | n/a in pipe tables | GFM pipe tables can't span cells - if you need a wide first-column label, change the layout |
 | **Lossy**: bulk paclet-wide rewrites | `SetPacletApplyFunction[...]` (every page in the paclet) | no md form | rewrites all pages' guide listings or symbol classifications at once; the markdown equivalent is a sed across `docs/**/*.md` |
 | **Lossy**: per-section MoreInfo bubbles | the `?` opener next to each section heading | not authored from md | the resource template injects them; both the forward converter and `NotebookToMarkdown` ignore them |
+| **Missing**: `Workflow` platform tabs | the Desktop / Cloud / Mobile `WorkflowPlatform` cells | no md form | the cell is a platform ICON (`GraphicsBox`) plus `StyleBox[name, "WorkflowPlatform"]`, which the build's workflow finisher rewrites into a `Dynamic` `CellOpen` keyed to the notebook's `"SelectedPlatform"` tagging rule; a plain text cell in that style is unrecognized and the finisher silently drops the whole platform group, so a markdown page opens none and its `## X` headings are step-group headers |
 
 ## `Symbol` (function / symbol ref page)
 

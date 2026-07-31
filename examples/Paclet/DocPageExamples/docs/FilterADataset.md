@@ -19,8 +19,6 @@ keeping the result a `Dataset`. This workflow builds a small dataset, keeps only
 the rows that match a condition, orders them, and writes the result to a CSV
 file.
 
-## On Desktop
-
 ### Build a dataset
 
 Make a dataset from a list of associations; each association is one row, and

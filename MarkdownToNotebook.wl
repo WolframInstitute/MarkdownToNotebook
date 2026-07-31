@@ -4247,11 +4247,14 @@ refTitleCells["Format", meta_, name_] := With[{ext = Lookup[meta, "Extension", "
         Cell[TextData[{name <> " ", StyleBox["(" <> ext <> ")", "FilenameExtension"]}], "ObjectNameAlt"]]}
 ]
 refTitleCells["ServiceConnection", meta_, name_] := {quotedTitleCell[name, "Service Connection", "ServiceSubtitle"]}
-refTitleCells["Device", meta_, name_] := Join[
-    With[{sub = Lookup[meta, "Subtitle", ""]},
-        If[sub === "", {}, {Cell["(" <> sub <> ")", "DeviceSubtitle"]}]],
-    {Cell[TextData[{Cell["\"", "InterpreterTitleQuotes"], name, Cell["\"", "InterpreterTitleQuotes"], " "}], "ObjectNameAlt"]}
-]
+(* the device subtitle rides INSIDE the title cell (the shape the built pages
+   use), so the ObjectNameAlt cell stays the single head of the title group *)
+refTitleCells["Device", meta_, name_] := {Cell[
+    TextData[Join[
+        {Cell["\"", "InterpreterTitleQuotes"], name, Cell["\"", "InterpreterTitleQuotes"], " "},
+        With[{sub = Lookup[meta, "Subtitle", ""]},
+            If[sub === "", {}, {Cell["(" <> sub <> ")", "DeviceSubtitle"]}]]
+    ]], "ObjectNameAlt"]}
 refTitleCells["Interpreter", meta_, name_] := {quotedTitleCell[name, "Interpreter Type", "InterpreterSubtitle"]}
 refTitleCells["Entity", meta_, name_] := {Cell[name, "ObjectNameAlt"]}
 refTitleCells["Character", meta_, name_] := With[{ch = Lookup[meta, "Character", name]},
@@ -4434,14 +4437,47 @@ refSectionChunks[blocks_] := Map[
     ]
 ]
 
-(* the abstract-flavored section titles: their prose lands in the type's
-   abstract style directly under the title instead of opening a body section. *)
-$refAbstractKeys = {"abstract", "usage", "basic description", "description"}
+(* The abstract-flavored section titles: their content lands in the type's
+   abstract style directly under the title instead of opening a body section.
+   "Background & Context" belongs here for a Format page: on a built page that
+   heading is the USAGE block (DocumentationBuild wraps the usage cells in its
+   own FormatBackground section), so authoring it as a section too produced a
+   duplicate the build relocated to the bottom of the page. *)
+$refAbstractKeys = {"abstract", "usage", "basic description", "description", "background and context"}
 
 (* the section titles that open the examples group; "basic examples" is the
    form a NotebookToMarkdown twin emits for the PrimaryExamplesSection cell,
    so accepting it keeps the round-trip a fixpoint. *)
 $refExamplesKeys = {"examples", "basic examples", "more examples"}
+
+(* Nest a flat cell run into the CellGroupData tree DocumentationBuild needs.
+   levelOf gives each cell its outline level (1 = section, 2 = subsection, ...;
+   Infinity = ordinary content); a cell of level n opens a group that swallows
+   every following cell of deeper level. Without this nesting the build cannot
+   tell where one section ends: flat body cells are swept into whichever
+   section group follows them (they vanished into See Also), the same failure
+   groupPrimaryExamples fixes for the examples section. *)
+nestCells[{}, _] := {}
+nestCells[cells_List, levelOf_] := Block[{first = First[cells], lvl, children},
+    lvl = levelOf[first];
+    If[ lvl === Infinity,
+        Prepend[nestCells[Rest[cells], levelOf], first],
+        children = TakeWhile[Rest[cells], levelOf[#] > lvl &];
+        Prepend[
+            nestCells[Drop[cells, 1 + Length[children]], levelOf],
+            Cell[CellGroupData[Prepend[nestCells[children, levelOf], first], Open]]
+        ]
+    ]
+]
+
+(* the outline level of a cell, given the styles that open a level *)
+styleLevelFunction[levels_List] := Function[cell,
+    Replace[cell, {
+        Cell[_, s_String, ___] :> Replace[FirstPosition[levels, l_List /; MemberQ[l, s], None, {1}],
+            {{i_Integer} :> i, _ -> Infinity}],
+        _ -> Infinity
+    }]
+]
 
 (* one chunk -> its cells, tagged by role so the assembly can order
    abstract / body / examples without growing lists imperatively *)
@@ -4453,7 +4489,9 @@ refChunkCells[type_String, cfg_, subStyle_String, {heading_, blocks_}] := Block[
             "abstract" -> Catenate @ Map[
                 Function[{b}, Switch[b["Type"],
                     "Prose", applyBlockMeta[{Cell[TextData @ inlineTextData[b["Text"]], cfg["AbstractStyle"]]}, b],
-                    "List", listItemCells[b, "Notes"],
+                    (* abstract bullets stay in the abstract style (a Format
+                       page's Background & Context bullets are usage lines) *)
+                    "List", listItemCells[b, cfg["AbstractStyle"]],
                     _, refSectionContent[type, {b}, subStyle]
                 ]],
                 blocks],
@@ -4472,17 +4510,27 @@ refChunkCells[type_String, cfg_, subStyle_String, {heading_, blocks_}] := Block[
 
 refSubtypeNotebook[type_String, data_] := Block[{
     meta = data["meta"], cfg = $refSubtypeConfig[type], name, subStyle,
-    tagged, $refCounter = 0
+    tagged, sectionStyles, $refCounter = 0
 },
     name = Lookup[meta, "Name", Lookup[meta, "Title", ""]];
     subStyle = Lookup[cfg, "SubsectionStyle", "Subsection"];
     tagged = Map[refChunkCells[type, cfg, subStyle, #] &, refSectionChunks[data["blocks"]]];
+    sectionStyles = Append[Values[cfg["SectionStyles"]], cfg["DefaultSectionStyle"]];
     setDocMetadata[
         Notebook[Join[
             docMetaCells[cfg["EntityType"], meta],
-            refTitleCells[type, meta, name],
-            Catenate @ Cases[tagged, ("abstract" -> cells_) :> cells],
-            Catenate @ Cases[tagged, ("body" -> cells_) :> cells],
+            (* the title cell heads a group holding the abstract - the shape the
+               authoring templates use (GROUP ObjectNameAlt > ServiceAbstract;
+               a Character page's CharacterImage heads and CharacterName sits
+               inside it) *)
+            {Cell[CellGroupData[Join[
+                refTitleCells[type, meta, name],
+                Catenate @ Cases[tagged, ("abstract" -> cells_) :> cells]
+            ], Open]]},
+            (* each body section is its own group, subsections nested inside *)
+            nestCells[
+                Catenate @ Cases[tagged, ("body" -> cells_) :> cells],
+                styleLevelFunction[{sectionStyles, {subStyle}}]],
             Catenate @ Cases[tagged, ("examples" -> cells_) :> cells],
             refLinkSectionCells[meta, Join[$refCommonLinkSections, Lookup[cfg, "ExtraLinkSections", {}]]]
         ], StyleDefinitions -> $referenceStyleDefinitions, LightDark -> "Light"],
@@ -4492,35 +4540,48 @@ refSubtypeNotebook[type_String, data_] := Block[{
 
 (* === Workflow / WorkflowGuide page builders ===
    A Workflow page is a numbered step-by-step procedure: the WorkflowStep style
-   renders its own circled counter (reset by every WorkflowHeader / platform
-   cell), so steps are authored as plain `### heading` cells with NO literal
-   numbers. Markdown mapping: `## On Desktop` (and the other platform names) ->
-   WorkflowPlatform, any other `## X` -> WorkflowHeader, `### X` ->
-   WorkflowStep, prose -> WorkflowText, `> note` -> WorkflowParenthetical,
-   `---` -> WorkflowDelimiter, code -> evaluated Input / Output. The footer
-   link sections use the authoring styles (SeeAlso here means related
-   WORKFLOWS; RelatedFunctions carries the symbol links). *)
-$workflowPlatformKeys = {"on desktop", "on the web", "on mobile", "in the cloud", "on ios", "on android"}
+   renders its own circled counter (reset by every WorkflowHeader), so steps
+   are authored as plain `### heading` cells with NO literal numbers. Markdown
+   mapping: `## X` -> WorkflowHeader (a step-group header, which restarts the
+   counter), `### X` -> WorkflowStep, prose -> WorkflowText, `> note` ->
+   WorkflowParenthetical, `---` -> WorkflowDelimiter, code -> evaluated
+   Input / Output. The footer link sections use the authoring styles (SeeAlso
+   here means related WORKFLOWS; RelatedFunctions carries the symbol links).
 
-(* the first prose block before any level-2 heading - the description blurb
-   when the frontmatter has no Description. It moves INTO the
-   WorkflowDescription cell, so the body walk skips it. *)
-firstLeadingProse[blocks_] := Replace[
-    FirstCase[
+   No markdown maps to WorkflowPlatform: the Desktop / Cloud / Mobile platform
+   tabs are a multi-platform authoring device whose cell is a platform ICON
+   (a GraphicsBox) plus StyleBox[name, "WorkflowPlatform"], which the build's
+   workflow finisher rewrites into a Dynamic CellOpen keyed to the notebook's
+   "SelectedPlatform" tagging rule. A plain text cell in that style is not
+   recognized and the finisher drops the whole platform group - so a
+   single-platform page simply does not open one. *)
+
+(* every prose block before the first level-2 heading, joined - a workflow
+   page's lead paragraphs ARE its description. They MUST all move into the
+   WorkflowDescription cell: DocumentationBuild's workflow assembly stops at
+   the first cell it does not expect between the description and the opening
+   platform / step group, silently dropping the rest of the page. *)
+leadingProse[blocks_] := StringRiffle[
+    Cases[
         TakeWhile[blocks, ! (#["Type"] === "Heading" && #["Level"] === 2) &],
         b_ /; b["Type"] === "Prose" :> b["Text"]],
-    _Missing -> ""]
+    " "]
 
-workflowNotebook[data_] := Block[{meta = data["meta"], name, desc, bodyBlocks, body, counter = 0},
+workflowNotebook[data_] := Block[{meta = data["meta"], name, lead, desc, bodyBlocks, body, counter = 0},
     name = Lookup[meta, "Title", Lookup[meta, "Name", ""]];
-    (* an explicit Description wins; else the leading prose is promoted to the
-       description blurb and dropped from the body *)
-    desc = Lookup[meta, "Description", ""];
-    bodyBlocks = If[ desc === "",
-        desc = firstLeadingProse[data["blocks"]];
-        If[ desc === "", data["blocks"],
-            DeleteCases[data["blocks"], b_ /; b["Type"] === "Prose" && b["Text"] === desc, {1}, 1]],
-        data["blocks"]
+    (* the visible blurb is the lead prose when the page has any (the
+       frontmatter Description still carries the metadata summary); a page with
+       no lead paragraph falls back to that Description. Either way no prose is
+       left stranded ahead of the first step group. *)
+    lead = leadingProse[data["blocks"]];
+    desc = If[lead === "", Lookup[meta, "Description", ""], lead];
+    (* drop the prose from the LEADING run only (everything before the first
+       level-2 heading); prose further down belongs to its step *)
+    bodyBlocks = With[{
+        split = TakeDrop[data["blocks"],
+            LengthWhile[data["blocks"], ! (#["Type"] === "Heading" && #["Level"] === 2) &]]
+    },
+        Join[DeleteCases[First[split], b_ /; b["Type"] === "Prose"], Last[split]]
     ];
     body = Catenate @ Map[
         Function[{b},
@@ -4528,12 +4589,8 @@ workflowNotebook[data_] := Block[{meta = data["meta"], name, desc, bodyBlocks, b
                 "Heading",
                     Which[
                         b["Level"] <= 1, {},
-                        b["Level"] === 2 && MemberQ[$workflowPlatformKeys, sectionKey[b["Text"]]],
-                            {Cell[headingText[b["Text"]], "WorkflowPlatform"]},
-                        b["Level"] === 2,
-                            {Cell[headingText[b["Text"]], "WorkflowHeader"]},
-                        True,
-                            {Cell[headingText[b["Text"]], "WorkflowStep"]}
+                        b["Level"] === 2, {Cell[headingText[b["Text"]], "WorkflowHeader"]},
+                        True, {Cell[headingText[b["Text"]], "WorkflowStep"]}
                     ],
                 "Prose", applyBlockMeta[{Cell[TextData @ inlineTextData[b["Text"]], "WorkflowText"]}, b],
                 "List", applyBlockMeta[listItemCells[b, "WorkflowText"], b],
@@ -4552,19 +4609,24 @@ workflowNotebook[data_] := Block[{meta = data["meta"], name, desc, bodyBlocks, b
         ],
         bodyBlocks
     ];
+    (* a workflow page nests EVERYTHING under its title group: the description,
+       the platform / step-header / step groups (step counters reset per group),
+       and the footer link sections *)
     setDocMetadata[
         Notebook[Join[
             docMetaCells["Workflow", meta],
-            {Cell[name, "WorkflowTitle"]},
-            If[desc === "", {}, {Cell[TextData @ inlineTextData[desc], "WorkflowDescription"]}],
-            body,
-            refLinkSectionCells[meta, {
-                {"SeeAlso", "SeeAlsoSection", "See Also", "SeeAlso", "workflow"},
-                {"RelatedFunctions", "RelatedFunctionsSection", "Related Functions", "RelatedFunctions", "ref"},
-                {"RelatedGuides", "RelatedGuidesSection", "Related Guides", "RelatedGuides", "guide"},
-                {"RelatedTutorials", "TechNotesSection", "Tech Notes", "TechNotes", "tutorial"},
-                {"Links", "RelatedLinksSection", "Related Links", "RelatedLinks", None}
-            }]
+            {Cell[CellGroupData[Join[
+                {Cell[name, "WorkflowTitle"]},
+                If[desc === "", {}, {Cell[TextData @ inlineTextData[desc], "WorkflowDescription"]}],
+                nestCells[body, styleLevelFunction[{{"WorkflowHeader"}, {"WorkflowStep"}}]],
+                refLinkSectionCells[meta, {
+                    {"SeeAlso", "SeeAlsoSection", "See Also", "SeeAlso", "workflow"},
+                    {"RelatedFunctions", "RelatedFunctionsSection", "Related Functions", "RelatedFunctions", "ref"},
+                    {"RelatedGuides", "RelatedGuidesSection", "Related Guides", "RelatedGuides", "guide"},
+                    {"RelatedTutorials", "TechNotesSection", "Tech Notes", "TechNotes", "tutorial"},
+                    {"Links", "RelatedLinksSection", "Related Links", "RelatedLinks", None}
+                }]
+            ], Open]]}
         ], StyleDefinitions -> $referenceStyleDefinitions, LightDark -> "Light"],
         meta, "Workflow"
     ]
@@ -4612,16 +4674,19 @@ workflowGuideNotebook[data_] := Block[{meta = data["meta"], name, paclet, body},
         ],
         data["blocks"]
     ];
+    (* like a workflow page, everything nests under the title group *)
     setDocMetadata[
         Notebook[Join[
             docMetaCells["Workflow Guide", meta],
-            {Cell[name, "WorkflowGuideTitle"]},
-            body,
-            refLinkSectionCells[meta, {
-                {"RelatedWorkflowGuides", "WorkflowGuideRelatedWorkflowGuidesSection", "Related Workflow Guides", "WorkflowGuideRelatedWorkflowGuide", "workflowguide"},
-                {"RelatedGuides", "WorkflowGuideRelatedGuidesSection", "Related Guides", "WorkflowGuideRelatedGuide", "guide"},
-                {"Links", "WorkflowGuideRelatedLinksSection", "Related Links", "WorkflowGuideRelatedLink", None}
-            }]
+            {Cell[CellGroupData[Join[
+                {Cell[name, "WorkflowGuideTitle"]},
+                nestCells[body, styleLevelFunction[{{"WorkflowGuideSection"}}]],
+                refLinkSectionCells[meta, {
+                    {"RelatedWorkflowGuides", "WorkflowGuideRelatedWorkflowGuidesSection", "Related Workflow Guides", "WorkflowGuideRelatedWorkflowGuide", "workflowguide"},
+                    {"RelatedGuides", "WorkflowGuideRelatedGuidesSection", "Related Guides", "WorkflowGuideRelatedGuide", "guide"},
+                    {"Links", "WorkflowGuideRelatedLinksSection", "Related Links", "WorkflowGuideRelatedLink", None}
+                }]
+            ], Open]]}
         ], StyleDefinitions -> $referenceStyleDefinitions, LightDark -> "Light"],
         meta, "Workflow Guide"
     ]
