@@ -2082,6 +2082,16 @@ heroSlot[opts_, sections_] := Block[{cells = sectionCells[sections, "hero image"
         ]
     ];
     If[ MissingQ[out] || out === Null, Return[slotDefault[opts]] ];
+    (* NOTE: the hero image reaches the notebook but NOT the deployed landing
+       page - ScrapeResource returns a Paclet resource with no "HeroImage" key,
+       so the shingle renders an empty hero frame (the same is true of the
+       other paclet examples, e.g. AccessibleColors, whose built definition
+       notebook has the identical shape - this is not a regression). Neither
+       emitting the code as Input plus the image as Output (below) nor a single
+       Input cell holding the image, which is the shape of the template's own
+       placeholder, makes the scrape pick it up; CheckDefinitionNotebook
+       reports no hero hint either way. Left as the Input/Output pair, which
+       keeps the generating code visible in the notebook. *)
     {Cell[CellGroupData[{
         Cell[BoxData[inputBoxes[code]], "Input"],
         Cell[BoxData[out], "Output"]
