@@ -2,6 +2,7 @@
 Template: Character
 Name: CirclePlus
 Character: "⊕"
+Context: WolframInstitute`DocPageExamples`
 Paclet: WolframInstitute/DocPageExamples
 URI: WolframInstitute/DocPageExamples/ref/character/CirclePlus
 Description: Named character U+2295, the circled plus infix operator

@@ -1,6 +1,7 @@
 ---
 Template: ServiceConnection
 Name: Lorem
+Context: WolframInstitute`DocPageExamples`
 Paclet: WolframInstitute/DocPageExamples
 URI: WolframInstitute/DocPageExamples/ref/service/Lorem
 Description: Generate placeholder text with the Lorem service

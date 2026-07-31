@@ -1,6 +1,7 @@
 ---
 Template: Entity
 Name: WallpaperGroup
+Context: WolframInstitute`DocPageExamples`
 Paclet: WolframInstitute/DocPageExamples
 URI: WolframInstitute/DocPageExamples/ref/entity/WallpaperGroup
 Description: Wallpaper groups, the 17 plane crystallographic symmetry groups.

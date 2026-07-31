@@ -1,6 +1,7 @@
 ---
 Template: Interpreter
 Name: Integer
+Context: WolframInstitute`DocPageExamples`
 Paclet: WolframInstitute/DocPageExamples
 URI: WolframInstitute/DocPageExamples/ref/interpreter/Integer
 Description: An integer of any size, in decimal notation.

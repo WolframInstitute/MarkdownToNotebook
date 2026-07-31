@@ -2,6 +2,7 @@
 Template: WorkflowGuide
 Name: DataWrangling
 Title: Data Wrangling
+Context: WolframInstitute`DocPageExamples`
 Paclet: WolframInstitute/DocPageExamples
 URI: WolframInstitute/DocPageExamples/workflowguide/DataWrangling
 Description: Step-by-step workflows for getting data into the Wolfram Language and shaping it for analysis.

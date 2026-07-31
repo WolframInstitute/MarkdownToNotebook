@@ -2,6 +2,7 @@
 Template: Workflow
 Name: FilterADataset
 Title: Filter a Dataset
+Context: WolframInstitute`DocPageExamples`
 Paclet: WolframInstitute/DocPageExamples
 URI: WolframInstitute/DocPageExamples/workflow/FilterADataset
 Description: Pick out the rows of a Dataset that satisfy a condition, order them, and save the result to a file.

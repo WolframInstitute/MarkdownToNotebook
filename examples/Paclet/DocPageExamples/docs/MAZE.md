@@ -2,6 +2,7 @@
 Template: Format
 Name: MAZE
 Extension: .maze
+Context: WolframInstitute`DocPageExamples`
 Paclet: WolframInstitute/DocPageExamples
 URI: WolframInstitute/DocPageExamples/ref/format/MAZE
 Description: Plain-text format for rectangular maze levels with walls, open cells, start and goal markers.

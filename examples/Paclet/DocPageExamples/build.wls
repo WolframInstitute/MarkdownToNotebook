@@ -56,6 +56,18 @@ buildDoc[srcFile_String] := Block[{info, tmpl, out},
 Print["building DocPageExamples documentation (authoring notebooks)"]
 Scan[buildDoc, Sort @ FileNames["*.md", FileNameJoin[{rootDir, "docs"}]]]
 
+(* The ResourceDefinition is the Paclet Repository submission artifact, not a
+   documentation page: it lives beside the paclet (not under docs/) and builds
+   into the paclet directory. Its examples are INDEPENDENT of one another, so
+   it uses the default delimiter-respecting evaluation - EvaluateSeparator ->
+   Automatic resets the example context at each heading and each `---`, unlike
+   the doc pages above, whose sections deliberately thread one kernel session. *)
+rd = FileNameJoin[{rootDir, "ResourceDefinition.md"}]
+If[ FileExistsQ[rd],
+    MarkdownToNotebook[rd, FileNameJoin[{pacletDir, "ResourceDefinition.nb"}], "EvaluateSeparator" -> Automatic];
+    Print["  ResourceDefinition.md -> ", FileNameTake[pacletDir], "/ResourceDefinition.nb"]
+]
+
 Print["running DocumentationBuild: ", srcDocDir, " -> ", destDocDir]
 If[DirectoryQ[destDocDir], DeleteDirectory[destDocDir, DeleteContents -> True]]
 UsingFrontEnd @ DocumentationBuild`DocumentationBuildNotebooks[srcDocDir, destDocDir, "LinkBase" -> "WolframInstitute/DocPageExamples"]

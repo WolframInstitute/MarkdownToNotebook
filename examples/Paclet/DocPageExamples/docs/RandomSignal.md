@@ -2,6 +2,7 @@
 Template: Device
 Name: RandomSignal
 Subtitle: simulated noise source
+Context: WolframInstitute`DocPageExamples`
 Paclet: WolframInstitute/DocPageExamples
 URI: WolframInstitute/DocPageExamples/ref/device/RandomSignal
 Description: Simulated uniform noise source registered in the kernel by DocPageExamples

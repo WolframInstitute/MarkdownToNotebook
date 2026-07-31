@@ -22,6 +22,10 @@ RandomSignal device class, and the WallpaperGroup entity store - so every
 example cell on every page **evaluates for real** at documentation build time,
 headlessly, with no network.
 
+The paclet's own front page is the [guide](docs/DocPageExamples.md), and
+[`ResourceDefinition.md`](ResourceDefinition.md) is its Paclet Repository
+definition - both authored in markdown like everything else.
+
 ## Build
 
 ```
@@ -32,4 +36,16 @@ converts each `docs/*.md` to its authoring notebook under `build/DocSource`
 (one directory per page type: `ReferencePages/Formats`, `.../Services`,
 `.../Devices`, ..., `Workflows`, `WorkflowGuides`), then runs
 `DocumentationBuild` into `DocPageExamples/Documentation` with the navigation
-index and search index a shipping paclet needs.
+index and search index a shipping paclet needs, and finally builds
+`ResourceDefinition.md` into the paclet's `ResourceDefinition.nb`.
+
+## Deploy
+
+```
+wl -f deploy.wls       (or:  wolframscript -f deploy.wls)
+```
+
+scrapes the definition notebook and `CloudDeploy`s the resource publicly to
+`<account>/DeployedResources/Paclet/WolframInstitute/DocPageExamples`, so the
+resource page and every documentation page it bundles can be viewed online
+without submitting to the repository. Prints the public URL.

@@ -1,3 +1,4 @@
 build/
 DocPageExamples/Documentation/
 *.nb
+*.paclet
