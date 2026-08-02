@@ -2018,15 +2018,29 @@ nestedItemStyle[base_String, d_Integer] := With[
     levels[[Min[d + 1, Length[levels]]]]
 ]
 
+(* The indent a nested bullet gets when its style family has no deeper style -
+   the "Notes" bullets of a reference page's Details section being the case that
+   matters: the doc stylesheet has no Sub-Notes style (no shipped ref page uses
+   Subitem - 0 of the 6883 in the system documentation), so a sub-bullet keeps
+   the Notes style and is nested by a left margin, the same CellMargins idiom
+   the shipped pages use to indent content under a note. Without this a nested
+   markdown list under "## Details" flattened to a single level. *)
+nestedItemMargins[d_Integer] := CellMargins -> {{18 d + Inherited, Inherited}, {2 + Inherited, Inherited}}
+
+nestedItemCell[text_String, base_String, d_Integer] := With[{style = nestedItemStyle[base, d]},
+    If[ d > 0 && style === base,
+        Cell[TextData @ inlineTextData[text], style, nestedItemMargins[d]],
+        Cell[TextData @ inlineTextData[text], style]
+    ]
+]
+
 (* list items as cells of the given bullet style, numbered ("ItemNumbered") when
    the block is an ordered list. An unordered block carries a parallel "Depths"
    list (from listBlock); each item's depth selects its nested style. *)
 listItemCells[block_, base_String] := If[TrueQ[block["Ordered"]],
     Map[Cell[TextData @ inlineTextData[#], "ItemNumbered"] &, block["Items"]],
     With[{depths = Lookup[block, "Depths", ConstantArray[0, Length[block["Items"]]]]},
-        MapThread[
-            Cell[TextData @ inlineTextData[#1], nestedItemStyle[base, #2]] &,
-            {block["Items"], depths}]
+        MapThread[nestedItemCell[#1, base, #2] &, {block["Items"], depths}]
     ]
 ]
 

@@ -748,7 +748,7 @@ blockFor["ObjectNameAlt" | "CharacterName" | "DeviceSubtitle" |
    Notes slot). *)
 blockFor["Usage", c_] := "## Usage\n\n" <> usageMd[c]
 blockFor["UsageDescription", c_] := tidy @ inlineMd[c]
-blockFor["Notes", c_] := With[{b = "- " <> tidy @ inlineMd[c]},
+blockFor["Notes", c_] := With[{b = StringRepeat["  ", $cellIndentDepth] <> "- " <> tidy @ inlineMd[c]},
     If[TrueQ[$detailsHeadingDone], b,
         $detailsHeadingDone = True; "## Details & Options\n\n" <> b]]
 blockFor["2ColumnTableMod" | "3ColumnTableMod" | "TableNotes", BoxData[GridBox[rows_List, ___]]] := gridTable[rows]
@@ -853,8 +853,20 @@ blockFor[_String, c_] := tidy @ inlineMd[c]
 
 (* === tree walk === *)
 walkCell[Cell[CellGroupData[inner_List, ___]]] := walkCells[inner]
-walkCell[Cell[content_, style_String, opts___]] := withCellMeta[blockFor[style, content], style, {opts}]
+(* A nested bullet whose style family has no deeper style carries its depth as a
+   left CellMargins offset (see MarkdownToNotebook's nestedItemMargins); bind it
+   so the list-item rules can re-emit the markdown indent and the nesting
+   survives the round-trip. *)
+walkCell[Cell[content_, style_String, opts___]] := Block[{$cellIndentDepth = marginIndentDepth[{opts}]},
+    withCellMeta[blockFor[style, content], style, {opts}]]
 walkCell[_] := ""
+
+(* 18 points of left margin per nesting level, matching nestedItemMargins *)
+marginIndentDepth[opts_List] := Replace[
+    FirstCase[opts, (CellMargins -> {{l_, _}, _}) :> l, None],
+    {Plus[n_?NumericQ, Inherited] :> Round[n/18], _ -> 0}
+]
+$cellIndentDepth = 0
 walkCells[cells_List] := DeleteCases[Flatten[{walkCell /@ cells}], "" | Null]
 
 (* === frontmatter recovery ===
