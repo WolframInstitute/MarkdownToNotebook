@@ -3707,11 +3707,23 @@ guideFunctionItem[item_String, paclet_String] := Block[{syms, rest, desc, chips}
             ", "],
         1];
     Cell[
-        TextData @ If[desc === "", chips,
-            Join[chips, {" \[LongDash] "}, inlineTextData[desc]]],
+        TextData @ Which[
+            desc === "", chips,
+            (* A remainder made only of punctuation is the trailing ", ..." of
+               an abbreviated listing, not a description: append it straight to
+               the chips. Separating it with the long dash rendered the row as
+               "... NestList (WL) - , ...". *)
+            listingTailQ[desc], Join[chips, inlineTextData[desc]],
+            True, Join[chips, {" \[LongDash] "}, inlineTextData[desc]]
+        ],
         "GuideText"
     ]
 ]
+
+(* the leftover of a listing that ends in an ellipsis ("`A`, `B`, ...") - only
+   separators and ellipsis, no words *)
+listingTailQ[s_String] := StringMatchQ[StringTrim[s],
+    ("," | "." | ";" | " " | "\[Ellipsis]") ..]
 
 (* === guide-to-guide links that build the documentation hierarchy ===
    DocumentationBuild's ComputeLinkTrails assembles the navigation /
