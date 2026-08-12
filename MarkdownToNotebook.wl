@@ -1862,7 +1862,24 @@ manipulateSlot[opts_, sections_] := Block[{b = firstCodeOf[sections, "manipulate
    in pandoc / GitHub since markdown forbids nested formatting inside code spans;
    for our notebook output, "$c_1$" is rewritten to the ParseTextTemplate
    subscript form "c$1" and fed through templateBox. *)
+(* A LaTeX macro argument ("$\mu$", "$\nu_1$") is not an identifier, so the
+   identifier rules below never matched it and the raw "$\mu$" reached
+   ParseTextTemplate - which reads "$" as its OWN subscript marker and mangled
+   the argument. "\nu" fared worse still: its "\n" was consumed as an escape,
+   leaking a literal \n into the page. Resolve the macro to its character
+   first, so a Greek argument reaches the template as "μ" / "ν$1" exactly like
+   an ASCII one. Falls back to the raw text when the macro does not resolve to
+   a single character, which keeps an unknown macro visible instead of empty. *)
+latexMacroChar[m_String] := Replace[Quiet @ Check[texBoxes[m], m], {
+    s_String :> s,
+    StyleBox[s_String, ___] :> s,
+    _ :> m
+}]
+
 mathArgsToTemplate[s_String] := StringReplace[s, {
+    "$" ~~ mac:("\\" ~~ LetterCharacter ..) ~~ "_" ~~ "{" ~~ sub:Shortest[Except["}"]..] ~~ "}" ~~ "$" :> latexMacroChar[mac] <> "$" <> sub,
+    "$" ~~ mac:("\\" ~~ LetterCharacter ..) ~~ "_" ~~ sub:(DigitCharacter | LetterCharacter) ~~ "$" :> latexMacroChar[mac] <> "$" <> ToString[sub],
+    "$" ~~ mac:("\\" ~~ LetterCharacter ..) ~~ "$" :> latexMacroChar[mac],
     "$" ~~ base:(LetterCharacter ~~ (WordCharacter ...)) ~~ "_" ~~ "{" ~~ sub:Shortest[Except["}"]..] ~~ "}" ~~ "$" :> base <> "$" <> sub,
     "$" ~~ base:(LetterCharacter ~~ (WordCharacter ...)) ~~ "_" ~~ sub:(DigitCharacter | LetterCharacter) ~~ "$" :> base <> "$" <> ToString[sub],
     "$" ~~ ident:(LetterCharacter ~~ (WordCharacter ...)) ~~ "$" :> ident
