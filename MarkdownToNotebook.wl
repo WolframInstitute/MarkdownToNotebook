@@ -2135,8 +2135,10 @@ testsSlot[opts_, sections_] := Block[
    resource page has the full set in order, each section heading-only (a Closed
    Subsection) when the markdown does not fill it - matching the Symbol page's
    kept-empty More-Examples scaffold. *)
-$resourceExampleOrder = {"basic examples", "scope", "generalizations and extensions",
-    "options", "applications", "properties and relations", "possible issues", "neat examples"}
+$resourceExampleOrder = {"basic examples", "scope", "scope and additional elements",
+    "generalizations and extensions", "options", "applications",
+    "visualizations", "analysis",
+    "properties and relations", "possible issues", "neat examples"}
 
 (* one example section as a Subsection group: heading + content, or a Closed
    heading-only group when the section is absent from the markdown. *)
@@ -2267,6 +2269,8 @@ fillSlot[name_, opts_, data_] := Block[{meta = data["meta"]},
         "Name", fillTextCells[opts, Lookup[meta, "Name", ""]],
         "Description", fillTextCells[opts, Lookup[meta, "Description", ""]],
         "Contributed By", fillTextCells[opts, Lookup[meta, "ContributedBy", ""]],
+        (* the Data template names the slot without the space *)
+        "ContributedBy", fillTextCells[opts, Lookup[meta, "ContributedBy", ""]],
         "ContributorInformation", fillTextCells[opts, Lookup[meta, "ContributedBy", ""]],
         "ContentElements", contentSlot[opts, data["sections"]],
         "Keywords", fillListCells[opts, asList @ Lookup[meta, "Keywords", {}]],
@@ -2315,6 +2319,8 @@ fillSlot[name_, opts_, data_] := Block[{meta = data["meta"]},
            Author Notes section actually renders. The previous bare-string
            splice left "[label](url)" as literal text in the cell. *)
         "Author Notes", fillTextDataCells[opts, sectionText[data["sections"], "author notes"]],
+        (* the Data template names the slot without the space *)
+        "AuthorNotes", fillTextDataCells[opts, sectionText[data["sections"], "author notes"]],
         "CompatibilityFeatures",
             If[ KeyExistsQ[meta, "Features"],
                 fillCheckbox["CompatibilityFeatures", asList @ meta["Features"]],
