@@ -689,6 +689,18 @@ VerificationTest[
 ]
 ```
 
+On the *primary* path `\cdots` needs a pre-substitution of its own. Alone it parses correctly, but inside a juxtaposition run (`a\cdots b`, or `\mathrm{Tr}[\,\cdots\,]`) the parser's product rule matches the bare `\cdot` prefix and the leftover `s` becomes an italic identifier - a centered dot and a loose "s" where `\[CenterEllipsis]` belongs. Feeding the parser the glyph instead (longest command first, so the shorter `\cdot` rule cannot claim it) renders it correctly in every position, and the inverse maps `\[CenterEllipsis]` back to `\cdots` (sibling of the `\cdot` fix, issue #68):
+
+```wl
+VerificationTest[
+    {FreeQ[texBoxes["a\\cdots b"], "\[CenterDot]"],
+     ! FreeQ[texBoxes["\\mathrm{Tr}[\\,\\cdots\\,]"], "\[CenterEllipsis]"],
+     ! FreeQ[texBoxes["a\\cdot b"], "\[CenterDot]"]},
+    {True, True, True},
+    TestID -> "\\cdots stays a centered ellipsis in a juxtaposition run (issue #68)"
+]
+```
+
 A single-backtick inline code span that reads as a filesystem path, URL, dotted filename (`` `~/.prime/config.json` ``), or hyphen-joined identifier (`` `claude-opus-4-7` ``) is kept verbatim instead of reparsed as Wolfram code - otherwise the front end tokenizes its `/` `.` `~` `-` as operators (ReplaceAll, Dot, Subtract, ...) and it renders with stray operator spacing (`config . json`, `claude - opus - 4 - 7`). Genuine WL inline code (`` `Range[5]` ``, `` `x_1` ``) still reparses to boxes:
 
 ```wl
@@ -947,27 +959,31 @@ VerificationTest[
 ]
 ```
 
-A bare `|x|` modulus is promoted to the front end's `Abs` `TemplateBox` (clean bars), not left as raw bracketing-bar glyphs; a conditional `P(a|b)` (an ASCII bar) is untouched (issue #46):
+A bare `|x|` modulus is promoted to a modulus delimiter (not left as raw bracketing-bar glyphs), and so is `\lVert v\rVert`; a conditional `P(a|b)` (an ASCII bar) is untouched (issue #46):
 
 ```wl
 VerificationTest[
-    {! FreeQ[MarkdownToNotebook["$|\\alpha|^2$", "Evaluate" -> False], TemplateBox[_, "Abs"]],
-     ! FreeQ[MarkdownToNotebook["$\\lVert v\\rVert$", "Evaluate" -> False], TemplateBox[_, "Norm"]],
-     FreeQ[MarkdownToNotebook["$P(a|b)$", "Evaluate" -> False], TemplateBox[_, "Abs"]]},
-    {True, True, True},
-    TestID -> "bare |x| / ||v|| promoted to Abs / Norm template, conditional bar untouched (issue #46)"
+    With[{bars = GridBoxDividers -> {"Columns" -> {True, True}, ___}},
+        {! FreeQ[MarkdownToNotebook["$|\\alpha|^2$", "Evaluate" -> False], bars],
+         Count[MarkdownToNotebook["$\\lVert v\\rVert$", "Evaluate" -> False], bars, Infinity],
+         FreeQ[MarkdownToNotebook["$P(a|b)$", "Evaluate" -> False], bars]}],
+    {True, 2, True},
+    TestID -> "bare |x| / ||v|| promoted to the modulus / norm delimiter, conditional bar untouched (issue #46)"
 ]
 ```
 
-Around a *tall* argument (a braket) the stretched template bars seam, so a tall modulus is drawn with a plain scaled vertical line instead of the extensible template; a scalar modulus keeps the template. Both round-trip to `|...|` / `\lvert` (issue #48):
+The extensible `Abs` / `Norm` template bars seam (a mid-height "bump") once the argument passes one text line, so every modulus is drawn as a GridBox column rule - a divider spans exactly the content height and is not a glyph, so it can neither be built up nor seam. The case that keeps regressing is the *parenthesised* argument `|\psi(x)|^2`, which is not a braket, so a braket-only guard misses it (issues #48, #67):
 
 ```wl
 VerificationTest[
-    {! FreeQ[MarkdownToNotebook["$|\\langle\\phi|\\psi\\rangle|^2$", "Evaluate" -> False], StyleBox["\[VerticalLine]", ___]],
-     FreeQ[MarkdownToNotebook["$|\\langle\\phi|\\psi\\rangle|^2$", "Evaluate" -> False], TemplateBox[_, "Abs"]],
-     ! FreeQ[MarkdownToNotebook["$|\\alpha|^2$", "Evaluate" -> False], TemplateBox[_, "Abs"]]},
-    {True, True, True},
-    TestID -> "tall braket modulus drawn with a straight vertical line, scalar keeps the Abs template (issue #48)"
+    Map[
+        Function[tex,
+            With[{b = MarkdownToNotebook["$" <> tex <> "$", "Evaluate" -> False]},
+                {! FreeQ[b, GridBoxDividers -> {"Columns" -> {True, True}, ___}],
+                 FreeQ[b, TemplateBox[_, "Abs" | "Norm"]]}]],
+        {"|\\psi(x)|^2", "|x|", "\\lVert v\\rVert", "|\\langle\\phi|\\psi\\rangle|^2"}],
+    {{True, True}, {True, True}, {True, True}, {True, True}},
+    TestID -> "modulus / norm drawn as a seamless GridBox column rule, incl. a parenthesised argument (issue #48/#67)"
 ]
 ```
 
@@ -975,10 +991,11 @@ A norm whose bars never became the bracketing pair - `\|…\|` has no matchfix p
 
 ```wl
 VerificationTest[
-    {! FreeQ[MarkdownToNotebook["$\\||\\psi\\rangle\\| = 1$", "Evaluate" -> False], StyleBox["\[DoubleVerticalBar]", FontSize -> _]],
-     FreeQ[MarkdownToNotebook["$a \\parallel b$", "Evaluate" -> False], StyleBox["\[DoubleVerticalBar]", FontSize -> _]],
-     FreeQ[MarkdownToNotebook["$\\|x\\|$", "Evaluate" -> False], StyleBox["\[DoubleVerticalBar]", FontSize -> _]]},
-    {True, True, True},
+    With[{bars = GridBoxDividers -> {"Columns" -> {True, True}, ___}},
+        {Count[MarkdownToNotebook["$\\||\\psi\\rangle\\| = 1$", "Evaluate" -> False], bars, Infinity],
+         FreeQ[MarkdownToNotebook["$a \\parallel b$", "Evaluate" -> False], bars],
+         FreeQ[MarkdownToNotebook["$\\|x\\|$", "Evaluate" -> False], bars]}],
+    {2, True, True},
     TestID -> "tall bare-double-bar norm drawn full-height, \\parallel relation and scalar left alone (issue #64)"
 ]
 ```

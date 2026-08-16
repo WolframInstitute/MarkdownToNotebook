@@ -53,8 +53,38 @@ ensureExportLaTeX[] := If[! TrueQ[$n2mParserReady],
     Quiet @ Check[Needs["Wolfram`Parser`"], Null];
     $n2mParserReady = True]
 ensureExportLaTeX[]
-(* box tree -> LaTeX math body (inverse of LaTeXMathParse); callers keep the name *)
-walkerMath[x_] := Wolfram`Parser`ExportLaTeX[x]
+(* ExportLaTeX's glyph -> TeX table stops at \[Ellipsis] -> \ldots, so the three
+   other ellipsis glyphs serialize as their raw Unicode character and never return
+   as commands. Map each back here, with the trailing space ExportLaTeX itself uses
+   to terminate a command name. \[CenterEllipsis] is the reverse partner of the
+   forward \cdots pre-substitution in MarkdownToNotebook (issue #68); the rules
+   simply stop firing if the paclet ever grows the entries. *)
+$ellipsisTeX = {
+    "\[CenterEllipsis]" -> "\\cdots ",
+    "\[VerticalEllipsis]" -> "\\vdots ",
+    "\[DescendingEllipsis]" -> "\\ddots "
+}
+(* MarkdownToNotebook draws a modulus / norm as a one-cell GridBox with column
+   dividers (a rule that spans the content height and cannot seam, issue #67). Fold
+   that grid back to the Abs / Norm TemplateBox BEFORE delegating: ExportLaTeX reads a
+   bare one-cell GridBox as \begin{matrix}, and it is monolithic (it consumes the whole
+   box tree rather than calling back per sub-box), so a rule keyed on the GridBox here
+   would only catch a modulus standing alone - not the common |\psi(x)|^2 nested inside
+   a SuperscriptBox. ExportLaTeX turns the templates back into \lvert / \lVert; a
+   genuine matrix grid carries no dividers, so it falls through unchanged. *)
+absGridQ[GridBox[{{_}}, opts___]] :=
+    MatchQ[GridBoxDividers /. {opts}, {"Columns" -> {True, True}, ___}]
+absGridQ[_] := False
+absGridToTemplate[boxes_] := boxes //. {
+    outer : GridBox[{{inner : GridBox[{{a_}}, ___]}}, ___] /;
+        absGridQ[outer] && absGridQ[inner] :> TemplateBox[{a}, "Norm"],
+    g : GridBox[{{a_}}, ___] /; absGridQ[g] :> TemplateBox[{a}, "Abs"]
+}
+(* box tree -> LaTeX math body (inverse of LaTeXMathParse); callers keep the name.
+   The ellipsis remap (issue #68) runs on the serialized string, the modulus fold
+   (issue #67) on the boxes beforehand. *)
+walkerMath[x_] := StringReplace[
+    Wolfram`Parser`ExportLaTeX[absGridToTemplate[x]], $ellipsisTeX]
 
 (* === code-mode serializer ===
    Box-form WL code -> source string. A code cell's BoxData carries the user's

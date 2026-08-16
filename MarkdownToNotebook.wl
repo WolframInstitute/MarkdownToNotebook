@@ -1992,8 +1992,12 @@ usageLines[sections_] := Flatten[
    template uses usagePair instead - the WFR resource scraper expects the
    UsageInputs / UsageDescription pair structure and rejects a single-cell
    Usage shape. *)
+(* The separator is the bare string, NOT {"\n"}: the list form is Riffle's cyclic
+   form, which also appends a trailing separator when there is exactly one usage
+   line. That stray "\n" makes DocumentationBuild split the Usage cell into a
+   final empty row and report StringTake::take on it (issue #66). *)
 usageMultiCell[pairs_List] := Cell[
-    TextData @ Flatten @ Riffle[usageLineItems /@ pairs, {"\n"}],
+    TextData @ Flatten @ Riffle[usageLineItems /@ pairs, "\n"],
     "Usage"
 ]
 
@@ -2906,8 +2910,8 @@ barContent[parts_List] := With[{c = DeleteCases[parts, $barSpacer]},
    past the two rules below, so around a TALL argument (a ket taller than a text line) the
    relational glyph cannot stretch and renders as two one-line ticks (issue #64). Several TeX
    spellings converge on this shape (\|...\| has no matchfix production; a bare-bar ket poisons
-   the \lVert..\rVert matchfix). Promote such a pair to Norm as well - straightenTallBars then
-   draws it as a scaled full-height rule and NotebookToMarkdown round-trips it to \lVert. Bare
+   the \lVert..\rVert matchfix). Promote such a pair to Norm as well - barsToGrid then
+   draws it as a full-height column rule and NotebookToMarkdown round-trips it to \lVert. Bare
    U+2225 is ambiguous (\parallel vs norm), so three guards carry the distinction: the bars are
    the SAME glyph (matched by one pattern), the argument is TALL (a scalar \|x\| is already
    correct at nominal size and is left alone), and the pair is NOT flanked by an operand - a
@@ -2931,25 +2935,34 @@ templatizeBars[boxes_] := boxes //. {
         RowBox[{pre, TemplateBox[{barContent[{mid}]}, "Abs"], post}]
 }
 
-(* The Abs / Norm TemplateBox draws extensible bars; stretched past ~one line height
-   around a TALL argument - a braket, whose angle brackets exceed a text line, as in
-   |<phi|psi>|^2 - the FE builds the glyph from pieces and it renders with a visible
-   mid-height seam. Rewrite only the tall-argument templates to a plain scaled
-   vertical line (\[VerticalLine] / \[DoubleVerticalBar], relational glyphs that never
-   extend, so never seam); a scalar argument keeps the template (correct at base size,
-   round-trips to \lvert / \lVert). Runs OUTSIDE templatizeBars' //. - the vertical
-   line is not a bracketing bar, so it is never re-promoted (issue #48). *)
-$tallBarScale = 1.3
+(* "tall" = an argument that exceeds one text line, which is the only case where the
+   #64 rule above may re-read an ambiguous bare U+2225 as a norm delimiter. *)
 tallArgQ[arg_] := ! FreeQ[arg, TemplateBox[_, "Ket" | "Bra" | "Braket" | "BraKet"]]
-straightBar[glyph_] := StyleBox[glyph, FontSize -> $tallBarScale Inherited]
-straightenTallBars[boxes_] := boxes /. {
-    TemplateBox[{arg_}, "Abs"] /; tallArgQ[arg] :> RowBox[{straightBar["\[VerticalLine]"], arg, straightBar["\[VerticalLine]"]}],
-    TemplateBox[{arg_}, "Norm"] /; tallArgQ[arg] :> RowBox[{straightBar["\[DoubleVerticalBar]"], arg, straightBar["\[DoubleVerticalBar]"]}]
+
+(* The Abs / Norm TemplateBox draws EXTENSIBLE bars: stretched past ~one line height
+   the FE assembles the glyph from pieces, so it renders with a mid-height seam (a
+   "bump") plus the delimiter's terminal feet - |\psi(x)|^2, |\frac{a}{b}| and a
+   braket all hit this. Draw the bars as a GridBox column rule instead: a divider is
+   a plain solid rule spanning exactly the cell (content) height, not a glyph, so it
+   can neither be built up nor seam, and it tracks the argument at EVERY height.
+   That is why this replaces the earlier fixed-scale \[VerticalLine] pass: a fixed
+   1.3x scale is a guess, and its tall-argument guard was braket-only, so the common
+   parenthesised modulus kept the seaming template (issues #48, #64, #67).
+   Runs OUTSIDE templatizeBars' //. - a GridBox is not a bracketing bar, so it is
+   never re-promoted. *)
+$absGridDividers = {"Columns" -> {True, True}, "Rows" -> {}}
+absGrid[arg_] := GridBox[{{arg}}, GridBoxDividers -> $absGridDividers,
+    GridBoxSpacings -> {"Columns" -> {{0.15}}}]
+normGrid[arg_] := GridBox[{{absGrid[arg]}}, GridBoxDividers -> $absGridDividers,
+    GridBoxSpacings -> {"Columns" -> {{0.22}}}]
+barsToGrid[boxes_] := boxes //. {
+    TemplateBox[{arg_}, "Abs"] :> absGrid[arg],
+    TemplateBox[{arg_}, "Norm"] :> normGrid[arg]
 }
 
 texBoxes[math_String] :=
     Block[{r = wolframParserTeX[math]},
-        straightenTallBars @ applyMathFont @ templatizeBars @ If[ r =!= $Failed, r, texBoxesViaImport[math] ]
+        barsToGrid @ applyMathFont @ templatizeBars @ If[ r =!= $Failed, r, texBoxesViaImport[math] ]
     ]
 
 (* Detection and call both resolve the parser at *runtime* by its full name.
@@ -2965,10 +2978,15 @@ wolframParserTeX[math_String] :=
     If[ Names["Wolfram`Parser`LaTeXMathParse"] === {},
         $Failed,
         Module[{m, r},
-            (* pre-substitute TeX tokens the parser mishandles: \cdot -> · (else
-               it maps to ×, issue #11), \, -> control-space (else literal "\,"
-               leaks, issue #13). The cdot guard rejects \cdots (centered ellipsis). *)
+            (* pre-substitute TeX tokens the parser mishandles: \cdots -> ⋯ (its
+               product rule matches the bare \cdot prefix of \cdots inside a
+               juxtaposition run, so `a\cdots b` comes back as · plus a stray
+               italic "s", issue #68), \cdot -> · (else it maps to ×, issue #11),
+               \, -> control-space (else literal "\," leaks, issue #13). Longest
+               command first, and each rule guards a trailing letter so a longer
+               command is never claimed by a shorter rule. *)
             m = StringReplace[math, {
+                RegularExpression["\\\\cdots(?![a-zA-Z])"] -> "\[CenterEllipsis]",
                 RegularExpression["\\\\cdot(?![a-zA-Z])"] -> "\[CenterDot]",
                 "\\," -> "\\ "
             }];

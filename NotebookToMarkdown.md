@@ -241,6 +241,18 @@ VerificationTest[
 ]
 ```
 
+The centered / vertical / descending ellipses are the same story one step further out: the box -> LaTeX table names `\[Ellipsis]` (`\ldots`) but not its three siblings, so they used to leak into the markdown as raw `⋯` / `⋮` / `⋱` and a `\cdots` never came back as a command. Each now maps to its LaTeX name - the reverse partner of the forward `\cdots` pre-substitution (issue #68):
+
+```wl
+VerificationTest[
+    {walkerMath[RowBox[{"a", "\[CenterEllipsis]", "b"}]],
+     walkerMath[RowBox[{"a", "\[VerticalEllipsis]", "b"}]],
+     walkerMath[RowBox[{"a", "\[DescendingEllipsis]", "b"}]]},
+    {"a\\cdots b", "a\\vdots b", "a\\ddots b"},
+    TestID -> "ellipsis glyphs -> \\cdots / \\vdots / \\ddots (issue #68)"
+]
+```
+
 A handful of *content* glyphs (the `\[LeftBracketingBar]` / `\[RightBracketingBar]` Abs/Norm bars, `\[LongEqual]`, `\[ImplicitPlus]`, `\[Limit]`) live inside the front-end structural-PUA band but are not box-structure markers, so they survive the drop instead of vanishing from the formula (issue #37):
 
 ```wl
