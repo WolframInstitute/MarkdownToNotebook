@@ -1862,14 +1862,11 @@ manipulateSlot[opts_, sections_] := Block[{b = firstCodeOf[sections, "manipulate
    in pandoc / GitHub since markdown forbids nested formatting inside code spans;
    for our notebook output, "$c_1$" is rewritten to the ParseTextTemplate
    subscript form "c$1" and fed through templateBox. *)
-(* A LaTeX macro argument ("$\mu$", "$\nu_1$") is not an identifier, so the
-   identifier rules below never matched it and the raw "$\mu$" reached
-   ParseTextTemplate - which reads "$" as its OWN subscript marker and mangled
-   the argument. "\nu" fared worse still: its "\n" was consumed as an escape,
-   leaking a literal \n into the page. Resolve the macro to its character
-   first, so a Greek argument reaches the template as "μ" / "ν$1" exactly like
-   an ASCII one. Falls back to the raw text when the macro does not resolve to
-   a single character, which keeps an unknown macro visible instead of empty. *)
+(* The character a LaTeX macro argument stands for. A macro is not an identifier,
+   so it needs resolving before it reaches ParseTextTemplate, which reads "$" as
+   its own subscript marker: "$\mu$" must arrive as "μ", "$\nu_1$" as "ν$1",
+   exactly like an ASCII argument. A macro that does not resolve to a single
+   character keeps its raw text, so an unknown one stays visible. *)
 latexMacroChar[m_String] := Replace[Quiet @ Check[texBoxes[m], m], {
     s_String :> s,
     StyleBox[s_String, ___] :> s,
@@ -1992,10 +1989,9 @@ usageLines[sections_] := Flatten[
    template uses usagePair instead - the WFR resource scraper expects the
    UsageInputs / UsageDescription pair structure and rejects a single-cell
    Usage shape. *)
-(* The separator is the bare string, NOT {"\n"}: the list form is Riffle's cyclic
-   form, which also appends a trailing separator when there is exactly one usage
-   line. That stray "\n" makes DocumentationBuild split the Usage cell into a
-   final empty row and report StringTake::take on it (issue #66). *)
+(* The separator is the bare string, not {"\n"}: Riffle's list form is cyclic and
+   would also append a separator after a lone usage line, and DocumentationBuild
+   reads such a trailing "\n" as a final empty row. *)
 usageMultiCell[pairs_List] := Cell[
     TextData @ Flatten @ Riffle[usageLineItems /@ pairs, "\n"],
     "Usage"
@@ -2040,12 +2036,10 @@ nestedItemStyle[base_String, d_Integer] := With[
 ]
 
 (* The indent a nested bullet gets when its style family has no deeper style -
-   the "Notes" bullets of a reference page's Details section being the case that
-   matters: the doc stylesheet has no Sub-Notes style (no shipped ref page uses
-   Subitem - 0 of the 6883 in the system documentation), so a sub-bullet keeps
-   the Notes style and is nested by a left margin, the same CellMargins idiom
-   the shipped pages use to indent content under a note. Without this a nested
-   markdown list under "## Details" flattened to a single level. *)
+   the "Notes" bullets of a reference page's Details section. The doc stylesheet
+   has no Sub-Notes style (no shipped ref page nests with Subitem), so a
+   sub-bullet keeps the Notes style and nests by a left margin, the CellMargins
+   idiom the shipped pages use to indent content under a note. *)
 nestedItemMargins[d_Integer] := CellMargins -> {{18 d + Inherited, Inherited}, {2 + Inherited, Inherited}}
 
 nestedItemCell[text_String, base_String, d_Integer] := With[{style = nestedItemStyle[base, d]},
@@ -2117,16 +2111,10 @@ heroSlot[opts_, sections_] := Block[{cells = sectionCells[sections, "hero image"
         ]
     ];
     If[ MissingQ[out] || out === Null, Return[slotDefault[opts]] ];
-    (* NOTE: the hero image reaches the notebook but NOT the deployed landing
-       page - ScrapeResource returns a Paclet resource with no "HeroImage" key,
-       so the shingle renders an empty hero frame (the same is true of the
-       other paclet examples, e.g. AccessibleColors, whose built definition
-       notebook has the identical shape - this is not a regression). Neither
-       emitting the code as Input plus the image as Output (below) nor a single
-       Input cell holding the image, which is the shape of the template's own
-       placeholder, makes the scrape pick it up; CheckDefinitionNotebook
-       reports no hero hint either way. Left as the Input/Output pair, which
-       keeps the generating code visible in the notebook. *)
+    (* The image sits in an Input / Output pair so the generating code stays
+       visible in the notebook beside it. Known limit: a Paclet resource scrape
+       returns no "HeroImage" key, so the image reaches the notebook but not the
+       deployed landing page, which renders an empty hero frame. *)
     {Cell[CellGroupData[{
         Cell[BoxData[inputBoxes[code]], "Input"],
         Cell[BoxData[out], "Output"]
@@ -2939,17 +2927,14 @@ templatizeBars[boxes_] := boxes //. {
    #64 rule above may re-read an ambiguous bare U+2225 as a norm delimiter. *)
 tallArgQ[arg_] := ! FreeQ[arg, TemplateBox[_, "Ket" | "Bra" | "Braket" | "BraKet"]]
 
-(* The Abs / Norm TemplateBox draws EXTENSIBLE bars: stretched past ~one line height
-   the FE assembles the glyph from pieces, so it renders with a mid-height seam (a
-   "bump") plus the delimiter's terminal feet - |\psi(x)|^2, |\frac{a}{b}| and a
-   braket all hit this. Draw the bars as a GridBox column rule instead: a divider is
-   a plain solid rule spanning exactly the cell (content) height, not a glyph, so it
-   can neither be built up nor seam, and it tracks the argument at EVERY height.
-   That is why this replaces the earlier fixed-scale \[VerticalLine] pass: a fixed
-   1.3x scale is a guess, and its tall-argument guard was braket-only, so the common
-   parenthesised modulus kept the seaming template (issues #48, #64, #67).
-   Runs OUTSIDE templatizeBars' //. - a GridBox is not a bracketing bar, so it is
-   never re-promoted. *)
+(* A modulus / norm is drawn as a GridBox column rule, not the Abs / Norm
+   TemplateBox. That template draws EXTENSIBLE bars: stretched past ~one line height
+   the FE assembles the glyph from pieces, so it renders with a mid-height seam plus
+   the delimiter's terminal feet, which |\psi(x)|^2, |\frac{a}{b}| and a braket all
+   reach. A divider is a plain solid rule spanning exactly the cell (content) height
+   rather than a glyph, so it cannot be built up and it tracks the argument at every
+   height, with no scale to tune. Runs OUTSIDE templatizeBars' //. - a GridBox is not
+   a bracketing bar, so it is never re-promoted. *)
 $absGridDividers = {"Columns" -> {True, True}, "Rows" -> {}}
 absGrid[arg_] := GridBox[{{arg}}, GridBoxDividers -> $absGridDividers,
     GridBoxSpacings -> {"Columns" -> {{0.15}}}]
@@ -2979,12 +2964,11 @@ wolframParserTeX[math_String] :=
         $Failed,
         Module[{m, r},
             (* pre-substitute TeX tokens the parser mishandles: \cdots -> ⋯ (its
-               product rule matches the bare \cdot prefix of \cdots inside a
-               juxtaposition run, so `a\cdots b` comes back as · plus a stray
-               italic "s", issue #68), \cdot -> · (else it maps to ×, issue #11),
-               \, -> control-space (else literal "\," leaks, issue #13). Longest
-               command first, and each rule guards a trailing letter so a longer
-               command is never claimed by a shorter rule. *)
+               product rule claims the bare \cdot prefix inside a juxtaposition
+               run), \cdot -> · (it otherwise maps to ×), \, -> control-space (the
+               literal "\," otherwise leaks). Longest command first, and each rule
+               guards a trailing letter, so a longer command is never claimed by a
+               shorter rule. *)
             m = StringReplace[math, {
                 RegularExpression["\\\\cdots(?![a-zA-Z])"] -> "\[CenterEllipsis]",
                 RegularExpression["\\\\cdot(?![a-zA-Z])"] -> "\[CenterDot]",
@@ -4530,10 +4514,9 @@ $refExamplesKeys = {"examples", "basic examples", "more examples"}
 (* Nest a flat cell run into the CellGroupData tree DocumentationBuild needs.
    levelOf gives each cell its outline level (1 = section, 2 = subsection, ...;
    Infinity = ordinary content); a cell of level n opens a group that swallows
-   every following cell of deeper level. Without this nesting the build cannot
-   tell where one section ends: flat body cells are swept into whichever
-   section group follows them (they vanished into See Also), the same failure
-   groupPrimaryExamples fixes for the examples section. *)
+   every following cell of deeper level. The build reads section extent from that
+   nesting: a flat cell run is swept into whichever section group follows it,
+   the same grouping requirement groupPrimaryExamples meets for the examples. *)
 nestCells[{}, _] := {}
 nestCells[cells_List, levelOf_] := Block[{first = First[cells], lvl, children},
     lvl = levelOf[first];
@@ -4642,7 +4625,7 @@ refSubtypeNotebook[type_String, data_] := Block[{
    single-platform page simply does not open one. *)
 
 (* every prose block before the first level-2 heading, joined - a workflow
-   page's lead paragraphs ARE its description. They MUST all move into the
+   page's lead paragraphs are its description. All of them belong in the
    WorkflowDescription cell: DocumentationBuild's workflow assembly stops at
    the first cell it does not expect between the description and the opening
    platform / step group, silently dropping the rest of the page. *)
