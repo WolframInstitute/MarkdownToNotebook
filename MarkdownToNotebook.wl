@@ -1865,21 +1865,107 @@ manipulateSlot[opts_, sections_] := Block[{b = firstCodeOf[sections, "manipulate
 (* The character a LaTeX macro argument stands for. A macro is not an identifier,
    so it needs resolving before it reaches ParseTextTemplate, which reads "$" as
    its own subscript marker: "$\mu$" must arrive as "μ", "$\nu_1$" as "ν$1",
-   exactly like an ASCII argument. A macro that does not resolve to a single
-   character keeps its raw text, so an unknown one stays visible. *)
-latexMacroChar[m_String] := Replace[Quiet @ Check[texBoxes[m], m], {
-    s_String :> s,
-    StyleBox[s_String, ___] :> s,
-    _ :> m
-}]
+   exactly like an ASCII argument. The parser hands the glyph back wrapped as
+   FormBox[..., TraditionalForm], so one form layer is stripped before the
+   character is read out; an unknown macro comes back as an EMPTY box, hence the
+   non-empty demand. Anything else keeps its raw text, so an unresolved macro
+   stays visible. *)
+latexMacroChar[m_String] := Replace[
+    Replace[Quiet @ Check[texBoxes[m], m], FormBox[b_, _] :> b],
+    {
+        s_String /; s =!= "" :> s,
+        StyleBox[s_String, ___] /; s =!= "" :> s,
+        _ :> m
+    }
+]
 
-mathArgsToTemplate[s_String] := StringReplace[s, {
+(* Inline math in a usage signature that is not a plain identifier ($p^2$,
+   $m_0^2$, $\gamma^\mu$) has no ParseTextTemplate spelling: the template
+   language knows "x$i" for a subscript and nothing else, so such a fragment
+   would reach the notebook as the literal characters "$", "^", "2". Convert it
+   with the LaTeX path up front instead and park the boxes under an
+   identifier-shaped token, which ParseTextTemplate tokenises predictably as
+   StyleBox[token, "TI"]; templateBox splices the real boxes back in after the
+   parse (see spliceMathBoxes). The token is derived from the math text and
+   spelled in letters only (a digit would read as a template subscript index),
+   so builds stay deterministic and equal fragments share one entry. *)
+$mathParkPrefix = "mtex"
+$mathBoxParks = <||>
+
+mathParkToken[math_String] := $mathParkPrefix <> StringReplace[
+    IntegerString[Mod[Hash[math, "MD5"], 26^8], 26, 8],
+    Thread[CharacterRange["0", "9"] -> CharacterRange["q", "z"]]
+]
+
+(* park one $...$ fragment and return its token. Math the LaTeX path cannot
+   parse keeps its original "$...$" text, so an unreadable fragment stays
+   visible instead of leaking a token. *)
+parkMath[math_String] := Block[{boxes = Quiet @ Check[texBoxes[math], $Failed]},
+    If[ MatchQ[boxes, $Failed] || ! FreeQ[boxes, $Failed],
+        "$" <> math <> "$",
+        $mathBoxParks[mathParkToken[math]] = dampenBigOps[boxes, $bigOpInlineScale];
+        mathParkToken[math]
+    ]
+]
+
+(* put the parked math back: ParseTextTemplate italicises a bare token like any
+   argument, hence the StyleBox case; the plain-string case covers a signature
+   that is nothing but the math. *)
+spliceMathBoxes[boxes_] := If[ $mathBoxParks === <||>, boxes,
+    boxes /. {
+        StyleBox[t_String, ___] /; KeyExistsQ[$mathBoxParks, t] :> $mathBoxParks[t],
+        t_String /; KeyExistsQ[$mathBoxParks, t] :> $mathBoxParks[t]
+    }
+]
+
+(* The shape a parked fragment may have: one base carrying scripts, and nothing
+   else. A base is an ASCII identifier or a LaTeX macro; a script is a braced
+   group, a macro, a digit run, or a single letter (LaTeX's own rule for an
+   unbraced script, relaxed for digits so "$m_10$" reads as one index). Each
+   token swallows the spaces after it, because LaTeX ends a macro name with a
+   space and the walker's own math ("$\gamma ^{\mu }$") is written that way.
+   Bounding the fragment this tightly is what keeps a match from running out of
+   one argument and into the next "$" of a WL system symbol - a signature like
+   "f[$Failed, a_b, $y$]" must not be read as one math span. *)
+$mathArgBase = (("\\" ~~ LetterCharacter ..) |
+    (LetterCharacter ~~ (WordCharacter ...))) ~~ WhitespaceCharacter ...
+$mathArgScript = (("{" ~~ Shortest[Except["{" | "}"] ...] ~~ "}") |
+    ("\\" ~~ LetterCharacter ..) | (DigitCharacter ..) | LetterCharacter) ~~
+    WhitespaceCharacter ...
+
+(* A quoted string in a signature is literal data, not an argument: the
+   "$\hbar$" in ImportString["$\hbar$", "TeX"] is the example's own text and has
+   to survive verbatim. So the math rewrite runs only on the stretches BETWEEN
+   string literals; an escaped \" keeps its literal going. *)
+$sigStringLiteral = "\"" ~~ Shortest[(("\\" ~~ _) | Except["\""]) ...] ~~ "\""
+
+(* a path / URL / dotted filename is not a signature and never carries math: keep
+   it byte-identical so templateBox's verbatim guard still sees the string it
+   expects (and can never be handed a parked token it would emit as text). *)
+mathArgsToTemplate[s_String] /; verbatimInlineQ[StringTrim[s]] := s
+
+mathArgsToTemplate[s_String] := StringJoin @ Replace[
+    StringSplit[s, lit : $sigStringLiteral :> sigStringLit[lit]],
+    {sigStringLit[lit_] :> lit, t_String :> mathArgsRewrite[t]},
+    1
+]
+
+mathArgsRewrite[s_String] := StringReplace[s, {
     "$" ~~ mac:("\\" ~~ LetterCharacter ..) ~~ "_" ~~ "{" ~~ sub:Shortest[Except["}"]..] ~~ "}" ~~ "$" :> latexMacroChar[mac] <> "$" <> sub,
     "$" ~~ mac:("\\" ~~ LetterCharacter ..) ~~ "_" ~~ sub:(DigitCharacter | LetterCharacter) ~~ "$" :> latexMacroChar[mac] <> "$" <> ToString[sub],
     "$" ~~ mac:("\\" ~~ LetterCharacter ..) ~~ "$" :> latexMacroChar[mac],
     "$" ~~ base:(LetterCharacter ~~ (WordCharacter ...)) ~~ "_" ~~ "{" ~~ sub:Shortest[Except["}"]..] ~~ "}" ~~ "$" :> base <> "$" <> sub,
     "$" ~~ base:(LetterCharacter ~~ (WordCharacter ...)) ~~ "_" ~~ sub:(DigitCharacter | LetterCharacter) ~~ "$" :> base <> "$" <> ToString[sub],
-    "$" ~~ ident:(LetterCharacter ~~ (WordCharacter ...)) ~~ "$" :> ident
+    "$" ~~ ident:(LetterCharacter ~~ (WordCharacter ...)) ~~ "$" :> ident,
+    (* A superscript has no ParseTextTemplate spelling at all (the template
+       language knows "x$i" for a subscript and nothing else), and neither does a
+       script with more than one token in it, so these shapes go to the LaTeX path
+       and travel as a parked token. The rules above still take every shape the
+       template language can spell, so ordinary "$x$" / "$x_1$" arguments keep
+       rendering exactly as they did. *)
+    "$" ~~ m:($mathArgBase ~~ "_" ~~ $mathArgScript ~~ "^" ~~ $mathArgScript) ~~ "$" :> parkMath[m],
+    "$" ~~ m:($mathArgBase ~~ "^" ~~ $mathArgScript ~~ "_" ~~ $mathArgScript) ~~ "$" :> parkMath[m],
+    "$" ~~ m:($mathArgBase ~~ "^" ~~ $mathArgScript) ~~ "$" :> parkMath[m]
 }]
 
 (* Sanitize the markdown styling out of a usage signature, leaving the plain WL
@@ -2661,7 +2747,7 @@ templateBox[code_String] := Block[{boxes, prepped = mdToTemplateSubs[StringTrim[
     Needs["DocumentationTools`"];
     boxes = Quiet @ UsingFrontEnd @ DocumentationTools`Private`ParseTextTemplate[prepped, $docName];
     (* fall back to a plain parse if the front-end template parse is unavailable *)
-    If[ FreeQ[boxes, $Failed] && (StringQ[boxes] || MatchQ[Head[boxes], RowBox | StyleBox | SubscriptBox | SuperscriptBox | FractionBox | SqrtBox]),
+    spliceMathBoxes @ If[ FreeQ[boxes, $Failed] && (StringQ[boxes] || MatchQ[Head[boxes], RowBox | StyleBox | SubscriptBox | SuperscriptBox | FractionBox | SqrtBox]),
         boxes,
         inputBoxes[prepped]
     ]
