@@ -580,10 +580,15 @@ joinSource[base_String, path_String] := If[ urlQ[base],
 
 resolveSource[input_String] := Which[
     urlQ[input],
-        <|"Text" -> Import[input, "Text"], "Base" -> StringReplace[input, RegularExpression["/[^/]*$"] -> ""], "Name" -> FileBaseName @ Last @ StringSplit[input, "/"], "Local" -> False, "Id" -> input|>
+        (* Markdown is UTF-8 by definition (CommonMark fixes the encoding), so every
+           read pins it rather than inheriting $CharacterEncoding. A kernel whose
+           platform default is Latin-1 otherwise decodes each non-ASCII byte on its
+           own and freezes the pieces into the notebook as named characters, which
+           looks like corrupt source rather than a decoding fault. *)
+        <|"Text" -> Import[input, "Text", CharacterEncoding -> "UTF-8"], "Base" -> StringReplace[input, RegularExpression["/[^/]*$"] -> ""], "Name" -> FileBaseName @ Last @ StringSplit[input, "/"], "Local" -> False, "Id" -> input|>
     ,
     FileExistsQ[input],
-        <|"Text" -> Import[input, "Text"], "Base" -> DirectoryName[input], "Name" -> FileBaseName[input], "Local" -> True, "Id" -> input|>
+        <|"Text" -> Import[input, "Text", CharacterEncoding -> "UTF-8"], "Base" -> DirectoryName[input], "Name" -> FileBaseName[input], "Local" -> True, "Id" -> input|>
     ,
     True,
         <|"Text" -> input, "Base" -> Directory[], "Name" -> "Notebook", "Local" -> False, "Id" -> input|>
@@ -603,7 +608,8 @@ resolveBlock[b_Association, base_String] := Which[
         Join[b, <|"Boxes" -> Quiet @ Import[joinSource[base, b["Options"]["file"]], "WXF"],
                   "Options" -> Append[b["Options"], "boxes" -> True]|>],
     b["Type"] === "Code" && KeyExistsQ[b["Options"], "file"],
-        Append[b, "Code" -> Import[joinSource[base, b["Options"]["file"]], "Text"]],
+        Append[b, "Code" -> Import[joinSource[base, b["Options"]["file"]], "Text",
+            CharacterEncoding -> "UTF-8"]],
     b["Type"] === "Image",
         Append[b, "Image" -> Quiet @ Import[joinSource[base, b["Path"]]]],
     True, b
@@ -5680,7 +5686,8 @@ deterministicUUIDText[txt_String] := Module[{i = 0},
 
 exportDeterministicNB[spec_, nb_] := (
     Export[spec, nb, "NB"];
-    Export[spec, deterministicUUIDText @ Import[spec, "Text"], "Text"];
+    Export[spec, deterministicUUIDText @ Import[spec, "Text", CharacterEncoding -> "UTF-8"],
+        "Text", CharacterEncoding -> "UTF-8"];
     spec)
 
 (* === markdown-out: a rendered markdown twin ===

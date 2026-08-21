@@ -1450,7 +1450,7 @@ NotebookToMarkdown[source_, target_String /; StringEndsQ[ToLowerCase[target], ".
     {$n2mAssetDir = Replace[DirectoryName[target], "" -> Directory[]],
      $n2mAssetBase = FileBaseName[target], $n2mOutCounter = 0, $n2mFigCounter = 0},
     With[{md = NotebookToMarkdown[source, opts]},
-        Export[target, md, "Text"];
+        Export[target, md, "Text", CharacterEncoding -> "UTF-8"];
         target
     ]
 ]
