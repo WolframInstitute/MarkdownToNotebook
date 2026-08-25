@@ -41,14 +41,36 @@ $parserReady = False
    Best-effort: if no parser is reachable the math path falls back to ImportString
    (see wolframParserTeX, which gates on the symbol existing at call time rather
    than on this succeeding). *)
+parserLoadedQ[] := DownValues[Wolfram`Parser`LaTeXMathParse] =!= {}
+
 ensureParser[] := If[! TrueQ[$parserReady],
     If[ DirectoryQ[$parserDir],
         PacletDirectoryLoad[$parserDir],
-        Quiet @ PacletInstall["Wolfram/Parser"]
+        (* Retry the install. A caller that converts on a parallel pool has every kernel reach
+           this line at once, and the paclet manager does not survive 30 concurrent installs of
+           the same paclet: most fail, fall through to the ImportString path, and mangle every
+           non-ASCII math character they touch. The kernels that lose the race are the majority,
+           so a whole run comes out corrupt while a single-kernel run of the same input is clean.
+           A short staggered backoff lets the loser kernels pick up what the winner installed. *)
+        Module[{delay = 0.4},
+            Do[
+                Quiet @ PacletInstall["Wolfram/Parser"];
+                Quiet @ Check[Needs["Wolfram`Parser`"], Null];
+                If[parserLoadedQ[], Break[]];
+                Pause[delay]; delay *= 2,
+                {6}]]
     ];
     Quiet @ Check[Needs["Wolfram`Parser`"], Null];
-    $parserReady = True
+    (* Only latch when the parser is actually usable. Latching unconditionally meant one failed
+       install silently downgraded that kernel to ImportString for the rest of the session. *)
+    If[ parserLoadedQ[],
+        $parserReady = True,
+        Message[MarkdownToNotebook::noparser]
+    ]
 ]
+
+MarkdownToNotebook::noparser =
+    "Wolfram`Parser` is unavailable; LaTeX math falls back to ImportString, which mis-decodes non-ASCII characters. Install the Wolfram/Parser paclet for correct math.";
 
 mdSep = "\n(*--cell--*)\n"
 
