@@ -101,7 +101,17 @@ walkerMath[x_] := StringReplace[
 $linearSyntaxDeactivate = {
     FromCharacterCode[63425] -> "\\!", FromCharacterCode[63433] -> "\\(",
     FromCharacterCode[63432] -> "\\*", FromCharacterCode[63424] -> "\\)"};
-boxToCode[s_String] := normStr @ StringReplace[s, $linearSyntaxDeactivate]
+(* meaning-bearing code glyphs: the named constants (\[ImaginaryI], \[ImaginaryJ],
+   \[ExponentialE], \[DifferentialD], \[CapitalDifferentialD]) and the bracketing
+   bars sit in the same PUA band, but normStr's prose letters (i, j, e, d, D, |)
+   re-parse as plain symbols / Alternatives, not the constant or the BracketingBar
+   operator. Each becomes its ASCII \[Name] escape, which normStr passes through
+   and the reader parses back to the original token. *)
+$codeGlyphEscape = Map[# -> "\\[" <> CharacterName[#] <> "]" &, Characters[
+    "\[ExponentialE]\[ImaginaryI]\[ImaginaryJ]\[DifferentialD]\[CapitalDifferentialD]" <>
+    "\[LeftBracketingBar]\[RightBracketingBar]"]]
+boxToCode[s_String] :=
+    normStr @ StringReplace[s, Join[$linearSyntaxDeactivate, $codeGlyphEscape]]
 (* multi-statement Input cells store as BoxData[{b1, ";", "\n", b2, ...}] -
    a bare List of boxes. Without this rule the headless boxToCode fallback
    dumps the raw box tree via ToString[InputForm] (issue #16). *)
@@ -114,6 +124,22 @@ boxToCode[SuperscriptBox[a_, b_, ___]] := boxToCode[a] <> "^" <> boxToCode[b]
 boxToCode[SubsuperscriptBox[a_, b_, c_, ___]] := boxToCode[a] <> "_" <> boxToCode[b] <> "^" <> boxToCode[c]
 boxToCode[OverscriptBox[a_, _, ___]] := boxToCode[a]
 boxToCode[FormBox[b_, ___]] := walkerMath[b]
+(* an Iconize icon: an InterpretationBox whose display tree is front-end
+   decoration (a DynamicModuleBox around an "IconizedObject" TemplateBox) and
+   whose real content is the held expression in the interpretation slot, so
+   the code walk emits that expression's InputForm text. HoldForm has no
+   SequenceHold, so a held Sequence of several iconized expressions splices
+   structurally without evaluating; each piece prints through a
+   HoldAllComplete function and they emit comma-separated. *)
+iconizedBoxQ[InterpretationBox[disp_, _, ___]] :=
+    ! FreeQ[HoldComplete[disp], TemplateBox[_, "IconizedObject", ___]]
+iconizedBoxQ[_] := False
+iconizedCode[ib : InterpretationBox[_, _, ___]] := StringRiffle[
+    List @@ Map[
+        Function[e, ToString[Unevaluated[e], InputForm], HoldAllComplete],
+        Extract[ib, 2, HoldForm]],
+    ", "]
+boxToCode[ib : InterpretationBox[_, ___]] /; iconizedBoxQ[ib] := iconizedCode[ib]
 boxToCode[InterpretationBox[disp_, ___]] := boxToCode[disp]
 boxToCode[TagBox[disp_, ___]] := boxToCode[disp]
 boxToCode[StyleBox[disp_, ___]] := boxToCode[disp]
@@ -317,6 +343,12 @@ inlineMd[ButtonBox[name_String, BaseStyle -> "Hyperlink", ButtonData -> {URL[u_S
    may give BaseStyle a Dynamic mouse-over. Treat it as an inferred symbol link. *)
 inlineMd[bb_ButtonBox] := "[" <> cellPlain[bb[[1]]] <> "]()"
 
+(* An InlineMath cell (BookToolsStyles) is a "$math$" span by style alone: the
+   book stylesheet sizes inline math itself, so the cell carries no FormBox or
+   FontSize marker and no content gate applies. walkerMath unwraps a FormBox
+   when one is present, so a single rule covers both box shapes. *)
+inlineMd[Cell[BoxData[b_], "InlineMath", ___]] := "$" <> walkerMath[b] <> "$"
+
 (* An InlineFormula cell wraps either a FormBox (typeset math from a "$...$"
    span), a Link/call box (a "`Symbol`" or call-form signature), a 2D math
    tree, or a plain WL box tree. Dispatch on the shape so a signature renders
@@ -418,7 +450,12 @@ feInputText[bd_] := Module[{r},
    code the cell visually renders as. Every other walker (boxToCode,
    inlineMd, walkerMath) already unwraps these heads (issue #6). *)
 codeText[BoxData[TagBox[b_, ___]]] := codeText[BoxData[b]]
-codeText[BoxData[InterpretationBox[b_, ___]]] := codeText[BoxData[b]]
+codeText[BoxData[ib : InterpretationBox[b_, ___]]] /; ! iconizedBoxQ[ib] := codeText[BoxData[b]]
+(* an Iconize icon is content, not a wrapper: swap each one for its stored
+   interpretation's text BEFORE the FE call, so the FE path and the kernel
+   fallback both see plain code where the icon sat *)
+codeText[BoxData[b_]] /; ! FreeQ[b, ib : InterpretationBox[_, ___] /; iconizedBoxQ[ib]] :=
+    codeText[BoxData[b /. ib : InterpretationBox[_, ___] /; iconizedBoxQ[ib] :> iconizedCode[ib]]]
 codeText[bd : BoxData[b_]] := Module[{r},
     r = Quiet @ Check[feInputText[bd], $Failed];
     If[StringQ[r] && r =!= "", r, boxToCode[b]]
@@ -586,7 +623,7 @@ $n2mFigCounter = 0;      (* authored-figure ".png" counter (issue #34) *)
 (* styles whose markdown form round-trips to the same style - no "#| style:" *)
 $knownBlockStyles = {
     "Title", "Section", "Subsection", "Subsubsection", "ObjectName",
-    "Usage", "UsageDescription", "UsageLine", "Notes",
+    "Usage", "UsageDescription", "UsageLine", "Notes", "NotesSubsection",
     "GuideTitle", "GuideAbstract", "GuideFunctionsSection",
     "GuideFunctionsSubsection", "GuideText", "GuideDelimiter", "GuideTOCLink",
     "2ColumnTableMod", "3ColumnTableMod", "TableNotes",
@@ -609,13 +646,17 @@ $knownBlockStyles = {
     (* "$$...$$" display math (issue #40) *)
     "DisplayFormula",
     (* Chapter back-matter sections + their content, all round-tripping to
-       "## Title" / list / prose (issue #50) *)
+       "## Title" / list / prose under the section's reserved heading *)
     "SummarySection", "VocabularySection", "KeyConceptsSection", "ExerciseSection",
     "QASection", "TechNoteSection", "MoreExploreSection", "ReferenceSection",
-    "ResourcesSection", "TakeawaysSection", "VocabularySubsection",
-    "SummaryList", "Reference", "TechNoteItem", "MoreExploreItem", "ResourceItem",
-    "TakeawaysList", "KeyConceptsList", "SummaryNote", "VocabularyText",
-    "ExerciseNote", "ExerciseSectionNote", "TechNote", "QANote"
+    "ResourcesSection", "ResourcesSubsection", "TakeawaysSection", "VocabularySubsection",
+    "SummaryList", "Reference", "TechNoteItem", "MoreExplore", "MoreExploreItem",
+    "MoreExploreShortURL", "ResourceItem", "TakeawaysList", "KeyConceptsList",
+    "SummaryNote", "VocabularyText", "ResourcesText", "TakeawaysText",
+    "Exercise", "ExerciseNote", "ExerciseSectionNote", "TechNote", "QANote",
+    (* book display sub-styles: their "$$...$$" form rebuilds a display formula *)
+    "SolvedExampleDisplayFormula", "SolvedExampleDisplayFormulaNumbered",
+    "ProofTheoremDisplayFormula"
 };
 (* DocumentationTools scaffolding a template fills in by default: a cell with such
    a style / tag is a template default cell, skipped under Automatic (not authored
@@ -779,8 +820,20 @@ blockFor["UsageDescription", c_] := tidy @ inlineMd[c]
 blockFor["Notes", c_] := With[{b = StringRepeat["  ", $cellIndentDepth] <> "- " <> tidy @ inlineMd[c]},
     If[TrueQ[$detailsHeadingDone], b,
         $detailsHeadingDone = True; "## Details & Options\n\n" <> b]]
+(* a NotesSubsection cell groups the notes that follow it -> "###", behind the
+   same section-header gate as the first Notes cell (the grouping heading can
+   open the section). *)
+blockFor["NotesSubsection", c_] := With[{h = "### " <> cellPlain[c]},
+    If[TrueQ[$detailsHeadingDone], h,
+        $detailsHeadingDone = True; "## Details & Options\n\n" <> h]]
 blockFor["2ColumnTableMod" | "3ColumnTableMod" | "TableNotes", BoxData[GridBox[rows_List, ___]]] := gridTable[rows]
 blockFor["2ColumnTableMod" | "3ColumnTableMod", c_] := tidy @ inlineMd[c]
+(* a generic-path table (Default template, or a table wider than the Mod
+   styles cover): a "Text" cell that is exactly a row-ruled GridBox. The
+   "Rows" -> {{True}} divider signature keeps math grids in prose as math -
+   a matrix carries no dividers, a modulus / norm column-only ones. *)
+blockFor["Text", BoxData[GridBox[rows_List, ___,
+    GridBoxDividers -> {___, "Rows" -> {{True}}, ___}, ___]]] := gridTable[rows]
 
 (* Prose styles. *)
 blockFor["Text" | "Quote", c_] := tidy @ inlineMd[c]
@@ -822,21 +875,34 @@ blockFor["ExampleDelimiter", _] := "---"
 (* InlineFormula at block level (rare; normally inlined). *)
 blockFor["InlineFormula", c_] := "`" <> tidy @ inlineMd[c] <> "`"
 
-(* Display math: a "$$...$$" block builds to a DisplayFormula cell wrapping the math
-   in a centering PaneBox; unwrap it back to a "$$...$$" block (issue #40). *)
-blockFor["DisplayFormula", BoxData[PaneBox[b_, ___]]] := "$$" <> walkerMath[b] <> "$$"
-blockFor["DisplayFormula", BoxData[b_]] := "$$" <> walkerMath[b] <> "$$"
+(* Display math: a "$$...$$" block builds to a display-formula cell wrapping the
+   math in a centering PaneBox - "DisplayFormula" on doc pages, the SolvedExample /
+   ProofTheorem sub-styles inside a Chapter's book divs. All unwrap back to a
+   "$$...$$" block. *)
+blockFor[("DisplayFormula" | "SolvedExampleDisplayFormula" |
+    "SolvedExampleDisplayFormulaNumbered" | "ProofTheoremDisplayFormula"),
+    BoxData[PaneBox[b_, ___]]] := "$$" <> walkerMath[b] <> "$$"
+blockFor[("DisplayFormula" | "SolvedExampleDisplayFormula" |
+    "SolvedExampleDisplayFormulaNumbered" | "ProofTheoremDisplayFormula"),
+    BoxData[b_]] := "$$" <> walkerMath[b] <> "$$"
 
 (* Chapter (Wolfram Book Tools) reserved back-matter sections: the H2 heading cell
-   and its list / note content round-trip back to "## Title" + items (issue #50). *)
+   and its list / note content round-trip back to "## Title" + items. The Resources
+   H2 builds as "ResourcesSubsection" despite the name; an "Exercise" cell is one
+   numbered exercise; "MoreExplore" carries a bullet, "MoreExploreShortURL" and the
+   *Text bodies are prose - each rebuilds under its reserved "## Title" section. *)
 blockFor[("SummarySection" | "VocabularySection" | "KeyConceptsSection" |
     "ExerciseSection" | "QASection" | "TechNoteSection" | "MoreExploreSection" |
-    "ReferenceSection" | "ResourcesSection" | "TakeawaysSection"), c_] := "## " <> sectionTitle[c]
+    "ReferenceSection" | "ResourcesSection" | "ResourcesSubsection" |
+    "TakeawaysSection"), c_] := "## " <> sectionTitle[c]
 blockFor["VocabularySubsection", c_] := "### " <> sectionTitle[c]
-blockFor[("SummaryList" | "Reference" | "TechNoteItem" | "MoreExploreItem" |
-    "ResourceItem" | "TakeawaysList" | "KeyConceptsList"), c_] := "- " <> tidy @ inlineMd[c]
+blockFor[("SummaryList" | "Reference" | "TechNoteItem" | "MoreExplore" |
+    "MoreExploreItem" | "ResourceItem" | "TakeawaysList" | "KeyConceptsList"),
+    c_] := "- " <> tidy @ inlineMd[c]
+blockFor["Exercise", c_] := "1. " <> tidy @ inlineMd[c]
 blockFor[("SummaryNote" | "VocabularyText" | "ExerciseNote" | "ExerciseSectionNote" |
-    "TechNote" | "QANote"), c_] := tidy @ inlineMd[c]
+    "TechNote" | "QANote" | "MoreExploreShortURL" | "ResourcesText" |
+    "TakeawaysText"), c_] := tidy @ inlineMd[c]
 
 (* === Guide-page body (the inverse of MarkdownToNotebook's guideNotebook) ===
    The title / categorization / keywords / related guides live in the frontmatter;
@@ -846,12 +912,45 @@ blockFor[("SummaryNote" | "VocabularyText" | "ExerciseNote" | "ExerciseSectionNo
    back in, so there is nothing to mark. *)
 guideChipMd[TemplateBox[{lbl_, _String, ___}, _, ___]] :=
     "`" <> FirstCase[{lbl}, s_String :> s, "", Infinity] <> "`"
-guideItemPart[Cell[BoxData[tb_TemplateBox], "InlineGuideFunction", ___]] := guideChipMd[tb]
+(* "InlineGuideFunction" is the palette's chip style; a built / shipped guide
+   carries the same {label, uri} TemplateBox under "InlineFunctionSans". *)
+guideItemPart[Cell[BoxData[tb_TemplateBox], "InlineGuideFunction" | "InlineFunctionSans", ___]] := guideChipMd[tb]
 (* a navigation ButtonBox (a "## Guides" index entry) -> a markdown link *)
 guideItemPart[Cell[BoxData[ButtonBox[l_String, ___, ButtonData -> u_String, ___]], "InlineFormula", ___]] :=
     "[" <> l <> "](" <> u <> ")"
 guideItemPart[s_String] /; StringTrim[s] === "\[LongDash]" := " "
-guideItemPart[s_String] := s
+(* A guide description embeds inline math as front-end linear syntax INSIDE the
+   string: the base glyph is ordinary text, immediately followed by a script box
+   whose own base slot is EMPTY. normStr drops the linear-syntax PUA markers and
+   leaves the literal script head ("SubscriptBox[, 01]"); each such script then
+   merges with the single preceding atom into one "$...$" span. cleanStr cannot
+   do this: its base matcher needs a non-empty base, and on a string with two
+   scripts it mis-slices across them, so the empty-base rules run first here.
+   guideTeXAtom trims the trailing space $mathTeX puts after a command name. *)
+guideTeXAtom[a_String] := StringTrim @ StringReplace[a, Normal @ $mathTeX]
+$guideEmptyBaseScripts = {
+    a : Except[WhitespaceCharacter] ~~ "SubsuperscriptBox[, " ~~
+            b : Except["," | "]"] .. ~~ ", " ~~ c : Except["]"] .. ~~ "]" :>
+        "$" <> guideTeXAtom[a] <> "_{" <> guideTeXAtom[b] <> "}^{" <> guideTeXAtom[c] <> "}$",
+    a : Except[WhitespaceCharacter] ~~ "SubscriptBox[, " ~~ b : Except["]"] .. ~~ "]" :>
+        "$" <> guideTeXAtom[a] <> "_{" <> guideTeXAtom[b] <> "}$",
+    a : Except[WhitespaceCharacter] ~~ "SuperscriptBox[, " ~~ b : Except["]"] .. ~~ "]" :>
+        "$" <> guideTeXAtom[a] <> "^{" <> guideTeXAtom[b] <> "}$"
+}
+(* a math LETTER the serializer can express: Greek, letterlike, or the
+   Mathematical Alphanumeric block, and only with a $mathTeX mapping. Operators
+   and the ellipsis stay prose (wrapping those would turn a listing tail "..."
+   or an arrow into a spurious math span), as does a letterlike glyph with no
+   TeX command (the trademark sign shares the letterlike block). *)
+guideMathLetterQ[ch_String] := KeyExistsQ[$mathTeX, ch] &&
+    With[{n = First @ ToCharacterCode[ch]},
+        880 <= n <= 1023 || 8448 <= n <= 8527 || 119808 <= n <= 120831]
+(* the empty-base merge, then a wrap of any math letter still standing alone;
+   the spans already emitted are pure-ASCII TeX, out of the letter pass's reach *)
+guideMathStr[s_String] := StringReplace[
+    StringReplace[normStr[s], $guideEmptyBaseScripts],
+    g : (_?guideMathLetterQ) .. :> "$" <> guideTeXAtom[g] <> "$"]
+guideItemPart[s_String] := guideMathStr[s]
 guideItemPart[other_] := inlineMd[other]
 guideItemMd[TextData[xs_List]] := StringReplace[tidy @ StringJoin[guideItemPart /@ xs], " ," -> ","]
 guideItemMd[TextData[x_]] := guideItemMd[TextData[{x}]]
@@ -860,6 +959,9 @@ guideItemMd[other_] := tidy @ inlineMd[other]
 blockFor["GuideTitle", _] := ""                       (* the frontmatter Title *)
 blockFor["GuideAbstract", c_] := "## Abstract\n\n" <> tidy @ inlineMd[c]
 blockFor["GuideFunctionsSection", _] := "## Functions"
+(* the OrangeLink label with the template's decorative trailing chevron trimmed *)
+orangeLinkLabel[lbl_] := StringTrim @ StringReplace[cellPlain[lbl],
+    WhitespaceCharacter ... ~~ "\[RightGuillemet]" ~~ EndOfString -> ""]
 blockFor["GuideFunctionsSubsection", c_] := Which[
     (* the "Guides" divider heads the sub-guide index *)
     cellPlain[c] === "Guides", "## Guides",
@@ -867,11 +969,25 @@ blockFor["GuideFunctionsSubsection", c_] := Which[
     MatchQ[c, BoxData[ButtonBox[_String, ___, ButtonData -> _String, ___]]],
         Replace[c, BoxData[ButtonBox[l_String, ___, ButtonData -> u_String, ___]] :>
             "### [" <> l <> "](" <> u <> ")"],
+    (* a hub guide heads each sub-guide block with an OrangeLink chip - a
+       {label, uri} TemplateBox. It walks back to the same whole-heading link
+       form, which the forward path rebuilds as the registering ButtonBox. *)
+    MatchQ[c, BoxData[TemplateBox[{_, _String, ___}, "OrangeLink", ___]]],
+        Replace[c, BoxData[TemplateBox[{lbl_, u_String, ___}, "OrangeLink", ___]] :>
+            "### [" <> orangeLinkLabel[lbl] <> "](" <> u <> ")"],
     True, "### " <> cellPlain[c]
 ]
 blockFor["GuideText", c_] := "- " <> guideItemMd[c]
 blockFor["GuideDelimiter", _] := "---"
 blockFor["GuideTOCLink", c_] := "- " <> guideItemMd[c]
+(* the compact related-function row: link chips on one line, joined by
+   InlineSeparator bullets. It walks back as ONE list item with a literal
+   bullet between the chips, keeping the "- " item form instead of demoting
+   to the prose fallback (which leaks the separator's spacing glyphs). *)
+blockFor["InlineGuideFunctionListing", c_] := "- " <> guideItemMd[c /. {
+    StyleBox[_, "InlineSeparator", ___] :> " \[FilledVerySmallSquare] ",
+    Cell[_, "InlineSeparator", ___] :> " \[FilledVerySmallSquare] ",
+    "\[NonBreakingSpace]" -> " "}]
 
 (* Drop known-decoration / evaluation / metadata styles. *)
 blockFor[s_String, _] /; MemberQ[$dropStyles, s] := ""
@@ -912,6 +1028,15 @@ linkNames[nb_, style_] := Cases[
 guideIds[nb_, style_] := Cases[
     FirstCase[nb, Cell[td_, style, ___] :> td, TextData[{}], Infinity],
     ButtonBox[_, ___, ButtonData -> d_String, ___] :> Last[StringSplit[d, "/"]], Infinity]
+(* tech-note links, one "Tutorials" cell per note: the target page name from the
+   ButtonData, written "[Label](Name)" when the displayed title differs from it
+   (a note's title routinely carries spaces its page name drops) *)
+techNoteIds[nb_, style_] := DeleteDuplicates @ Flatten @ Cases[nb,
+    Cell[td_, style, ___] :> Cases[{td},
+        ButtonBox[lbl_String, ___, ButtonData -> d_String, ___] :>
+            With[{n = Last[StringSplit[d, "/"]]},
+                If[lbl === n, n, "[" <> lbl <> "](" <> n <> ")"]], Infinity],
+    Infinity]
 keywordList[nb_] := Flatten @ Cases[nb, Cell[c_, "Keywords", ___] :> Cases[{c}, _String, Infinity], Infinity]
 
 (* Symbol-page templates carry an ObjectName cell (the function name) and a
@@ -1272,7 +1397,7 @@ subtypeFrontmatter[nb_] := Module[{md = docMetaOf[nb], tmpl, name, humanTitle, e
     ]
 ]
 
-frontmatter[nb_, name_] := Module[{cat, paclet, ctx, uri, kw, sa, rg, res},
+frontmatter[nb_, name_] := Module[{cat, paclet, ctx, uri, kw, sa, rg, rt, res},
     res = guideFrontmatter[nb];
     If[res =!= "", Return[res]];
     res = resourceFrontmatter[nb];
@@ -1296,6 +1421,7 @@ frontmatter[nb_, name_] := Module[{cat, paclet, ctx, uri, kw, sa, rg, res},
             TemplateBox[{Cell[TextData[n_String]], _String, ___}, _, ___] :> n, Infinity],
         linkNames[nb, "SeeAlso"]];
     rg = guideIds[nb, "MoreAbout"];
+    rt = techNoteIds[nb, "Tutorials"];
     StringJoin[
         "---\n",
         "Template: Symbol\n",
@@ -1305,6 +1431,7 @@ frontmatter[nb_, name_] := Module[{cat, paclet, ctx, uri, kw, sa, rg, res},
         "URI: ", uri, "\n",
         "Keywords: [", StringRiffle[kw, ", "], "]\n",
         "SeeAlso: [", StringRiffle[sa, ", "], "]\n",
+        If[rt === {}, "", "RelatedTutorials: [" <> StringRiffle[rt, ", "] <> "]\n"],
         "RelatedGuides: [", StringRiffle[rg, ", "], "]\n",
         "---\n\n"
     ]

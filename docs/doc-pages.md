@@ -212,11 +212,14 @@ WCAGContrastRatio[Black, White]
 | `# Name` / `Name:` | New Function Page | `ObjectName` |
 | `## Usage` line, leading `` `Call[a,b]` `` | Double Usage Line | `Usage` cell: `ModInfo` + linked-call `InlineFormula` + description |
 | `## Details & Options` prose | Details & Options / Note | `Notes` |
+| `## Background & Context` prose | Function Essay section | `FunctionEssay` cells in a top-level `FunctionEssaySection` group (the built page's Background section, placed below Details by DocumentationBuild) |
+| `###` heading inside Details | (groups the notes after it) | `NotesSubsection` |
 | `## Basic Examples` + `wl` cells | Insert Text + Input | `PrimaryExamplesSection`, `ExampleText`, `Input`/`Output` |
 | `Context:` | (load paclet) | `ExamplesInitializationSection` -> `Needs["Context`"]` |
 | `ContextPath: [..]` | (load extra paclets) | one extra `Needs["…`"]` per entry in the same `ExampleInitialization` cell (and on the build-time eval path) |
 | `SeeAlso: [..]` | Links ▸ Link to Function Page | `SeeAlsoSection` with `paclet:Pub/Name/ref/X` links |
 | `RelatedGuides: [..]` | Links ▸ Link to Guide | `MoreAboutSection` |
+| `RelatedTutorials: [..]` | Links ▸ Link to Tech Note | `TechNotesSection`; an entry may be `[Label](Name)` when the note's displayed title differs from its page name |
 | `URI:` / `Keywords:` | Metadata / Keywords sections | build metadata + `Keywords` |
 
 Examples are evaluated (cached) and spliced as `Output` cells. The first `wl`
@@ -226,10 +229,12 @@ on conversion, so they document the source without affecting the build.
 
 A Symbol page has **no** `Description:` field. Unlike a Guide, the function
 summary comes from the `## Usage` line, so frontmatter carries only metadata
-(`Name`, `Context`, `Paclet`, `URI`, `Keywords`, `SeeAlso`, `RelatedGuides`).
+(`Name`, `Context`, `Paclet`, `URI`, `Keywords`, `SeeAlso`, `RelatedTutorials`,
+`RelatedGuides`).
 
 Extended example sections (`## Scope`, `## Options`, `## Applications`,
-`## Properties and Relations`, `## Possible Issues`, `## Neat Examples`) are
+`## Properties and Relations`, `## Possible Issues`, `## Interactive Examples`,
+`## Neat Examples`) are
 populated under the "More Examples" group: each maps to its `ExampleSection`
 title (an `InterpretationBox` counter cell that resets the `In[]`/`Out[]`
 numbering), wrapped in a `CellGroupData` with the section's prose, examples and

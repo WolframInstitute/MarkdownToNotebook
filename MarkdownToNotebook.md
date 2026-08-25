@@ -1000,6 +1000,35 @@ VerificationTest[
 ]
 ```
 
+A script on a `\|…\|` norm hangs on the *closing bar glyph* itself - `\|` is a bare atom, so the parser has no matchfix span to carry the script - and a pair whose closer is a `SuperscriptBox` / `SubscriptBox` is not a bare pair. Such a pair is promoted too, with the script lifted onto the promoted norm, so `$\||\psi\rangle\|^2$` draws the full-height rule squared; a scripted operand beside a genuine `\parallel` relation keeps its plain glyph (issue #74):
+
+```wl
+VerificationTest[
+    With[{bars = GridBoxDividers -> {"Columns" -> {True, True}, ___}},
+        {Count[MarkdownToNotebook["$\\||\\psi\\rangle\\|^2$", "Evaluate" -> False], bars, Infinity],
+         ! FreeQ[MarkdownToNotebook["$\\||\\psi\\rangle\\|^2$", "Evaluate" -> False], SuperscriptBox[_GridBox, "2"]],
+         ! FreeQ[MarkdownToNotebook["$\\||\\psi\\rangle\\|_2$", "Evaluate" -> False], SubscriptBox[_GridBox, "2"]],
+         FreeQ[MarkdownToNotebook["$a \\parallel b^2$", "Evaluate" -> False], bars]}],
+    {2, True, True, True},
+    TestID -> "norm-squared \\|..\\|^2 / \\|..\\|_2 keeps the full-height rule with the script lifted onto it (issue #74)"
+]
+```
+
+A ket / bra written with explicit sizing delimiters (`\left|..\right\rangle`, `\left\langle..\right|`) is a *mismatched* pair - an extensible bracketing bar against an angle bracket - that no matched-bar rule catches; it folds to the same `Ket` / `Bra` template as the bare `|..\rangle` form, whose bar is a clean non-extensible glyph. An outer product `\left|e\right\rangle\left\langle g\right|` splits its bar pair across the two factors and folds to a Ket then a Bra, not a modulus (issue #85):
+
+```wl
+VerificationTest[
+    {! FreeQ[MarkdownToNotebook["$\\left|e\\right\\rangle$", "Evaluate" -> False], TemplateBox[_, "Ket"]],
+     ! FreeQ[MarkdownToNotebook["$\\left\\langle e\\right|$", "Evaluate" -> False], TemplateBox[_, "Bra"]],
+     FreeQ[MarkdownToNotebook["$\\left|\\hat\\sigma_z = \\pm 1\\right\\rangle$", "Evaluate" -> False],
+         "\[LeftBracketingBar]" | "\[RightBracketingBar]"],
+     Cases[MarkdownToNotebook["$\\left|e\\right\\rangle\\left\\langle g\\right|$", "Evaluate" -> False],
+         TemplateBox[_, t : "Ket" | "Bra"] :> t, Infinity]},
+    {True, True, True, {"Ket", "Bra"}},
+    TestID -> "explicit \\left|..\\right\\rangle / \\left\\langle..\\right| folds to Ket / Bra; outer product is not a modulus (issue #85)"
+]
+```
+
 Dirac notation whose content is wrapped in braces (`\langle{\phi}|{\psi}\rangle`) keeps that content: the parser's standalone-fence commands re-emit a following `{group}` instead of dropping it, so a braced bra/ket/braket folds into its template just like the unbraced form (issue #49, WolframParser fix):
 
 ```wl
@@ -1045,6 +1074,85 @@ VerificationTest[
     ],
     True,
     TestID -> "doc-page autolink still uses the typed paclet RefLink (issue #20)"
+]
+```
+
+A `## Interactive Examples` section on a Symbol page fills the template's "Interactive Examples" `ExampleSection` - it is a standard extended-examples slot the Symbol template ships, so the authored content lands under that scaffold heading (issue #82, the same missing-key class as #4 / #12):
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook["---\nTemplate: Symbol\nName: Foo\nContext: P`Q`\nPaclet: P/Q\nURI: P/Q/ref/Foo\n---\n\n## Usage\n\n`Foo[x]` does.\n\n## Interactive Examples\n\nTry it:\n\n```wl\n#| eval: false\nManipulate[Foo[n], {n, 0, 1}]\n```\n", "Evaluate" -> False]},
+        ! FreeQ[
+            FirstCase[nb,
+                Cell[CellGroupData[{sec_ /; ! FreeQ[sec, "Interactive Examples"], rest___}, Open], ___] :> {rest},
+                {}, Infinity],
+            "Manipulate"]],
+    True,
+    TestID -> "Interactive Examples fills the Symbol template's ExampleSection (issue #82)"
+]
+```
+
+A `## Background & Context` section on a Symbol page becomes `FunctionEssay` cells under a TOP-LEVEL "Function Essay" `FunctionEssaySection` group - the one shape DocumentationBuild extracts for the built page's Background section; essay cells nested inside the ObjectName group parse cleanly but never reach the built page (issue #86):
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook["---\nTemplate: Symbol\nName: Foo\nContext: Global`\nPaclet: Test/Pack\nURI: Test/Pack/ref/Foo\n---\n\n## Usage\n\n`Foo[x]` does a thing.\n\n## Background & Context\n\nFirst paragraph.\n\nSecond paragraph.", "Evaluate" -> False]},
+        {
+            Length @ Cases[nb, Cell[_, "FunctionEssay", ___], Infinity],
+            MemberQ[First[nb], Cell[CellGroupData[{Cell[_, "FunctionEssaySection", ___], ___}, ___], ___]]
+        }
+    ],
+    {2, True},
+    TestID -> "Background & Context becomes a top-level FunctionEssaySection group (issue #86)"
+]
+```
+
+A `###` heading inside `## Details` / `## Details & Options` groups the notes that follow it, the way long WFR Details sections and ref-page notes are grouped. It becomes a `Subsubsection` cell in a resource definition notebook (the level under the section's `Subsection` header, which the WFR scraper passes through) and a `NotesSubsection` cell on a Symbol page (the ref-page grouping style DocumentationBuild renders; issue #77):
+
+```wl
+VerificationTest[
+    {
+        FirstCase[
+            MarkdownToNotebook["---\nTemplate: FunctionResource\nName: TinyFn\nDescription: d\n---\n\n## Definition\n\n```wl\nTinyFn[x_] := x\n```\n\n## Details\n\n- A note.\n\n### Grouped notes\n\n- Another note.\n", "Evaluate" -> False],
+            Cell[c_ /; ! FreeQ[c, "Grouped notes"], style_String, ___] :> style, Missing["dropped"], Infinity],
+        FirstCase[
+            MarkdownToNotebook["---\nTemplate: Symbol\nName: TinyFn\nContext: Tiny`\n---\n\n## Usage\n\n`TinyFn[x]` gives x.\n\n## Details\n\n- A note.\n\n### Grouped notes\n\n- Another note.\n", "Evaluate" -> False],
+            Cell[c_ /; ! FreeQ[c, "Grouped notes"], style_String, ___] :> style, Missing["dropped"], Infinity]
+    },
+    {"Subsubsection", "NotesSubsection"},
+    TestID -> "nested Details heading groups notes: Subsubsection (resource) / NotesSubsection (Symbol page) (issue #77)"
+]
+```
+
+A `Template: Chapter` document without a `ChapterNumber:` key (unnumbered front / back matter such as a Preface) gets a plain title-only Section heading - no `CounterBox`, no SectionBar separator, no `CounterAssignments` - while a numbered chapter keeps the canonical `<counter> | <title>` banner:
+
+```wl
+VerificationTest[
+    With[{
+        plain = MarkdownToNotebook["---\nTemplate: Chapter\nName: Preface\n---\n\n# Preface\n\nText.\n", "Evaluate" -> False],
+        numbered = MarkdownToNotebook["---\nTemplate: Chapter\nName: Real\nChapterNumber: 3\n---\n\n# Real\n\nText.\n", "Evaluate" -> False]
+    },
+        {FirstCase[plain, Cell[t_, "Section", ___] :> t, Missing[], Infinity],
+         FreeQ[plain, CounterBox] && FreeQ[plain, CounterAssignments],
+         MatchQ[FirstCase[numbered, Cell[t_, "Section", ___] :> t, Missing[], Infinity],
+             TextData[{CounterBox["Section"], StyleBox[" | ", "SectionBar"], __}]]}
+    ],
+    {"Preface", True, True},
+    TestID -> "Chapter template: missing ChapterNumber gives a plain Section heading, a number keeps the CounterBox form"
+]
+```
+
+Inside a `Template: Chapter` build the `#|` cell directives (`#| style:`, `#| tags:`, `#| annotation:`) land on the produced book cells the same way they do in a Default build - on free-form intro prose and inside a reserved back-matter section alike:
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook[
+        "---\nTemplate: Chapter\nName: Tiny\n---\n\n# Tiny\n\n#| style: SmallText\nCopyright line.\n\n## Summary\n\n#| tags: keep\n- First point.\n",
+        "Evaluate" -> False]},
+        {! FreeQ[nb, Cell[_, "SmallText", ___]],
+         Cases[nb, (CellTags -> t_) :> t, Infinity]}],
+    {True, {{"keep"}}},
+    TestID -> "Chapter template: #| style / #| tags directives land on book cells, free-form and reserved-section alike"
 ]
 ```
 

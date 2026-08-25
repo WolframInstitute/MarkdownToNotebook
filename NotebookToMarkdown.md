@@ -158,6 +158,37 @@ VerificationTest[
 ]
 ```
 
+In code the same glyphs are meaning-bearing tokens, so `boxToCode` maps each one to its ASCII `\[Name]` long-name escape instead of the prose letter: the escape re-parses to the original constant / `BracketingBar` operator, where the letters change the meaning (`2+3i` is a product with the symbol `i`, not a complex number, and `|x|` is `Alternatives` - in fact a top-level syntax error) (regression: `boxToCode` ran every token through the prose `normStr` alone, so recovered code spans came back as `2+3i` and `|x|`):
+
+```wl
+VerificationTest[
+    {
+        boxToCode["\[ImaginaryI]"],
+        boxToCode[RowBox[{"2", "+", "3", "\[ImaginaryI]"}]],
+        boxToCode["\[ExponentialE]"],
+        boxToCode["\[ImaginaryJ]"],
+        boxToCode["\[DifferentialD]"],
+        boxToCode["\[CapitalDifferentialD]"],
+        boxToCode[RowBox[{"\[LeftBracketingBar]", "x", "\[RightBracketingBar]"}]]
+    },
+    {"\\[ImaginaryI]", "2+3\\[ImaginaryI]", "\\[ExponentialE]", "\\[ImaginaryJ]",
+     "\\[DifferentialD]", "\\[CapitalDifferentialD]",
+     "\\[LeftBracketingBar]x\\[RightBracketingBar]"},
+    TestID -> "boxToCode: constant glyphs and bracketing bars -> long-name escapes"
+]
+```
+
+```wl
+VerificationTest[
+    {
+        ToExpression[boxToCode[RowBox[{"2", "+", "3", "\[ImaginaryI]"}]], InputForm, HoldForm],
+        ToExpression[boxToCode[RowBox[{"\[LeftBracketingBar]", "x", "\[RightBracketingBar]"}]], InputForm, HoldForm]
+    },
+    {HoldForm[2 + 3 I], HoldForm[BracketingBar[x]]},
+    TestID -> "boxToCode: recovered code re-parses to the original expression"
+]
+```
+
 The left "spec" column of a doc table is the literal thing you type, so a subscript-free call-form (`"Graph"[g]`) renders as inline code just like a bare-string entry (`"Bell"`) - no mix of code-styled pill and plain text. A code span cannot hold a 2D subscript, though: a subscript-bearing spec (`"Multiplexer"[op_1,op_2,…]`) is rendered as a signature with canonical `$op_{1}$` math instead, which shows a real subscript and round-trips back to the `SubscriptBox` (backticking it would linearize `op_1` to the literal text `Subscript[op, 1]`):
 
 ```wl
@@ -310,5 +341,86 @@ VerificationTest[
         StringMatchQ[blockFor["Input", BoxData[ToBoxes[Graphics[{Disk[]}]]]], "![](" ~~ ___ ~~ ".png)"]],
     True,
     TestID -> "authored figure in Input cell -> image, not dropped (issue #34)"
+]
+```
+
+An `Iconize` icon in a code cell is an `InterpretationBox` whose display tree is front-end decoration (a `DynamicModuleBox` around an `"IconizedObject"` `TemplateBox`); its real content is the held expression in the interpretation slot. The walker used to unwrap to the display tree and dump `DynamicModuleBox[...]` box noise into the fence; it now emits the stored interpretation's `InputForm` text, and a held `Sequence` of several iconized expressions emits comma-separated (issue #72):
+
+```wl
+VerificationTest[
+    {boxToCode[RowBox[{"Animate", "[", "x", ",",
+        InterpretationBox[
+            DynamicModuleBox[{Typeset`open = False},
+                TemplateBox[{"Expression", "SequenceIcon", Dynamic[Typeset`open]}, "IconizedObject"]],
+            Sequence[SaveDefinitions -> True, AnimationRunning -> False],
+            SelectWithContents -> True, Editable -> False], "]"}]],
+     StringContainsQ[
+        NotebookToMarkdown @ Notebook[{Cell[BoxData[ToBoxes[Iconize[Range[10]]]], "Input"]}],
+        "{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}"]},
+    {"Animate[x,SaveDefinitions -> True, AnimationRunning -> False]", True},
+    TestID -> "Iconize icon -> stored interpretation, Sequence comma-riffled (issue #72)"
+]
+```
+
+A BookToolsStyles `InlineMath` cell is a `$math$` span by style alone: the book stylesheet sizes inline math itself, so the cell is a bare `Cell[BoxData[boxes], "InlineMath"]` with no `FormBox` or `FontSize` marker. The walker emits it as math unconditionally - no content gate applies, so a bare single TI letter stays `$u$` instead of demoting to a code span (issue #70):
+
+```wl
+VerificationTest[
+    NotebookToMarkdown @ Notebook[{
+        Cell[TextData[{"math ", Cell[BoxData[StyleBox["u", "TI"]], "InlineMath"],
+            " and ", Cell[BoxData[RowBox[{StyleBox["c", "TI"], StyleBox["z", "TI"]}]], "InlineMath"],
+            " end"}], "Text"]}],
+    "math $u$ and $cz$ end\n",
+    TestID -> "chapter inline: InlineMath cells walk back to $math$ unconditionally"
+]
+```
+
+A `Template: Chapter` build's reserved back-matter sections walk back to the exact markdown that builds them: the `Resources` H2 is a `ResourcesSubsection` cell, an `Exercise` is one numbered item, a `MoreExplore` bullet keeps its `- `, and the `ResourcesText` / `TakeawaysText` prose bodies are known styles, so no `#| style:` directive leaks (issues #50, #78):
+
+```wl
+VerificationTest[
+    Block[{md = NotebookToMarkdown @ MarkdownToNotebook[
+        "---\nTemplate: Chapter\nName: Tiny\n---\n\n# Tiny\n\n## Summary\n\nA summary line.\n\n- First point.\n\n## Exercises\n\n1. Do the thing.\n\n## More to Explore\n\n- An entry to explore.\n\n## Resources\n\nA resources line.\n\n## Takeaways\n\nA takeaway line.\n\n## References\n\n- Ref one.\n",
+        "Evaluate" -> False]},
+        {StringContainsQ[md, "## Summary\n\nA summary line.\n\n- First point."],
+         StringContainsQ[md, "## Exercises\n\n1. Do the thing."],
+         StringContainsQ[md, "## More to Explore\n\n- An entry to explore."],
+         StringContainsQ[md, "## Resources\n\nA resources line."],
+         StringContainsQ[md, "## Takeaways\n\nA takeaway line."],
+         StringContainsQ[md, "## References\n\n- Ref one."],
+         StringContainsQ[md, "#| style:"]}],
+    {True, True, True, True, True, True, False},
+    TestID -> "chapter back matter: ## Summary / ## References round-trip (issue #50)"
+]
+```
+
+A `$$...$$` block inside a `::: solved-example` / `::: proof` div builds as a `SolvedExampleDisplayFormula(Numbered)` / `ProofTheoremDisplayFormula` cell, the same centering-PaneBox shape as `DisplayFormula`; each unwraps back to a plain `$$...$$` block instead of dumping raw boxes into a `$...$` span (issue #78):
+
+```wl
+VerificationTest[
+    {blockFor["SolvedExampleDisplayFormula",
+        BoxData[PaneBox[RowBox[{SuperscriptBox[StyleBox["x", "TI"], "2"], "=", "4"}],
+            ImageSize -> Full, Alignment -> Center]]],
+     blockFor["ProofTheoremDisplayFormula",
+        BoxData[PaneBox[RowBox[{SuperscriptBox[StyleBox["x", "TI"], "2"], "=", "4"}],
+            ImageSize -> Full, Alignment -> Center]]],
+     blockFor["SolvedExampleDisplayFormulaNumbered", BoxData[SqrtBox["2"]]]},
+    {"$$x^{2}=4$$", "$$x^{2}=4$$", "$$\\sqrt{2}$$"},
+    TestID -> "book-genre display cells -> $$...$$ (Solved/ProofTheorem, no box dump)"
+]
+```
+
+A `NotesSubsection` cell (the ref-page style that groups notes inside the Details section) walks back to a `###` heading, behind the same `## Details & Options` header injection the first `Notes` cell gets (issue #77):
+
+```wl
+VerificationTest[
+    StringContainsQ[
+        NotebookToMarkdown[Notebook[{Cell["TinyFn", "ObjectName"],
+            Cell["A note.", "Notes"],
+            Cell["Grouped notes", "NotesSubsection"],
+            Cell["Another note.", "Notes"]}]],
+        "## Details & Options\n\n- A note.\n\n### Grouped notes\n\n- Another note."],
+    True,
+    TestID -> "NotesSubsection walks back to a ### heading inside Details & Options (issue #77)"
 ]
 ```

@@ -1348,12 +1348,13 @@ linkItemContent[item_String] := Block[{
    explicit CellID they share one (or, after cleanCell strips it, none). The ref-page
    scraper (ResourceSystemClient's validateHyperlinks -> itemCellContents) keys the link
    Item cells by CellID, so non-distinct IDs collapse the whole list to a single link.
-   Stamp each with a stable per-item CellID (Hash of the source markdown, so rebuilds are
-   idempotent) to keep every link distinct. *)
+   Stamp each with a stable per-item CellID (Hash of the source markdown, folded into
+   the signed 32-bit range Export "NB" writes, so rebuilds are idempotent) to keep
+   every link distinct. *)
 fillLinkCells[opts_, items_List] := Block[{def = slotDefault[opts], vals = DeleteCases[items, ""]},
     If[ def === {} || vals === {},
         def,
-        Map[Append[cleanCell @ ReplacePart[First[def], 1 -> linkItemContent[#]], CellID -> Hash[#]] &, vals]
+        Map[Append[cleanCell @ ReplacePart[First[def], 1 -> linkItemContent[#]], CellID -> Mod[Hash[#], 2^31 - 1] + 1] &, vals]
     ]
 ]
 
@@ -2173,13 +2174,20 @@ listItemCells[block_, base_String] := If[TrueQ[block["Ordered"]],
     ]
 ]
 
-detailsCells[sections_] := Catenate @ Map[
+(* headingStyle: the cell an interior "###" grouping heading becomes. A resource
+   definition notebook nests a Subsubsection under the "Details & Options"
+   Subsection header (the definition-template stylesheet defines it and the WFR
+   scraper passes it through); a Symbol source page uses "NotesSubsection", the
+   ref-page notes-grouping style the authoring stylesheet defines and
+   DocumentationBuild renders (an h5 heading in web output). *)
+detailsCells[sections_, headingStyle_String : "Subsubsection"] := Catenate @ Map[
     block |-> applyBlockMeta[Switch[block["Type"],
         "Prose", {Cell[TextData @ inlineTextData[block["Text"]], "Notes"]},
         "List", listItemCells[block, "Notes"],
         "Table", {tableCell[block]},
         "Quote", {quoteCell[block["Text"]]},
         "MathBlock", {mathBlockCell[block["Text"]]},
+        "Heading", {Cell[headingText[block["Text"]], headingStyle]},
         _, {}
     ], block],
     (* The Notes slot is filled from the "Details" section. Accept both headings
@@ -2195,6 +2203,36 @@ detailsCells[sections_] := Catenate @ Map[
 
 notesSlot[opts_, sections_] := With[{cells = detailsCells[sections]},
     If[cells === {}, slotDefault[opts], cells]
+]
+
+(* the "## Background & Context" section as FunctionEssay cells - the same block
+   roster detailsCells accepts, restyled for the essay. Both heading forms are
+   looked up ("Background & Context" is stored under "background and context" by
+   sectionKey; "Background" alone also counts). *)
+functionEssayCells[sections_] := Catenate @ Map[
+    block |-> applyBlockMeta[Switch[block["Type"],
+        "Prose", {Cell[TextData @ inlineTextData[block["Text"]], "FunctionEssay"]},
+        "List", listItemCells[block, "FunctionEssay"],
+        "Table", {tableCell[block]},
+        "Quote", {quoteCell[block["Text"]]},
+        "MathBlock", {mathBlockCell[block["Text"]]},
+        _, {}
+    ], block],
+    Join @@ Lookup[sections, sectionKey /@ {"Background & Context", "Background"}, {}]
+]
+
+(* the essay as a TOP-LEVEL "Function Essay" section group, the one shape
+   DocumentationBuild's MakeNotebook extracts (a FunctionEssaySection-headed
+   group holding a run of FunctionEssay cells). Essay cells nested inside the
+   ObjectName/Usage/Notes group parse cleanly but never reach the built page. *)
+functionEssayGroup[sections_] := With[{cells = functionEssayCells[sections]},
+    If[ cells === {},
+        {},
+        {Cell[CellGroupData[
+            Prepend[cells,
+                Cell["Function Essay", "FunctionEssaySection", CellTags -> "FunctionEssaySection"]],
+            Open]]}
+    ]
 ]
 
 (* the landing-page hero image: a "## Hero Image" section's first executable cell
@@ -2664,6 +2702,23 @@ guideButtonCell[name_String, paclet_String, kind_String] := Cell[BoxData[
     ButtonBox[name, BaseStyle -> "Link", ButtonData -> "paclet:" <> linkURI[name, paclet, kind]]
 ], "InlineFormula"]
 
+(* a symbol page's Tech Notes entry: a plain ButtonBox directly in TextData.
+   DocumentationBuild's tech-note harvesters (GetTutorialsSectionList /
+   GetJoinedButtonCaptions) read only ButtonBoxes out of "Tutorials" cells, and
+   an InlineFormula wrap would render the note's prose title in code style. An
+   entry "[Label](Name)" shows Label and links the tech-note page Name; a bare
+   entry is both. *)
+techNoteContent[entry_String, paclet_String] := Block[{
+    m = StringCases[StringTrim[entry],
+        StartOfString ~~ "[" ~~ l : Shortest[Except["]"] ..] ~~ "](" ~~
+            n : Shortest[Except[")"] ..] ~~ ")" ~~ EndOfString :> {l, n}, 1],
+    label, name
+},
+    {label, name} = If[m === {}, {StringTrim[entry], StringTrim[entry]}, First[m]];
+    TextData[ButtonBox[label, BaseStyle -> "Link",
+        ButtonData -> "paclet:" <> linkURI[name, paclet, "tutorial"]]]
+]
+
 (* a See Also / Related Symbols entry written as ResourceFunction["Name"] is a
    Wolfram Function Repository function, not a paclet symbol: it has no paclet
    ref page, so a paclet:.../ref/ResourceFunction[...] target is dead. Detect it
@@ -2997,19 +3052,30 @@ applyMathFont[boxes_] := Which[
    a bare | arrives as a bare glyph, or SpanMinSize -> r when sized to a tall
    argument, so accept all three wrapper forms. Safe because only a genuine modulus
    yields a balanced open(U+F603)+close(U+F604) pair - a conditional P(a|b) is an
-   ASCII "|", a bra/ket bar is already absorbed into a Ket/BraKet template - so
-   keying on the pair catches exactly the moduli. *)
+   ASCII "|", a bra/ket bar is absorbed into a Ket / Bra / BraKet template (bare
+   forms by the parser, \left..\right forms by the ket / bra rules below, tried
+   first) - so keying on the pair catches exactly the moduli. *)
 $openBar   = "\[LeftBracketingBar]"        | StyleBox["\[LeftBracketingBar]", ___]
 $closeBar  = "\[RightBracketingBar]"       | StyleBox["\[RightBracketingBar]", ___]
 $openDBar  = "\[LeftDoubleBracketingBar]"  | StyleBox["\[LeftDoubleBracketingBar]", ___]
 $closeDBar = "\[RightDoubleBracketingBar]" | StyleBox["\[RightDoubleBracketingBar]", ___]
+(* A ket / bra spelled with explicit sizing delimiters (\left|..\right\rangle,
+   \left\langle..\right|) parses as a MISMATCHED pair: an extensible bracketing bar
+   against an angle bracket, folded into no template. The bracketing bar is built
+   from pieces past one line height (mid-height seam), so the pair is promoted to
+   the same Ket / Bra TemplateBox the bare |..\rangle form gets. The pairing is
+   unambiguous: a modulus is a matched bar pair and a conditional bar is ASCII "|",
+   so a bracketing bar closed by an angle bracket (or the mirror) occurs only in a
+   ket / bra. *)
+$braOpen  = "\[LeftAngleBracket]"  | StyleBox["\[LeftAngleBracket]", ___]
+$ketClose = "\[RightAngleBracket]" | StyleBox["\[RightAngleBracket]", ___]
 $barSpacer = " " | "\[ThinSpace]" | "\[VeryThinSpace]" | "\[MediumSpace]" | "\[NegativeThinSpace]" | "\[NegativeVeryThinSpace]" | FromCharacterCode[16^^200A]
 barContent[parts_List] := With[{c = DeleteCases[parts, $barSpacer]},
     Which[c === {}, "", Length[c] === 1, First[c], True, RowBox[c]]]
 
 (* A norm whose bars never became the PUA bracketing pair - a bare \[DoubleVerticalBar]
    (U+2225, which is ALSO how \parallel is spelled) or a SpanMaxSize -> 1 pinned bar - slips
-   past the two rules below, so around a TALL argument (a ket taller than a text line) the
+   past the pair rules below, so around a TALL argument (a ket taller than a text line) the
    relational glyph cannot stretch and renders as two one-line ticks (issue #64). Several TeX
    spellings converge on this shape (\|...\| has no matchfix production; a bare-bar ket poisons
    the \lVert..\rVert matchfix). Promote such a pair to Norm as well - barsToGrid then
@@ -3031,8 +3097,24 @@ templatizeBars[boxes_] := boxes //. {
     RowBox[{pre___, $bareDBar, mid : Except[$bareDBar] .., $bareDBar, post___}] /;
         tallArgQ[barContent[{mid}]] && normPairUnflankedQ[{pre}, {post}] :>
         RowBox[{pre, TemplateBox[{barContent[{mid}]}, "Norm"], post}],
+    (* \|...\|^2 hangs the script on the closing bar glyph itself (\| is a bare
+       atom, so no matchfix span exists to carry the script); the script is lifted
+       onto the promoted Norm. Same tall / unflanked guards as the bare pair. *)
+    RowBox[{pre___, $bareDBar, mid : Except[$bareDBar] ..,
+            (h : SuperscriptBox | SubscriptBox)[$bareDBar, s_], post___}] /;
+        tallArgQ[barContent[{mid}]] && normPairUnflankedQ[{pre}, {post}] :>
+        RowBox[{pre, h[TemplateBox[{barContent[{mid}]}, "Norm"], s], post}],
     RowBox[{pre___, $openDBar, mid : Except[$openDBar | $closeDBar] .., $closeDBar, post___}] :>
         RowBox[{pre, TemplateBox[{barContent[{mid}]}, "Norm"], post}],
+    (* Tried before the Abs rule: in an outer product |a><b| a ket and a spurious
+       modulus spanning the angle brackets both match at the opening bar, and the
+       first rule in the list wins. *)
+    RowBox[{pre___, $openBar, mid : Except[$openBar | $closeBar | $braOpen | $ketClose] ..,
+            $ketClose, post___}] :>
+        RowBox[{pre, TemplateBox[{barContent[{mid}]}, "Ket"], post}],
+    RowBox[{pre___, $braOpen, mid : Except[$openBar | $closeBar | $braOpen | $ketClose] ..,
+            $closeBar, post___}] :>
+        RowBox[{pre, TemplateBox[{barContent[{mid}]}, "Bra"], post}],
     RowBox[{pre___, $openBar, mid : Except[$openBar | $closeBar] .., $closeBar, post___}] :>
         RowBox[{pre, TemplateBox[{barContent[{mid}]}, "Abs"], post}]
 }
@@ -3467,10 +3549,10 @@ usageCell[rawUsage_String] := Block[{
    stylesheet defines 2ColumnTableMod / 3ColumnTableMod / ModInfo / TableText.
    The resource definition-notebook stylesheets (FunctionResource / Paclet /
    Example / Data / Prompt / Demonstration / LLMTool) do NOT define those
-   styles - rendering an *TableMod cell there leaks unstyled / wrong-looking
-   tables. For those templates we fall through to the generic GridBox path
-   with the TableNotes / Text cell wrapper that has always shipped. *)
-$tableModTemplates = {"Symbol", "Guide", "TechNote", "Overview", "Chapter", "BookChapter", "ComputationalEssay", "Essay", "Default",
+   styles, and neither does Default.nb - rendering an *TableMod cell there
+   leaks unstyled / wrong-looking tables. Those templates fall through to
+   the generic GridBox path, which carries its whole look inline. *)
+$tableModTemplates = {"Symbol", "Guide", "TechNote", "Overview", "Chapter", "BookChapter", "ComputationalEssay", "Essay",
     "Format", "ServiceConnection", "Device", "Interpreter", "Entity", "Character", "Message", "Program", "Workflow", "WorkflowGuide"}
 
 tableModStyleFor[2] /; MemberQ[$tableModTemplates, $docTemplate] := "2ColumnTableMod"
@@ -3497,11 +3579,25 @@ tableGridRow[cells_List, ncol_Integer, opts___] :=
 
 $tableCellStyleFor := If[resourceTemplateQ[], "TableNotes", "Text"]
 
+(* Scaled column widths for a table whose look no stylesheet supplies:
+   fractions of the text width, so cell contents wrap and the whole table
+   stays inside the page. A 2-column table splits evenly; a wider one gets
+   a narrow first (spec) column and splits the rest evenly. *)
+tableItemSize[ncol_Integer] := GridBoxItemSize -> {"Columns" -> Map[Scaled,
+    Which[
+        ncol <= 1, {0.9},
+        ncol == 2, {0.45, 0.45},
+        True, Prepend[ConstantArray[0.7 / (ncol - 1), ncol - 1], 0.2]
+    ]]}
+
 (* a pipe table renders as a *TableMod cell when the doc template's
    stylesheet defines them (paclet documentation pages, ncol = 2 or 3);
-   otherwise (resource definition notebooks, or wider tables) it falls
-   through to a generic GridBox with inline dividers and the
-   $tableCellStyleFor-picked outer cell style. *)
+   otherwise (resource definition notebooks, the Default template, or wider
+   tables) it falls through to a generic GridBox with inline options and
+   the $tableCellStyleFor-picked outer cell style. A resource stylesheet
+   styles its own TableNotes tables, so that path adds only row rules; the
+   "Text" path has no stylesheet support at all, so it draws the full cell
+   frame and sets Scaled column widths so cells wrap. *)
 tableCell[block_] := Block[{ncol = Length[block["Header"]], modStyle = tableModStyleFor[Length[block["Header"]]], rows},
     If[modStyle =!= None,
         rows = Join[
@@ -3516,7 +3612,11 @@ tableCell[block_] := Block[{ncol = Length[block["Header"]], modStyle = tableModS
         ];
         Cell[BoxData[GridBox[rows,
             GridBoxAlignment -> {"Columns" -> {{Left}}, "Rows" -> {{Baseline}}},
-            GridBoxDividers -> {"Columns" -> {{None}}, "Rows" -> {{True}}},
+            Sequence @@ If[resourceTemplateQ[],
+                {GridBoxDividers -> {"Columns" -> {{None}}, "Rows" -> {{True}}}},
+                {GridBoxDividers -> {"Columns" -> {{True}}, "Rows" -> {{True}}},
+                 tableItemSize[ncol]}
+            ],
             GridBoxSpacings -> {"Columns" -> {{1.5}}, "Rows" -> {{0.7}}}
         ]], $tableCellStyleFor]
     ]
@@ -3610,7 +3710,9 @@ setDocMetadata[Notebook[cells_, o : OptionsPattern[]], meta_, type_String] := Bl
     ]
 ]
 
-(* markdown example-taxonomy sections -> the symbol page's ExampleSection titles
+(* markdown example-taxonomy sections -> the symbol page's ExampleSection titles.
+   The keys must cover every ExampleSection the Symbol template ships; a title
+   missing here silently drops that section's authored content
    ("Requirements" is NOT an ExampleSection on the Symbol template - it only
    surfaces on FunctionResource / Paclet via examplesSlot / exampleNotebookSlot,
    which generate fresh Subsection cells per $exampleOrder entry.) *)
@@ -3621,6 +3723,7 @@ $extendedTitles = <|
     "applications" -> "Applications",
     "properties and relations" -> "Properties & Relations",
     "possible issues" -> "Possible Issues",
+    "interactive examples" -> "Interactive Examples",
     "neat examples" -> "Neat Examples"
 |>
 
@@ -3683,7 +3786,7 @@ symbolNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"]
        not parse into signature+description pairs (e.g. no recognisable head
        before the args). *)
     usagePairs = usageLines[sections];
-    notes = detailsCells[sections];
+    notes = detailsCells[sections, "NotesSubsection"];
     nb = fillDocString[nb, "ObjectName", name];
     Which[
         usagePairs =!= {},
@@ -3717,9 +3820,13 @@ symbolNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"]
     If[ basicCells =!= {},
         nb = nb /. Cell[ph_, "PrimaryExamplesSection", o___] :> Sequence[Cell[ph, "PrimaryExamplesSection", o], Sequence @@ basicCells]
     ];
-    With[{paclet = Lookup[meta, "Paclet", ""], sa = asList @ Lookup[meta, "SeeAlso", {}], ma = asList @ Lookup[meta, "RelatedGuides", {}]},
+    With[{paclet = Lookup[meta, "Paclet", ""], sa = asList @ Lookup[meta, "SeeAlso", {}],
+          ma = asList @ Lookup[meta, "RelatedGuides", {}], rt = asList @ Lookup[meta, "RelatedTutorials", {}]},
         If[ sa =!= {} && paclet =!= "", nb = nb /. Cell[_, "SeeAlso", ___] :> linkRowCell[sa, "SeeAlso", paclet, "ref"] ];
-        If[ ma =!= {} && paclet =!= "", nb = nb /. Cell[_, "MoreAbout", ___] :> linkRowCell[ma, "MoreAbout", paclet, "guide"] ]
+        If[ ma =!= {} && paclet =!= "", nb = nb /. Cell[_, "MoreAbout", ___] :> linkRowCell[ma, "MoreAbout", paclet, "guide"] ];
+        (* Tech Notes: one Tutorials link cell per RelatedTutorials entry, filling
+           the XXXX placeholder the template ships inside the TechNotesSection group *)
+        If[ rt =!= {} && paclet =!= "", nb = fillDocCells[nb, "Tutorials", techNoteContent[#, paclet] & /@ rt] ]
     ];
     (* drop unfilled placeholders, including dangling FunctionPlaceholder links *)
     nb = nb /. {
@@ -3734,6 +3841,11 @@ symbolNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"]
        ExampleSubsection placeholders or bare counters makes the build fail). *)
     nb = fillExtendedExamples[nb, sections];
     nb = groupPrimaryExamples[nb];
+    With[{essay = functionEssayGroup[sections]},
+        If[ essay =!= {},
+            nb = nb /. Notebook[content_List, o___] :> Notebook[Join[content, essay], o]
+        ]
+    ];
     setDocMetadata[fillCategorization[nb, "Symbol", meta], meta, "Symbol"]
 ]
 
@@ -5056,10 +5168,10 @@ chapterSectionCell[title_String, num_Integer] := Cell[
         {"Subsubsection", 0}, {"Exercise", 0}
     }
 ]
-chapterSectionCell[title_String, _] := Cell[
-    TextData[Join[{StyleBox[" | ", "SectionBar"]}, inlineTextData[title]]],
-    "Section"
-]
+(* no chapter number (unnumbered front / back matter such as a Preface): a plain
+   title-only Section cell, with no counter, no SectionBar separator, and no
+   CounterAssignments. *)
+chapterSectionCell[title_String, _] := Cell[headingText[title], "Section"]
 
 (* a normal Input/Output pair re-styled to a given pair of styles (e.g.
    ExerciseInput/ExerciseOutput, SolvedExampleInput/SolvedExampleOutput,
@@ -5108,7 +5220,7 @@ bookProseCell[block_, nextBlockType_String] := Block[{text = block["Text"]},
 
 (* free-form (subsection-level) cell from a block. `next` is the type of the
    following block (used to decide CodeText vs Text for caption-like prose). *)
-bookFreeCells[block_, next_String, counterSym_] := Switch[block["Type"],
+bookFreeCells[block_, next_String, counterSym_] := applyBlockMeta[Switch[block["Type"],
     "Heading",
         {Cell[headingText[block["Text"]],
             Lookup[$chapterHeadingStyle, block["Level"], "Subsubsubsection"]]},
@@ -5135,7 +5247,7 @@ bookFreeCells[block_, next_String, counterSym_] := Switch[block["Type"],
     "Separator",
         {exampleDelimiterCell},
     _, {}
-]
+], block]
 
 (* the fenced-div dispatch: each ::: kind opens one of the Book Tools
    multi-cell scaffolds. Kinds we handle: solved-example, theorem,
@@ -5189,7 +5301,7 @@ solvedExampleCells[inner_List, counterSym_, numbered_] := Block[{
     ]
 ]
 
-bookSolvedInnerCells[block_, counterSym_] := Switch[block["Type"],
+bookSolvedInnerCells[block_, counterSym_] := applyBlockMeta[Switch[block["Type"],
     "Prose",
         {Cell[TextData @ inlineTextData[block["Text"]], "SolvedExampleNote"]},
     "Code",
@@ -5209,7 +5321,7 @@ bookSolvedInnerCells[block_, counterSym_] := Switch[block["Type"],
     "List",
         listItemCells[block, "Item"],
     _, bookFreeCells[block, "", counterSym]
-]
+], block]
 
 (* Theorem scaffold: a Theorem heading (with CounterBox counters when
    numbered), then a TheoremStatement (the first prose paragraph if any),
@@ -5249,7 +5361,7 @@ proofCells[inner_List, counterSym_, numbered_] := Block[{contentCells},
         {Cell["", "ProofTheoremEndCap"]}]
 ]
 
-bookProofInnerCells[block_, counterSym_] := Switch[block["Type"],
+bookProofInnerCells[block_, counterSym_] := applyBlockMeta[Switch[block["Type"],
     "Prose",
         {Cell[TextData @ inlineTextData[block["Text"]], "ProofContent"]},
     "MathBlock",
@@ -5259,7 +5371,7 @@ bookProofInnerCells[block_, counterSym_] := Switch[block["Type"],
             ImageSize -> Full, Alignment -> Center]],
             "ProofTheoremDisplayFormula"]},
     _, bookFreeCells[block, "", counterSym]
-]
+], block]
 
 (* one Exercise. The first prose line becomes the Exercise prompt cell;
    subsequent prose/code/list/math blocks render in the Exercise context
@@ -5281,7 +5393,7 @@ exerciseDivCells[inner_List, counterSym_] := Block[{
     ]
 ]
 
-bookExerciseInnerCells[block_, counterSym_] := Switch[block["Type"],
+bookExerciseInnerCells[block_, counterSym_] := applyBlockMeta[Switch[block["Type"],
     "Prose",
         {Cell[TextData @ inlineTextData[block["Text"]], "ExerciseNote"]},
     "Code",
@@ -5299,14 +5411,14 @@ bookExerciseInnerCells[block_, counterSym_] := Switch[block["Type"],
             bookDivCells[block, counterSym]
         ],
     _, bookFreeCells[block, "", counterSym]
-]
+], block]
 
 solutionDivCells[inner_List, counterSym_] := Join[
     {Cell["Solution", "ExerciseSolution"]},
     Flatten @ Map[bookSolutionInnerCells[#, counterSym] &, inner]
 ]
 
-bookSolutionInnerCells[block_, counterSym_] := Switch[block["Type"],
+bookSolutionInnerCells[block_, counterSym_] := applyBlockMeta[Switch[block["Type"],
     "Prose",
         {Cell[TextData @ inlineTextData[block["Text"]], "SolutionAnswer"]},
     "Code",
@@ -5318,7 +5430,7 @@ bookSolutionInnerCells[block_, counterSym_] := Switch[block["Type"],
         Map[Cell[TextData @ inlineTextData[#], "SolutionItem"] &,
             block["Items"]],
     _, bookFreeCells[block, "", counterSym]
-]
+], block]
 
 (* === reserved back-matter sections === *)
 
@@ -5344,11 +5456,11 @@ groupByH2[blocks_List] := Block[{groups = {}, current = None, currentBlocks = {}
    bullets -> SummaryList. *)
 summarySectionCells[heading_, blocks_, counterSym_] := Prepend[
     Catenate @ Map[
-        b |-> Switch[b["Type"],
+        b |-> applyBlockMeta[Switch[b["Type"],
             "Prose", {Cell[TextData @ inlineTextData[b["Text"]], "SummaryNote"]},
             "List",  listItemCells[b, "SummaryList"],
             _, bookFreeCells[b, "", counterSym]
-        ],
+        ], b],
         blocks
     ],
     Cell[headingText[heading["Text"]], "SummarySection"]
@@ -5372,7 +5484,7 @@ vocabularyTableCellFromTable[block_] := Cell[
 
 vocabularySectionCells[heading_, blocks_, counterSym_] := Prepend[
     Catenate @ Map[
-        b |-> Switch[b["Type"],
+        b |-> applyBlockMeta[Switch[b["Type"],
             "Table",
                 {vocabularyTableCellFromTable[b]},
             "Prose",
@@ -5384,7 +5496,7 @@ vocabularySectionCells[heading_, blocks_, counterSym_] := Prepend[
                         4, "VocabularySubsubsection",
                         _, "VocabularySubsection"]]},
             _, bookFreeCells[b, "", counterSym]
-        ],
+        ], b],
         blocks
     ],
     Cell[headingText[heading["Text"]], "VocabularySection"]
@@ -5403,7 +5515,7 @@ keyConceptsSectionCells[heading_, blocks_, counterSym_] := Prepend[
    collapse to single-line Exercise cells. *)
 exercisesSectionCells[heading_, blocks_, counterSym_] := Prepend[
     Catenate @ Map[
-        b |-> Switch[b["Type"],
+        b |-> applyBlockMeta[Switch[b["Type"],
             "Heading",
                 {Cell[headingText[b["Text"]],
                     If[b["Level"] === 3, "ExerciseSubsection",
@@ -5418,7 +5530,7 @@ exercisesSectionCells[heading_, blocks_, counterSym_] := Prepend[
             "Div",
                 bookDivCells[b, counterSym],
             _, bookFreeCells[b, "", counterSym]
-        ],
+        ], b],
         blocks
     ],
     Cell[headingText[heading["Text"]], "ExerciseSection"]
@@ -5446,11 +5558,11 @@ qaProseCell[text_String] := Block[{trimmed = StringTrim[text]},
 
 qaSectionCells[heading_, blocks_, counterSym_] := Prepend[
     Catenate @ Map[
-        b |-> Switch[b["Type"],
+        b |-> applyBlockMeta[Switch[b["Type"],
             "Prose", {qaProseCell[b["Text"]]},
             "List",  listItemCells[b, "Item"],
             _, bookFreeCells[b, "", counterSym]
-        ],
+        ], b],
         blocks
     ],
     Cell[headingText[heading["Text"]], "QASection"]
@@ -5460,7 +5572,7 @@ qaSectionCells[heading_, blocks_, counterSym_] := Prepend[
    TechNoteInput/Output; list items -> TechNoteItem. *)
 techNotesSectionCells[heading_, blocks_, counterSym_] := Prepend[
     Catenate @ Map[
-        b |-> Switch[b["Type"],
+        b |-> applyBlockMeta[Switch[b["Type"],
             "Prose", {Cell[TextData @ inlineTextData[b["Text"]], "TechNote"]},
             "Code",
                 If[ executableQ[b],
@@ -5472,7 +5584,7 @@ techNotesSectionCells[heading_, blocks_, counterSym_] := Prepend[
                     b["Items"]],
             "MathBlock", {mathBlockCell[b["Text"]]},
             _, bookFreeCells[b, "", counterSym]
-        ],
+        ], b],
         blocks
     ],
     Cell[headingText[heading["Text"]], "TechNoteSection"]
@@ -5487,13 +5599,13 @@ moreExploreCell[text_String] := Cell[TextData @ inlineTextData[text],
 
 moreExploreSectionCells[heading_, blocks_, counterSym_] := Prepend[
     Catenate @ Map[
-        b |-> Switch[b["Type"],
+        b |-> applyBlockMeta[Switch[b["Type"],
             "Prose", {moreExploreCell[b["Text"]]},
             "List",
                 Map[Cell[TextData @ inlineTextData[#], "MoreExplore"] &,
                     b["Items"]],
             _, bookFreeCells[b, "", counterSym]
-        ],
+        ], b],
         blocks
     ],
     Cell[headingText[heading["Text"]], "MoreExploreSection"]
@@ -5503,13 +5615,13 @@ moreExploreSectionCells[heading_, blocks_, counterSym_] := Prepend[
    Reference cells. *)
 referencesSectionCells[heading_, blocks_, counterSym_] := Prepend[
     Catenate @ Map[
-        b |-> Switch[b["Type"],
+        b |-> applyBlockMeta[Switch[b["Type"],
             "Prose", {Cell[TextData @ inlineTextData[b["Text"]], "Reference"]},
             "List",
                 Map[Cell[TextData @ inlineTextData[#], "Reference"] &,
                     b["Items"]],
             _, bookFreeCells[b, "", counterSym]
-        ],
+        ], b],
         blocks
     ],
     Cell[headingText[heading["Text"]], "ReferenceSection"]
@@ -5517,13 +5629,13 @@ referencesSectionCells[heading_, blocks_, counterSym_] := Prepend[
 
 resourcesSectionCells[heading_, blocks_, counterSym_] := Prepend[
     Catenate @ Map[
-        b |-> Switch[b["Type"],
+        b |-> applyBlockMeta[Switch[b["Type"],
             "Prose", {Cell[TextData @ inlineTextData[b["Text"]], "ResourcesText"]},
             "List",
                 Map[Cell[TextData @ inlineTextData[#], "ResourcesText"] &,
                     b["Items"]],
             _, bookFreeCells[b, "", counterSym]
-        ],
+        ], b],
         blocks
     ],
     Cell[headingText[heading["Text"]], "ResourcesSubsection"]
@@ -5531,13 +5643,13 @@ resourcesSectionCells[heading_, blocks_, counterSym_] := Prepend[
 
 takeawaysSectionCells[heading_, blocks_, counterSym_] := Prepend[
     Catenate @ Map[
-        b |-> Switch[b["Type"],
+        b |-> applyBlockMeta[Switch[b["Type"],
             "Prose", {Cell[TextData @ inlineTextData[b["Text"]], "TakeawaysText"]},
             "List",
                 Map[Cell[TextData @ inlineTextData[#], "TakeawaysText"] &,
                     b["Items"]],
             _, bookFreeCells[b, "", counterSym]
-        ],
+        ], b],
         blocks
     ],
     Cell[headingText[heading["Text"]], "TakeawaysSection"]
@@ -5623,8 +5735,7 @@ chapterNotebook[data_] := Block[{
     }, Nothing];
     Notebook[
         Join[
-            {chapterSectionCell[title,
-                Replace[chapterNum, Except[_Integer] -> 0]]},
+            {chapterSectionCell[title, chapterNum]},
             If[Lookup[meta, "Subtitle", ""] =!= "",
                 {Cell[Lookup[meta, "Subtitle", ""], "Subchapter"]}, {}],
             bodyCells
@@ -5675,13 +5786,14 @@ buildNotebook[_, data_] := defaultNotebook[data]
    lacks one - never on the inline cells nested inside a cell's content, which
    carry no CellID. The key is the cell's structural path: unique within the
    notebook and stable across rebuilds. Cells that already carry a CellID (e.g.
-   the Hash-keyed link items, fillLinkCells) keep it. Export[..., "NB"] preserves
-   CellIDs, so stamping them on the expression is enough. *)
+   the Hash-keyed link items, fillLinkCells) keep it. Export[..., "NB"] writes a
+   CellID only when it fits in a signed 32-bit integer, so the 64-bit hash is
+   folded into 1..2^31-1. *)
 stampCellID[Cell[CellGroupData[inner_List, gopts___], copts___], idx_] :=
     Cell[CellGroupData[MapIndexed[stampCellID[#1, Join[idx, #2]] &, inner], gopts], copts]
 stampCellID[Cell[content_, style_String, opts___], idx_] :=
     If[FreeQ[{opts}, CellID],
-        Cell[content, style, opts, CellID -> Hash[Prepend[idx, "MTNCellID"]]],
+        Cell[content, style, opts, CellID -> Mod[Hash[Prepend[idx, "MTNCellID"]], 2^31 - 1] + 1],
         Cell[content, style, opts]]
 stampCellID[other_, _] := other
 

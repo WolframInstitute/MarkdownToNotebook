@@ -53,6 +53,7 @@ MyFunction[1]
 | `## Definition` `wl` cells | `Function` (Input) | the function source |
 | `## Usage` prose | `Usage` | usage lines |
 | `## Details & Options` | `Notes` | Details & Options |
+| `###` heading inside Details | `Notes` (a grouping `Subsubsection` cell) | Details & Options |
 | `## Basic Examples`/`## Scope`/... | `Examples` (Basic Examples, Scope, ...) | evaluated example cells |
 | `Keywords` | `Keywords` | keyword items |
 | `Categories` | `Categories` | category checkboxes (`CheckboxesCell`) |

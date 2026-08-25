@@ -25,12 +25,13 @@ loses a distinction the palette draws; "Missing" = no md form at all.
 
 | Status | Gap | Palette button → action | Markdown form |
 |---|---|---|---|
-| ✓ Done | Usage, Details & Options, Examples, Scope, Options, Applications, Properties, Possible Issues, Neat Examples | every section / heading / delimiter button | `## …` headings, `---` between sibling examples |
+| ✓ Done | Usage, Details & Options, Examples, Scope, Options, Applications, Properties, Possible Issues, Interactive Examples, Neat Examples | every section / heading / delimiter button | `## …` headings, `---` between sibling examples |
 | ✓ Done | Usage signatures with linked head and italic args | "Double Usage Line" + "Template Input" + "Italic Input" + "Traditional Math" | `<code>[Range]()[$x_1$, $x_2$]</code>` |
 | ✓ Done | Inferred symbol links | "Link to Function" / "Make Link" / "Custom URI" | `[Name]()` for inferred, `[label](paclet:Pub/Pkg/ref/Name)` for explicit |
 | ✓ Done | Pipe tables in Details / Options | "Insert Custom Table" / "Insert table with two/three columns" / "Add Row" | `\| a \| b \|` rows + `\|---\|---\|` separator |
 | ⚠ Lossy | Auto-populated options table | "Options Table" → `OptionsTableCreate[]` (dialog reads `Options[Symbol]`) | author the table by hand |
 | ⚠ Lossy | Subscripted variable placeholder | "Insert subscripted variable placeholder" → `SubscriptBox` in `InlineFormula` | `$x_1$` works, but no per-cell *placeholder* affordance |
+| ⚠ Lossy | Background & Context inverse recovery | (no palette button; a DocuTools-internal section) | `## Background & Context` builds the `FunctionEssaySection` group; `NotebookToMarkdown` recovers it as `#\| style: FunctionEssay` annotated prose, not the heading |
 | ✗ Missing | Annotate | "Annotate" | no md form |
 
 ## `Guide` (guide page)
