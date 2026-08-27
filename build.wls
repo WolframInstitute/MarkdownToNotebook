@@ -74,7 +74,7 @@ buildOne[mdName_String, entrySymbol_Symbol, cloudPath_String] := Block[
     outNb = MarkdownToNotebook[src, FileNameJoin[{dir, FileBaseName[src] <> ".nb"}]];
     Print["    wrote:       ", FileNameTake[outNb], " (", Head @ Quiet @ Get[outNb], ")"];
     If[ TrueQ[$CloudConnected],
-        deployed = UsingFrontEnd @ Block[{nbo, ro, rf},
+        deployed = UsingFrontEnd @ Block[{nbo, ro, rf, defBytes},
             CurrentValue[$FrontEnd, LightDark] = "Light";
             nbo = NotebookOpen[File[outNb]];
             CurrentValue[nbo, CreateCellID] = True;
@@ -88,7 +88,24 @@ buildOne[mdName_String, entrySymbol_Symbol, cloudPath_String] := Block[
             ro = Quiet @ ResourceObject[nbo];
             rf = ResourceFunction[ro];
             NotebookClose[nbo];
-            CloudDeploy[rf, CloudObject[cloudPath], Permissions -> "Public"]
+            (* A resource whose definitions have swallowed a dependency's private
+               state is published fine and then cannot be used: the fetching kernel
+               downloads the blob and ResourceFunction[url] never returns. Both
+               converters serialize to tens of KB, so anything past this bound means
+               a bare context token in the definitions anchored a paclet (see
+               parserLoadedQ here, the n2m* wrappers in the inverse) and dragged its
+               state in - the warm compiled parser cache alone is ~430 MB. Refuse to
+               publish rather than replace a working resource with a hanging one. *)
+            defBytes = Length @ ResourceFunction[rf, "DefinitionData"];
+            If[ defBytes > 1000000,
+                Print["    definition:  ", defBytes, " bytes"];
+                Print["    ABORT: definitions carry a dependency's state; refusing",
+                      " to publish an unloadable resource."];
+                $Failed
+                ,
+                Print["    definition:  ", defBytes, " bytes"];
+                CloudDeploy[rf, CloudObject[cloudPath], Permissions -> "Public"]
+            ]
         ];
         Print["    deployed:    ", Replace[deployed, {
             co_CloudObject :> First[co],

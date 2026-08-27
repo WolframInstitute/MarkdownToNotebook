@@ -41,7 +41,13 @@ $parserReady = False
    Best-effort: if no parser is reachable the math path falls back to ImportString
    (see wolframParserTeX, which gates on the symbol existing at call time rather
    than on this succeeding). *)
-parserLoadedQ[] := DownValues[Wolfram`Parser`LaTeXMathParse] =!= {}
+(* Named at runtime, never written as a bare Wolfram`Parser`x token. Such a token
+   is an anchor the resource scraper follows: deploying from a kernel that has run
+   a conversion then embeds the paclet's whole private state - the warm compiled
+   parser cache alone is ~430 MB - in the published function, whose DefinitionData
+   the fetching kernel can no longer load. *)
+parserLoadedQ[] := Names["Wolfram`Parser`LaTeXMathParse"] =!= {} &&
+    DownValues[Evaluate @ Symbol["Wolfram`Parser`LaTeXMathParse"]] =!= {}
 
 ensureParser[] := If[! TrueQ[$parserReady],
     If[ DirectoryQ[$parserDir],

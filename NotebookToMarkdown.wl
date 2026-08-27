@@ -34,13 +34,17 @@ decorationCellQ[Cell[BoxData[_PaneSelectorBox], ___]] := True
 decorationCellQ[Cell[_, "MoreInfoText" | "MoreInfoTextOuter", ___]] := True
 decorationCellQ[_] := False
 
-(* === box -> LaTeX / character normalization: moved to Wolfram`Parser` ===
-   The math serializer (walkerMath -> ExportLaTeX) and the glyph <-> TeX/Unicode
-   primitives (normStr, $mathTeX) now live in the Wolfram`Parser` paclet, so the
-   box -> LaTeX logic has one home instead of a private copy here. Load the paclet
-   at load time (mirrors MarkdownToNotebook's ensureParser) so the definitions
-   below that reference normStr / $mathTeX unqualified resolve to the paclet's
-   versions. *)
+(* === box -> LaTeX / character normalization: lives in Wolfram`Parser` ===
+   The math serializer (ExportLaTeX) and the glyph <-> TeX/Unicode primitives
+   (normStr, $mathTeX) live in the Wolfram`Parser` paclet, so the box -> LaTeX
+   logic has one home instead of a private copy here. The paclet is loaded at load
+   time (mirrors MarkdownToNotebook's ensureParser) and its exports are reached
+   through the n2m* wrappers below, which resolve each symbol BY NAME at call time.
+   A bare Wolfram`Parser`x token in a definition would instead be an anchor the
+   resource scraper follows, and deploying from a kernel that has run a conversion
+   then embeds the paclet's whole private state - the warm compiled parser cache
+   alone is ~430 MB - in the published function, whose DefinitionData the fetching
+   kernel can no longer load. *)
 $n2mParserDir = FileNameJoin[{Replace[DirectoryName[$InputFileName], "" :> Directory[]], "examples", "Paclet", "WolframParser"}]
 $n2mParserReady = False
 ensureExportLaTeX[] := If[! TrueQ[$n2mParserReady],
@@ -53,6 +57,12 @@ ensureExportLaTeX[] := If[! TrueQ[$n2mParserReady],
     Quiet @ Check[Needs["Wolfram`Parser`"], Null];
     $n2mParserReady = True]
 ensureExportLaTeX[]
+
+(* The paclet's exports, resolved by full name at call time. Every use below goes
+   through these three. *)
+n2mNormStr[args___] := Symbol["Wolfram`Parser`normStr"][args]
+$n2mMathTeX := Symbol["Wolfram`Parser`$mathTeX"]
+n2mExportLaTeX[args___] := Symbol["Wolfram`Parser`ExportLaTeX"][args]
 (* ExportLaTeX's glyph -> TeX table stops at \[Ellipsis] -> \ldots, so the three
    other ellipsis glyphs serialize as their raw Unicode character. Map each back to
    its command, with the trailing space ExportLaTeX itself uses to terminate a
@@ -82,7 +92,7 @@ absGridToTemplate[boxes_] := boxes //. {
 (* box tree -> LaTeX math body (inverse of LaTeXMathParse); callers keep the name.
    The modulus fold runs on the boxes, the ellipsis remap on the serialized string. *)
 walkerMath[x_] := StringReplace[
-    Wolfram`Parser`ExportLaTeX[absGridToTemplate[x]], $ellipsisTeX]
+    n2mExportLaTeX[absGridToTemplate[x]], $ellipsisTeX]
 
 (* === code-mode serializer ===
    Box-form WL code -> source string. A code cell's BoxData carries the user's
@@ -111,7 +121,7 @@ $codeGlyphEscape = Map[# -> "\\[" <> CharacterName[#] <> "]" &, Characters[
     "\[ExponentialE]\[ImaginaryI]\[ImaginaryJ]\[DifferentialD]\[CapitalDifferentialD]" <>
     "\[LeftBracketingBar]\[RightBracketingBar]"]]
 boxToCode[s_String] :=
-    normStr @ StringReplace[s, Join[$linearSyntaxDeactivate, $codeGlyphEscape]]
+    n2mNormStr @ StringReplace[s, Join[$linearSyntaxDeactivate, $codeGlyphEscape]]
 (* multi-statement Input cells store as BoxData[{b1, ";", "\n", b2, ...}] -
    a bare List of boxes. Without this rule the headless boxToCode fallback
    dumps the raw box tree via ToString[InputForm] (issue #16). *)
@@ -173,12 +183,12 @@ emWrap[s_String, mark_String] := Which[
    Do NOT put the raw linear-syntax form in this source: Get would parse it
    back into boxes. *)
 dq[s_String] := StringTrim[StringTrim[StringTrim[s], "\""], "()" | "(" | ")"]
-mathDq[x_String] := StringReplace[dq[x], Normal @ $mathTeX]
+mathDq[x_String] := StringReplace[dq[x], Normal @ $n2mMathTeX]
 (* normStr FIRST (not stripStructPUA): it maps the script/gothic/double-struck
    PUA letters to their Unicode glyphs and only then drops the remaining FE
    structural markers, so styled letters survive instead of being scrubbed with
    the markers (issue #31). *)
-cleanStr[s_String] := normStr @ StringReplace[normStr[s], {
+cleanStr[s_String] := n2mNormStr @ StringReplace[n2mNormStr[s], {
     "StyleBox[\"" ~~ Shortest[v__] ~~ "\", \"TI\"]" :> "*" <> v <> "*",
     "DisplayForm[StyleBox[" ~~ Shortest[v__] ~~ ", TI]]" :> "*" <> v <> "*",
     "StyleBox[" ~~ Shortest[v__] ~~ ", TI]" :> "*" <> v <> "*",
@@ -188,7 +198,7 @@ cleanStr[s_String] := normStr @ StringReplace[normStr[s], {
 }]
 
 (* === plain text extractor (titles, ObjectName, sectionTitle) === *)
-cellPlain[s_String] := normStr[s]
+cellPlain[s_String] := n2mNormStr[s]
 cellPlain[TextData[xs_List]] := StringJoin[cellPlain /@ xs]
 cellPlain[TextData[x_]] := cellPlain[x]
 cellPlain[c_Cell] /; decorationCellQ[c] := ""
@@ -231,7 +241,7 @@ inferredLinkMd[tb_] := With[{name = linkBoxName[tb], uri = linkBoxUri[tb]},
 sig[s_String] := cleanStr[s]
 sig[bb_ButtonBox] := "[" <> cellPlain[bb[[1]]] <> "]()"
 sig[tb_TemplateBox] /; linkTemplateBoxQ[tb] := inferredLinkMd[tb]
-sig[StyleBox[s_String, "TI", ___]] := emWrap[normStr[s], "*"]
+sig[StyleBox[s_String, "TI", ___]] := emWrap[n2mNormStr[s], "*"]
 sig[StyleBox[s_, ___]] := sig[s]
 sig[SubscriptBox[a_, b_]] := "$" <> sigSub[a] <> "_{" <> sigSub[b] <> "}$"
 sig[SuperscriptBox[a_, b_]] := "$" <> sigSub[a] <> "^{" <> sigSub[b] <> "}$"
@@ -246,9 +256,9 @@ sig[RowBox[xs_List]] := Which[
     True, StringJoin[sig /@ xs]]
 sig[FormBox[b_, ___]] := sig[b]
 sig[f_Symbol] := SymbolName[f]
-sig[other_] := normStr @ boxToCode[other]
+sig[other_] := n2mNormStr @ boxToCode[other]
 sigSub[StyleBox[s_, ___]] := sigSub[s]
-sigSub[s_String] := StringReplace[normStr[s], Normal @ $mathTeX]
+sigSub[s_String] := StringReplace[n2mNormStr[s], Normal @ $n2mMathTeX]
 sigSub[RowBox[xs_List]] := StringJoin[sigSub /@ xs]
 sigSub[x_] := walkerMath[x]
 sigBox[x_] := sig[x]
@@ -927,7 +937,7 @@ guideItemPart[s_String] /; StringTrim[s] === "\[LongDash]" := " "
    do this: its base matcher needs a non-empty base, and on a string with two
    scripts it mis-slices across them, so the empty-base rules run first here.
    guideTeXAtom trims the trailing space $mathTeX puts after a command name. *)
-guideTeXAtom[a_String] := StringTrim @ StringReplace[a, Normal @ $mathTeX]
+guideTeXAtom[a_String] := StringTrim @ StringReplace[a, Normal @ $n2mMathTeX]
 $guideEmptyBaseScripts = {
     a : Except[WhitespaceCharacter] ~~ "SubsuperscriptBox[, " ~~
             b : Except["," | "]"] .. ~~ ", " ~~ c : Except["]"] .. ~~ "]" :>
@@ -942,13 +952,13 @@ $guideEmptyBaseScripts = {
    and the ellipsis stay prose (wrapping those would turn a listing tail "..."
    or an arrow into a spurious math span), as does a letterlike glyph with no
    TeX command (the trademark sign shares the letterlike block). *)
-guideMathLetterQ[ch_String] := KeyExistsQ[$mathTeX, ch] &&
+guideMathLetterQ[ch_String] := KeyExistsQ[$n2mMathTeX, ch] &&
     With[{n = First @ ToCharacterCode[ch]},
         880 <= n <= 1023 || 8448 <= n <= 8527 || 119808 <= n <= 120831]
 (* the empty-base merge, then a wrap of any math letter still standing alone;
    the spans already emitted are pure-ASCII TeX, out of the letter pass's reach *)
 guideMathStr[s_String] := StringReplace[
-    StringReplace[normStr[s], $guideEmptyBaseScripts],
+    StringReplace[n2mNormStr[s], $guideEmptyBaseScripts],
     g : (_?guideMathLetterQ) .. :> "$" <> guideTeXAtom[g] <> "$"]
 guideItemPart[s_String] := guideMathStr[s]
 guideItemPart[other_] := inlineMd[other]
