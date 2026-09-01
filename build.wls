@@ -51,7 +51,7 @@ loadDefinition[src_String] := Block[{text = Import[src, "Text"], includes},
    the persistent example cache), write the .nb, deploy it publicly to the
    cloud at the chosen stable URL. *)
 buildOne[mdName_String, entrySymbol_Symbol, cloudPath_String] := Block[
-    {src, text, coldTime, result, nb, warmTime, outNb, deployed},
+    {src, text, coldTime, result, nb, warmTime, outNb, deployed, failedOut},
     src = FileNameJoin[{dir, mdName}];
     text = Import[src, "Text"];
     Print[""];
@@ -73,7 +73,14 @@ buildOne[mdName_String, entrySymbol_Symbol, cloudPath_String] := Block[
     Print["    warm run:    ", warmTime, " s (", Length @ PersistentObjects["MarkdownToNotebook/ExampleOutput/*", "Local"], " cached)"];
     outNb = MarkdownToNotebook[src, FileNameJoin[{dir, FileBaseName[src] <> ".nb"}]];
     Print["    wrote:       ", FileNameTake[outNb], " (", Head @ Quiet @ Get[outNb], ")"];
-    If[ TrueQ[$CloudConnected],
+    (* A network flake mid-build silently ships a broken example: the Applications
+       cells convert documents by URL, and a failed fetch lands $Failed in the notebook
+       as that cell's output, where it stays until a reviewer finds it. A clean build has
+       none - the one deliberate failure case (a mistyped path) parses as raw markdown
+       and returns a notebook - so treat any as a reason not to publish this build. *)
+    failedOut = Count[nb, Cell[BoxData["$Failed"], "Output", ___], Infinity];
+    Print["    $Failed outputs: ", failedOut];
+    If[ TrueQ[$CloudConnected] && failedOut === 0,
         deployed = UsingFrontEnd @ Block[{nbo, ro, rf, defBytes},
             CurrentValue[$FrontEnd, LightDark] = "Light";
             nbo = NotebookOpen[File[outNb]];
@@ -113,7 +120,9 @@ buildOne[mdName_String, entrySymbol_Symbol, cloudPath_String] := Block[
             a_Association :> Lookup[a, "ResultLink", a]
         }]]
         ,
-        Print["    skipped:     not cloud-connected"]
+        Print["    skipped:     ", If[! TrueQ[$CloudConnected],
+            "not cloud-connected",
+            ToString[failedOut] <> " example(s) evaluated to $Failed - refusing to publish a build with a broken example"]]
     ]
 ]
 

@@ -15,7 +15,6 @@
    Gets this file into a freshly generated private context so converting a
    document cannot clobber the live definition doing the converting. *)
 
-Needs["GeneralUtilities`"]
 
 (* The LaTeX math pipeline wants the published Wolfram/Parser paclet - its
    LaTeXMathParse handles \frac / \mathbb / scripts / sized delimiters that
@@ -34,6 +33,7 @@ Needs["GeneralUtilities`"]
 $parserDir = FileNameJoin[{
     Replace[DirectoryName[$InputFileName], "" :> Directory[]], "examples", "Paclet", "WolframParser"}]
 $parserReady = False
+$parserTried = False
 (* Make Wolfram`Parser` available, once per session. Prefer the vendored submodule
    (PacletDirectoryLoad makes the paclet manager serve the highest version, so a
    stale installed copy can't shadow it); else install the published paclet from
@@ -49,9 +49,17 @@ $parserReady = False
 parserLoadedQ[] := Names["Wolfram`Parser`LaTeXMathParse"] =!= {} &&
     DownValues[Evaluate @ Symbol["Wolfram`Parser`LaTeXMathParse"]] =!= {}
 
-ensureParser[] := If[! TrueQ[$parserReady],
-    If[ DirectoryQ[$parserDir],
-        PacletDirectoryLoad[$parserDir],
+(* Bootstrap runs at most once per session, whether or not it succeeds: $parserTried
+   latches the attempt and $parserReady the success. Without the attempt latch a machine
+   that cannot reach the paclet server repeats the whole staggered retry on EVERY call,
+   so each conversion - even one with no math in it - stalls for the full backoff. *)
+ensureParser[] := If[! TrueQ[$parserReady] && ! TrueQ[$parserTried],
+    $parserTried = True;
+    (* An already-installed or vendored copy is used as-is; only a machine with neither
+       reaches PacletInstall, and it is told what happened by ::noparser below. *)
+    If[ DirectoryQ[$parserDir], PacletDirectoryLoad[$parserDir]];
+    Quiet @ Check[Needs["Wolfram`Parser`"], Null];
+    If[ ! parserLoadedQ[],
         (* Retry the install. A caller that converts on a parallel pool has every kernel reach
            this line at once, and the paclet manager does not survive 30 concurrent installs of
            the same paclet: most fail, fall through to the ImportString path, and mangle every
@@ -64,19 +72,18 @@ ensureParser[] := If[! TrueQ[$parserReady],
                 Quiet @ Check[Needs["Wolfram`Parser`"], Null];
                 If[parserLoadedQ[], Break[]];
                 Pause[delay]; delay *= 2,
-                {6}]]
+                {3}]]
     ];
-    Quiet @ Check[Needs["Wolfram`Parser`"], Null];
-    (* Only latch when the parser is actually usable. Latching unconditionally meant one failed
-       install silently downgraded that kernel to ImportString for the rest of the session. *)
     If[ parserLoadedQ[],
         $parserReady = True,
         Message[MarkdownToNotebook::noparser]
     ]
 ]
 
+(* No backticks in the template: Message reads a backtick pair as a StringForm slot, so a
+   literal Wolfram`Parser` here emits StringForm::sfr "Item 0 requested" instead of the text. *)
 MarkdownToNotebook::noparser =
-    "Wolfram`Parser` is unavailable; LaTeX math falls back to ImportString, which mis-decodes non-ASCII characters. Install the Wolfram/Parser paclet for correct math.";
+    "The Wolfram/Parser paclet is unavailable, so LaTeX math falls back to ImportString, which mis-decodes non-ASCII characters. Run PacletInstall[\"Wolfram/Parser\"] for correct math.";
 
 mdSep = "\n(*--cell--*)\n"
 
@@ -1486,7 +1493,9 @@ paperTearQ[block_] := Lookup[block["Options"], "tear", False] =!= False
 tearHeight[block_] := With[{v = Lookup[block["Options"], "tear", True]},
     Which[
         NumberQ[v], v,
-        StringQ[v] && NumberQ[Quiet @ ToExpression[v]], ToExpression[v],
+        (* Interpreter, never ToExpression: this value comes from the document being
+           converted, and ToExpression would evaluate whatever it contains. *)
+        StringQ[v] && NumberQ[Interpreter["Number"][v]], Interpreter["Number"][v],
         True, $defaultTearHeight
     ]
 ]
@@ -3191,7 +3200,7 @@ texImportStrip[math_String] := StringReplace[math, {
        imports to the same U+210F glyph (\[HBar]) the primary parser emits and that
        NotebookToMarkdown maps back to \hbar, so swap it in on this fallback (issue #61) *)
     RegularExpression["\\\\hbar(?![a-zA-Z])"] -> "\\hslash",
-    RegularExpression["\\\\[Bb]igg?[lrm]?(?![a-zA-Z])"] -> ""
+    RegularExpression["\\\\(?:B|b)igg?[lrm]?(?![a-zA-Z])"] -> ""
 }]
 texBoxesViaImport[math_String] :=
     Block[{nb = Quiet @ ImportString["$" <> texImportStrip[math] <> "$", "TeX"]},
@@ -5969,7 +5978,7 @@ markdownWithImages[blocks_, meta_, target_String] := Block[{dir, base, imgDir, n
             "\n\n:::",
         _, ""
     ]);
-    Export[target, serializeFrontmatter[meta] <> "\n" <> StringRiffle[DeleteCases[mdOf /@ blocks, ""], "\n\n"] <> "\n", "Text"];
+    Export[target, serializeFrontmatter[meta] <> "\n" <> StringRiffle[DeleteCases[mdOf /@ blocks, ""], "\n\n"] <> "\n", "Text", CharacterEncoding -> "UTF-8"];
     target
 ]
 
@@ -6085,6 +6094,11 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
        "Light"). Block-local so nested conversions restore it. *)
     $lightDark = Replace[OptionValue["LightDark"],
         Automatic :> If[StringQ[$lightDark], $lightDark, "Light"]],
+    (* Document identity, Block-local for the same reason $lightDark is: a nested
+       conversion (an example cell that converts another document) otherwise leaves
+       the inner document's Name / Paclet / Context / Template / math font in place,
+       and the outer notebook is then built under the inner document's identity. *)
+    $docName, $docPaclet, $docContext, $docTemplate, $mathFontFamily,
     src, text, parsed, meta, blocks, sections, tmplName, defCode, ctx, ctxPath,
     orderedCode, hashes, cacheDocName, cacheNames, cached, allHit, outputs, data, filled
 },

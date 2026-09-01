@@ -20,7 +20,7 @@ definition notebook, so it publishes itself.
 
 ## Definition
 
-The implementation is a single plain `.wl` file, inlined here at conversion
+The implementation is a single plain Wolfram Language (`.wl`) file, inlined here at conversion
 time via the `file` option - a general mechanism: any code cell with
 `#| file: path` is replaced by the contents of that local file or URL,
 resolved relative to this document. The deployed resource therefore carries
@@ -37,15 +37,19 @@ the implementation inline:
 - `FunctionResource` fills the official `FunctionResourceDefinition.nb` template (keeping its docked Deploy/Submit toolbar); `Symbol` and `Guide` fill the DocumentationTools authoring templates; the reference subtypes synthesize their authoring pages natively on the shipped `Reference.nb` stylesheet; `Default` maps headings and code to standard notebook styles.
 - The *frontmatter* is a YAML-style `key: value` header fenced by `---` lines at the very top of the document - the [front matter](https://jekyllrb.com/docs/front-matter/) convention static-site generators use - carrying the resource metadata. Its keys mirror the chosen template's slots (`Name`, `Description`, `Keywords`, `Categories`, `ContributedBy`, `SeeAlso`, `Links`, and so on), so the author fills metadata, never cell styles.
 - The optional second argument selects the result: omitted (or `"Notebook"`) returns the [Notebook](), `"Association"` returns the parsed structure, a `.nb` file name writes the notebook, and a `.md` file name writes a *markdown twin* - the same document with every evaluated output rasterized to an image beside it.
-- The function takes two options:
+- The function takes six options:
 
 | Option | Default | |
 |---|---|---|
 | `"Evaluate"` | `True` | evaluate the example cells and keep their output; `False` leaves them as input only, which a self-referential document passes to convert its own source without re-running its own examples |
 | `"PreserveSource"` | `False` | with `True`, stamps the original markdown source into the produced notebook's `TaggingRules` (under the `"MarkdownToNotebook"` key, as `<\|"Source" -> ..., "Template" -> ...\|>`) so the `.nb` is self-contained: rendered view + the source it came from in one file, useful for tooling that wants the source side-loaded. The default is `False` so the notebook is a strictly-rendered artifact and any post-conversion edit to the cells shows up faithfully when [NotebookToMarkdown]() walks it back to markdown - the right semantics for diffing the edited `.nb` against the `.md` it was built from. [NotebookToMarkdown]() does NOT read this stash by design |
 | `"LightDark"` | `Automatic` | the appearance the evaluated outputs (and the markdown twin's rasterized images) are rendered in: `"Light"` or `"Dark"`. `Automatic` keeps the ambient `$lightDark` setting (default light) |
+| `"EvaluateSeparator"` | `Automatic` | where the per-document evaluation context is reset while the example cells run in sequence - see the section below. The host session's `Global`` context is never touched |
+| `"MathFont"` | `None` | the font family LaTeX math is typeset in. `None` (like `""` and `Automatic`) keeps the front end's native math font, which is deterministic across machines; a family name such as `"Latin Modern Math"` forces the Computer-Modern look |
+| `"UseCache"` | `True` | reuse cached example outputs from the persistent store described below. `False` re-evaluates every example cell in the document, ignoring what is stored |
 
 - A `Flag` frontmatter key flags the whole document and a code cell's `#| flag:` option flags that cell, with one of the documentation build's flags - `Future`, `Excised`, `Obsolete`, `Temporary`, `Preview`, or `Internal` - the front end's Futurize / Excise toolbar buttons, written as the build's banner cell.
+- LaTeX math is typeset by the [Wolfram/Parser](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/Parser/) paclet. If it is not already installed, the first call that needs it installs it from the Paclet Repository, which requires network access; install it yourself beforehand to avoid that. When it cannot be reached the function issues `MarkdownToNotebook::noparser` once per session and falls back to `ImportString[..., "TeX"]`, which handles plain math but mis-decodes non-ASCII characters.
 - Evaluated example outputs are cached as a [PersistentSymbol]() per cell at the `"Local"` [PersistenceLocation](), keyed by a cumulative hash of the preceding cells, so re-runs reuse them across sessions.
 - Manage that cache the standard way: [PersistentObjects]()["MarkdownToNotebook/ExampleOutput/*", "Local"] lists it, [DeleteObject]() clears it, and [$PersistencePath]() / [PersistenceLocation]() relocate it.
 - The source lives on GitHub, which renders the markdown directly: [github.com/WolframInstitute/MarkdownToNotebook](https://github.com/WolframInstitute/MarkdownToNotebook).
@@ -363,7 +367,7 @@ MarkdownToNotebook["https://raw.githubusercontent.com/WolframInstitute/MarkdownT
 
 ### Demonstration
 
-The `Demonstration` template fills the [Demonstrations Project](https://demonstrations.wolfram.com/) authoring notebook, complete with its docked HELP / SAVE / UPDATE THUMBNAIL AND SNAPSHOTS / TEST IMAGE SIZE / UPLOAD toolbar. The [Bloch Sphere with a Quantum Gate Sequence](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/examples/Demonstration/BlochSphereGates.md) sample uses one `## Caption` paragraph, the `## Initialization` definitions (the gate matrices and the Bloch projection), a single `## Manipulate` cell, and three `## Snapshots` panels - the structure the Demonstrations review requires. A snapshot is *the same `Manipulate` rendered at a specific control state*, not a different graphic, so the idiomatic pattern factors the `Manipulate` into a named helper `demo[p1_:..., p2_:..., ...]` in `## Initialization` and each `## Snapshots` cell is a call like `demo[v1, v2, ...]` with `#| input: false` so only the rendered panel appears (no code, no `In[]`/`Out[]` label):
+The `Demonstration` template fills the [Demonstrations Project](https://demonstrations.wolfram.com/) authoring notebook, complete with its docked HELP / SAVE / UPDATE THUMBNAIL AND SNAPSHOTS / TEST IMAGE SIZE / UPLOAD toolbar. The [Bloch Sphere with a Quantum Gate Sequence](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/examples/Demonstration/BlochSphereGates.md) sample uses one `## Caption` paragraph, the `## Initialization` definitions (the gate matrices and the Bloch projection), a single `## Manipulate` cell, and three `## Snapshots` panels - the structure the Demonstrations review requires. A snapshot is *the same `Manipulate` rendered at a specific control state*, not a different graphic, so the idiomatic pattern factors the `Manipulate` into a named helper `demo[p1_:…, p2_:…, …]` in `## Initialization` and each `## Snapshots` cell is a call like `demo[v1, v2, …]` with `#| input: false` so only the rendered panel appears (no code, no `In[]`/`Out[]` label):
 
 ```wl
 #| screenshot: true
@@ -373,7 +377,7 @@ MarkdownToNotebook["https://raw.githubusercontent.com/WolframInstitute/MarkdownT
 
 ### Overview
 
-The `Overview` template fills the doc-tools overview page - the paclet's high-level table of contents that links into its Guide, Symbol, and Tutorial pages. Heading depth picks the cell style (`#` → `TOCDocumentTitle`, `##` → `TOCChapter`, `###` → `TOCSection`, `####` → `TOCSubsection`, `#####` → `TOCSubsubsection`); a bulleted list under a heading becomes TOC leaves one level deeper; each entry's `[Label](paclet:Pub/Pkg/<kind>/Name)` link is rendered as a clickable `ButtonBox`. The worked sample is the [AccessibleColors Overview](https://github.com/sw1sh/AccessibleColors/blob/main/docs/Tutorials/Overview.md):
+The `Overview` template fills the doc-tools overview page - the paclet's high-level table of contents that links into its Guide, Symbol, and Tutorial pages. Heading depth picks the cell style (`#` → `TOCDocumentTitle`, `##` → `TOCChapter`, `###` → `TOCSection`, `####` → `TOCSubsection`, `#####` → `TOCSubsubsection`); a bulleted list under a heading becomes TOC leaves one level deeper; each entry's markdown link (`[Label](paclet:Pub/Pkg/<kind>/Name)`) is rendered as a clickable `ButtonBox`. The worked sample is the [AccessibleColors Overview](https://github.com/sw1sh/AccessibleColors/blob/main/docs/Tutorials/Overview.md):
 
 ```wl
 #| screenshot: true
@@ -393,15 +397,15 @@ MarkdownToNotebook["https://raw.githubusercontent.com/WolframInstitute/MarkdownT
 
 ### Book
 
-The `Chapter` template fills the [Wolfram Book Tools](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/WolframBookTools) chapter notebook - the structure used by long-form course / book material with TOC navigation, exercises, vocabulary, Q&A, and back matter. The [IntroToQuantumComputing](https://github.com/WolframInstitute/MarkdownToNotebook/tree/main/examples/Chapter/IntroToQuantumComputing) example is a worked two-chapter book modelled on the first two lessons of the [Wolfram Quantum Framework](https://github.com/WolframResearch/QuantumFramework) course, augmented with the book-style back matter the original notebooks did not have. Each chapter compiles independently; the build script also stamps `ExpressionUUID`s on heading cells (so the TOC buttons have stable jump targets), generates `Contents.nb` in the same shape `WolframBookTools` `WBTMakeContentsFromDialog` writes, and (`--publish`) deploys the whole book to the cloud - chapter 1 [here](https://www.wolframcloud.com/obj/nikm/IntroToQuantumComputing/01-what-is-quantum-computation.nb), chapter 2 [here](https://www.wolframcloud.com/obj/nikm/IntroToQuantumComputing/02-building-blocks-of-quantum-circuits.nb), and the [TOC](https://www.wolframcloud.com/obj/nikm/IntroToQuantumComputing/Contents.nb):
+The `Chapter` template fills the [Wolfram Book Tools](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/WolframBookTools) chapter notebook - the structure used by long-form course / book material with TOC navigation, exercises, vocabulary, Q&A, and back matter. The [IntroToQuantumComputing](https://github.com/WolframInstitute/MarkdownToNotebook/tree/main/examples/Chapter/IntroToQuantumComputing) example is a worked two-chapter book modelled on the first two lessons of the [Wolfram Quantum Framework](https://github.com/WolframResearch/QuantumFramework) course, augmented with the book-style back matter the original notebooks did not have. Each chapter compiles independently; the build script also stamps `ExpressionUUID`s on heading cells (so the TOC buttons have stable jump targets), generates `Contents.nb` in the same shape `WolframBookTools` `WBTMakeContentsFromDialog` writes, and (`--publish`) deploys the whole book to the cloud - chapter 1 [here](https://www.wolframcloud.com/obj/nikm/IntroToQuantumComputing/01-what-is-quantum-computation.nb), chapter 2 [here](https://www.wolframcloud.com/obj/nikm/IntroToQuantumComputing/02-building-blocks-of-quantum-circuits.nb), and the [TOC](https://www.wolframcloud.com/obj/nikm/IntroToQuantumComputing/Contents.nb). A chapter in miniature, carrying the same back-matter sections:
 
 ```wl
 #| screenshot: true
 #| tear: 200
-MarkdownToNotebook["https://raw.githubusercontent.com/WolframInstitute/MarkdownToNotebook/refs/heads/main/examples/Chapter/IntroToQuantumComputing/chapters/01-what-is-quantum-computation.md"]
+MarkdownToNotebook["---\nTemplate: Chapter\nName: Superposition\n---\n\n# Superposition\n\nA qubit holds a combination of both basis states.\n\n```wl\nNormalize[{1, 1}]\n```\n\n## Vocabulary\n\n- **qubit** - a two-level quantum system\n\n## Exercises\n\n1. Normalize the state {1, I}.\n\n## Summary\n\nA qubit state is a unit vector in a two-dimensional space."]
 ```
 
-Beyond Symbol / Guide / TechNote pages, the full documentation page-type roster converts too: `Format`, `ServiceConnection`, `Device`, `Interpreter`, `Entity`, `Character`, `Message`, `Program`, `Workflow`, and `WorkflowGuide` pages, each mapping its `## sections` to the type's own cell styles and shipping in the type's paclet directory (`ReferencePages/Formats`, `.../Services`, ..., `Workflows`). The [DocPageExamples](https://github.com/WolframInstitute/MarkdownToNotebook/tree/main/examples/Paclet/DocPageExamples) example is a minimal REAL paclet carrying one page of each: its kernel registers a MAZE import/export format, a fully local `ServiceConnect["Lorem"]` service, a simulated `DeviceOpen["RandomSignal"]` device, and a `WallpaperGroup` entity store, defines the `MazeParse::ragged` message, and ships a `mazegen` wolframscript CLI - so every page's example cells evaluate genuinely at build time:
+Beyond `Symbol` / `Guide` / `TechNote` pages, the full documentation page-type roster converts too: `Format`, `ServiceConnection`, `Device`, `Interpreter`, `Entity`, `Character`, `Message`, `Program`, `Workflow`, and `WorkflowGuide` pages, each mapping its `## sections` to the type's own cell styles and shipping in the type's paclet directory (`ReferencePages/Formats`, `…/Services`, …, `Workflows`). The [DocPageExamples](https://github.com/WolframInstitute/MarkdownToNotebook/tree/main/examples/Paclet/DocPageExamples) example is a minimal REAL paclet carrying one page of each: its kernel registers a MAZE import/export format, a fully local `ServiceConnect["Lorem"]` service, a simulated `DeviceOpen["RandomSignal"]` device, and a `WallpaperGroup` entity store, defines the `MazeParse::ragged` message, and ships a `mazegen` wolframscript CLI - so every page's example cells evaluate genuinely at build time:
 
 ```wl
 #| screenshot: true
@@ -429,10 +433,12 @@ MarkdownToNotebook["nonexistent.md", "Association"]["Sections"]
 
 ## Neat Examples
 
-The neatest example is this very document: running the function on its own GitHub source produces the notebook itself, the one you are reading (its `## Definition` even inlines `MarkdownToNotebook.wl` from the same GitHub directory, so the one URL is self-contained). The example converts its own source, so it passes `"Evaluate" -> False` to leave that copy's example cells unevaluated rather than re-run this very example without end:
+A whole [Function Repository](https://resources.wolframcloud.com/FunctionRepository/) submission fits in one string: frontmatter picks the template and carries the metadata, `## Definition` is the implementation, and `## Usage` and `## Basic Examples` fill the documentation slots - so the document *is* the resource, and converting it yields the publishable notebook:
 
 ```wl
-NotebookPut[MarkdownToNotebook["https://raw.githubusercontent.com/WolframInstitute/MarkdownToNotebook/refs/heads/main/MarkdownToNotebook.md", "Evaluate" -> False]]
+#| screenshot: true
+#| tear: 220
+MarkdownToNotebook["---\nTemplate: FunctionResource\nName: Greet\nDescription: Greet someone by name\n---\n\n## Definition\n\n```wl\nGreet[name_String] := \"Hello, \" <> name\n```\n\n## Usage\n\nGreet[*name*] returns a greeting for *name*.\n\n## Basic Examples\n\n```wl\nGreet[\"world\"]\n```"]
 ```
 
 Because this very document is itself such a literate source - its `## Definition` inlines `MarkdownToNotebook.wl` and its frontmatter is the resource metadata - running the function on it reproduces this definition notebook, so the function publishes itself.
