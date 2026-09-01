@@ -764,14 +764,14 @@ sectionText[sections_, key_] := StringRiffle[
    cells:
      Automatic - reset at "---" thematic breaks and at every heading,
                  at any level (the default - each (sub)section runs
-                 in a clean context). A reset clears only symbols
-                 INTRODUCED AFTER the document's "## Definition" section
-                 has run; the definition's symbols (the FunctionResource
-                 function, helper bindings) persist across every later
-                 section. The protected baseline is snapshotted at the
-                 first reset that follows the definition section, so an
-                 example that introduces a temp local helper is wiped
-                 between sections but the resource's function is not.
+                 in a clean context). Every such reset clears the
+                 symbols the document has bound, except those from its
+                 "## Definition" section: the definition's symbols (the
+                 FunctionResource function, helper bindings) persist
+                 across every later section, while an example's temp
+                 helper is wiped at the next delimiter. A document with
+                 no "## Definition" protects nothing, so each delimiter
+                 clears everything it has defined.
      All       - reset before every executable cell, so each cell runs
                  in a fresh context with its hash depending only on
                  its own code (maximum isolation, minimum cache reuse).
@@ -1090,37 +1090,37 @@ evalCell[state_, b_] := Block[{code = state["code"] <> mdSep <> b["Code"], captu
       "out" -> Append[state["out"], Hash[code] -> captured]|>
 ]
 
-(* A reset boundary item that follows the definition section is the moment
-   we lock in the protected baseline: snapshot every symbol currently bound
-   in the doc context tree and record it as state["protected"]. The
-   detection is simple - this fires the first time we see a Heading whose
-   text matches a known example section ("Basic Examples", "Scope", etc.)
-   after at least one executable cell has run. For docs without a
-   definition section the baseline ends up empty (snapshot of an empty
-   context), which is the correct degenerate case: every reset clears
-   everything, the historical Automatic behaviour. *)
-$exampleHeadingMatchQ[text_String] := MemberQ[$exampleOrder, ToLowerCase[StringTrim[text]]]
-$exampleHeadingMatchQ[_] := False
+(* The protected baseline is the document's setup section - the one the rest of the
+   document is written against: "## Definition" for a FunctionResource, "## Content"
+   for an Example (its content elements), "## Initialization" for a Demonstration or
+   Chapter. Those bindings survive every later delimiter; everything the document
+   defines after them is cleared at each one. The baseline is snapshotted when that
+   section ENDS - the first heading at its own level or higher - so setup code spread
+   over several "###" subheadings keeps its bindings while the section is still
+   running. A document with no setup section starts from an empty baseline (see
+   evaluateAll), so every delimiter clears everything it has defined. *)
+$setupSections = {"definition", "content", "initialization"}
+$setupHeadingQ[b_Association] :=
+    b["Type"] === "Heading" && MemberQ[$setupSections, ToLowerCase[StringTrim[b["Text"]]]]
+$setupHeadingQ[_] := False
 
 captureProtectedQ[state_, b_] :=
-    state["protected"] === None && state["primed"] === True &&
-        b["Type"] === "Heading" && $exampleHeadingMatchQ[b["Text"]]
+    state["protected"] === None && IntegerQ[state["defLevel"]] &&
+        b["Type"] === "Heading" && ! $setupHeadingQ[b] &&
+        b["Level"] <= state["defLevel"]
 
 (* fold step: per "EvaluateSeparator" mode, reset before this item if it is
    a boundary, then evaluate if it is an executable cell. Separator /
    Heading blocks just trigger a reset; in mode All every executable cell
    triggers a reset before its own evaluation. Capture the protected
-   baseline before clearing if this boundary marks the transition into
-   the first example section. *)
+   baseline before clearing if this boundary ends the setup section. *)
 accumEval[state0_, b_] := Block[{state = state0, s},
     If[ captureProtectedQ[state, b],
         state = <|state, "protected" -> docContextSymbols[state["ctx"]]|>
     ];
+    If[ $setupHeadingQ[b], state = <|state, "defLevel" -> b["Level"]|>];
     s = If[resetBoundaryQ[state["mode"], b], resetState[state], state];
-    If[executableQ[b],
-        With[{s2 = evalCell[s, b]}, <|s2, "primed" -> True|>],
-        s
-    ]
+    If[executableQ[b], evalCell[s, b], s]
 ]
 
 (* Pre-load every package whose first use during evaluation would otherwise
@@ -1205,7 +1205,10 @@ evaluateAll[items_List, ctx_String, ctxPath_List, mode_] := Block[{$Context = ct
     preloadContextPath[ctxPath];
     UsingFrontEnd[Fold[accumEval,
         <|"code" -> "", "out" -> <||>, "ctx" -> ctx, "mode" -> mode,
-          "protected" -> None, "primed" -> False|>,
+          (* no setup section to protect means an empty baseline from the start,
+             so the first delimiter already clears whatever the document bound *)
+          "protected" -> If[AnyTrue[items, $setupHeadingQ], None, {}],
+          "defLevel" -> None|>,
         items]]["out"]
 ]
 
