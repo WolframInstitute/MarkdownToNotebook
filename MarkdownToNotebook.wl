@@ -3174,15 +3174,21 @@ texBoxes[math_String] :=
    result being box-like; a parse failure returns ParseError[...]/$Failed, which
    falls through to the ImportString path. *)
 wolframParserTeX[math_String] :=
-    If[ Names["Wolfram`Parser`LaTeXMathParse"] === {},
+    (* The gate is the parser's DEFINITIONS, not its name. The symbol exists on any kernel
+       that has merely mentioned it - a caller probing readiness with a literal
+       Wolfram`Parser`LaTeXMathParse creates it, empty - and on such a kernel the call
+       below returns unevaluated, which is neither $Failed nor a ParseError: it was accepted
+       as boxes and shipped, and the front end showed every formula as an unknown box named
+       Wolfram`Parser`LaTeXMathParse (PureMath CI, 2026-09-12, 2954 pages). *)
+    If[ ! parserLoadedQ[],
         $Failed,
-        Module[{r},
-            r = Quiet @ Check[Symbol["Wolfram`Parser`LaTeXMathParse"][math], $Failed];
-            (* Accept whatever boxes the parser returns; only reject its known
-               failure shapes. Head is matched by short name so a ParseError from
-               the paclet's own context still trips it regardless of how this file
-               captured the bare symbol. *)
-            If[ MatchQ[r, $Failed | _Failure] || SymbolName[Head[r]] === "ParseError" || ! FreeQ[r, $Failed],
+        Module[{r, f = Symbol["Wolfram`Parser`LaTeXMathParse"]},
+            r = Quiet @ Check[f[math], $Failed];
+            (* Accept whatever boxes the parser returns; reject its known failure shapes,
+               and an unevaluated call (head still the parser itself) as one more of them.
+               Head is matched by short name so a ParseError from the paclet's own context
+               still trips it regardless of how this file captured the bare symbol. *)
+            If[ MatchQ[r, $Failed | _Failure] || Head[r] === f || SymbolName[Head[r]] === "ParseError" || ! FreeQ[r, $Failed],
                 $Failed,
                 r
             ]
