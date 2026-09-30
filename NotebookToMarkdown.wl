@@ -195,7 +195,16 @@ iconizedCode[ib : InterpretationBox[_, _, ___]] := StringRiffle[
         Function[e, ToString[Unevaluated[e], InputForm], HoldAllComplete],
         Extract[ib, 2, HoldForm]],
     ", "]
+(* a typeset input sub-expression (MarkdownToNotebook's Typeset rules and inline
+   marker): the display is a FormBox in a box form, the interpretation the code as
+   written. It walks back as that code behind the comment naming its form, which
+   re-converts to the same box - the display is never code. *)
+typesetBoxQ[InterpretationBox[FormBox[_, f_Symbol], _, ___]] := MemberQ[$BoxForms, f]
+typesetBoxQ[_] := False
+typesetCode[InterpretationBox[FormBox[_, f_Symbol], e_, ___]] :=
+    "(*" <> SymbolName[f] <> "*)" <> ToString[Unevaluated[e], InputForm]
 boxToCode[ib : InterpretationBox[_, ___]] /; iconizedBoxQ[ib] := iconizedCode[ib]
+boxToCode[ib : InterpretationBox[_, ___]] /; typesetBoxQ[ib] := typesetCode[ib]
 boxToCode[InterpretationBox[disp_, ___]] := boxToCode[disp]
 boxToCode[TagBox[disp_, ___]] := boxToCode[disp]
 boxToCode[StyleBox[disp_, ___]] := boxToCode[disp]
@@ -510,12 +519,15 @@ codeText[BoxData[b_]] /; ! FreeQ[b, TemplateBox[_, $templateSlotBoxes, ___]] :=
     codeText[BoxData[templateSlotCode[b]]]
 
 codeText[BoxData[TagBox[b_, ___]]] := codeText[BoxData[b]]
-codeText[BoxData[ib : InterpretationBox[b_, ___]]] /; ! iconizedBoxQ[ib] := codeText[BoxData[b]]
+codeText[BoxData[ib : InterpretationBox[b_, ___]]] /; ! iconizedBoxQ[ib] && ! typesetBoxQ[ib] := codeText[BoxData[b]]
 (* an Iconize icon is content, not a wrapper: swap each one for its stored
    interpretation's text BEFORE the FE call, so the FE path and the kernel
    fallback both see plain code where the icon sat *)
 codeText[BoxData[b_]] /; ! FreeQ[b, ib : InterpretationBox[_, ___] /; iconizedBoxQ[ib]] :=
     codeText[BoxData[b /. ib : InterpretationBox[_, ___] /; iconizedBoxQ[ib] :> iconizedCode[ib]]]
+(* likewise a typeset sub-expression, swapped for its marker and code *)
+codeText[BoxData[b_]] /; ! FreeQ[b, ib : InterpretationBox[_, ___] /; typesetBoxQ[ib]] :=
+    codeText[BoxData[b /. ib : InterpretationBox[_, ___] /; typesetBoxQ[ib] :> typesetCode[ib]]]
 codeText[bd : BoxData[b_]] := Module[{r},
     r = Quiet @ Check[feInputText[bd], $Failed];
     If[StringQ[r] && r =!= "", r, boxToCode[b]]

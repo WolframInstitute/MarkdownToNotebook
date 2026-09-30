@@ -53,6 +53,7 @@ the implementation inline:
 - LaTeX math is typeset by the [Wolfram/Parser](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/Parser/) paclet. If it is not already installed, the first call that needs it installs it from the Paclet Repository, which requires network access; install it yourself beforehand to avoid that. When it cannot be reached the function issues `MarkdownToNotebook::noparser` once per session and falls back to `ImportString[..., "TeX"]`, which handles plain math but mis-decodes non-ASCII characters.
 - Evaluated example outputs are cached as a [PersistentSymbol]() per cell at the `"Local"` [PersistenceLocation](), keyed by a cumulative hash of the preceding cells, so re-runs reuse them across sessions.
 - Manage that cache the standard way: [PersistentObjects]()["MarkdownToNotebook/ExampleOutput/*", "Local"] lists it, [DeleteObject]() clears it, and [$PersistencePath]() / [PersistenceLocation]() relocate it.
+- An input cell shows its code as typed. To show a sub-expression typeset instead - a `Quantity` as its unit form, an integral in `TraditionalForm` - ask for it, in either of two ways. A `Typeset:` frontmatter mapping lists `pattern: form` lines (`_Quantity: StandardForm`), or holds one rule or a rule list as a scalar, and the outermost sub-expression of each input that a pattern matches is typeset. A comment naming a box form right before a sub-expression marks just that one: `f[(*TraditionalForm*)Integrate[x^2, x], 2]`. The comment is inert when the code runs as text, so the markdown stays runnable, and the typeset form is of the expression as written, never its value, so evaluating the notebook's input cell runs exactly the markdown's code. Typesetting is formatting: it applies whether or not the examples are evaluated.
 - The source lives on GitHub, which renders the markdown directly: [github.com/WolframInstitute/MarkdownToNotebook](https://github.com/WolframInstitute/MarkdownToNotebook).
 - Running the function on this document - [Get]() the `.wl`, then `MarkdownToNotebook["MarkdownToNotebook.md", "MarkdownToNotebook.nb"]` - reproduces this very definition notebook; that is the loop `build.wls` runs.
 
@@ -68,6 +69,7 @@ Individual code cells carry their own options as `#|` comment lines at the top o
 | `input` | `input: false` drops the Input cell and keeps only the captured output - the Demonstration snapshot convention, where the snapshot is the *rendered Manipulate panel* at a fixed parameter state |
 | `excluded` | `excluded: true` appends the `"Excluded"` cell style; the resource scraper strips the cell from the published resource but it stays in the source `.nb` (the cell-tools *Mark as Excluded* button) |
 | `hidden` | `hidden: true` adds the `"HiddenMaterial"` modifier style and sets `CellOpen -> False`; the cell is closed on the published web page but open in the downloadable example notebook (the cell-tools *Mark as Hidden* button) |
+| `typeset` | show matching sub-expressions of the input typeset - `typeset: _Quantity -> StandardForm`, a list of such rules, or `{p1, p2} -> form` for alternatives; tried before the document's `Typeset:` rules, and `typeset: None` turns those off for the cell |
 
 ## Usage
 
@@ -1262,6 +1264,58 @@ VerificationTest[
          Count[nb, Cell[_, "ExtendedExamplesSection", ___], Infinity]}],
     {0, {"Scope", "Authentication"}, 1},
     TestID -> "subtype page: extra example sections are ExampleSection groups under More Examples (issue #99)"
+]
+```
+
+A comment naming a box form marks the sub-expression after it to show typeset: inside an argument list that is the sequence's first element, the display is the form's boxes and the interpretation is the code as written, so the input still evaluates exactly as typed; an ordinary comment is not a marker (issue #90):
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook[
+        "## A\n\n```wl\nf[(*TraditionalForm*)Integrate[x^2, x], 2]\n```\n\n```wl\n(* integrate it *)Integrate[x^2, x]\n```",
+        "Evaluate" -> False]},
+        {Cases[nb, InterpretationBox[FormBox[_, form_], e_, ___] :> {form, HoldComplete[e]}, Infinity],
+         ToExpression[First @ Cases[nb, Cell[BoxData[b_], "Input", ___] :> b, Infinity], StandardForm, HoldComplete]}],
+    {{{TraditionalForm, HoldComplete[Integrate[x^2, x]]}}, HoldComplete[f[Integrate[x^2, x], 2]]},
+    TestID -> "typeset: an inline form marker typesets its operand and keeps the input's meaning (issue #90)"
+]
+```
+
+Typesetting by rule is opt-in: a `Typeset:` frontmatter pattern typesets every matching sub-expression, a cell's `#| typeset: None` turns that off, and a cell rule adds to the document's; it applies with `"Evaluate" -> False` too (issue #90):
+
+```wl
+VerificationTest[
+    With[{forms = Function[md, Cases[MarkdownToNotebook[md, "Evaluate" -> False],
+            InterpretationBox[FormBox[_, f_], ___] :> f, Infinity]],
+          q = "```wl\n{Quantity[1, \"Meters\"], Integrate[x^2, x]}\n```"},
+        {forms["## A\n\n" <> q],
+         forms["---\nTypeset:\n  _Quantity: StandardForm\n---\n\n## A\n\n" <> q],
+         forms["---\nTypeset:\n  _Quantity: StandardForm\n---\n\n## A\n\n" <> StringReplace[q, "```wl\n" -> "```wl\n#| typeset: None\n"]],
+         forms["---\nTypeset:\n  _Quantity: StandardForm\n---\n\n## A\n\n" <> StringReplace[q, "```wl\n" -> "```wl\n#| typeset: _Integrate -> TraditionalForm\n"]]}],
+    {{}, {StandardForm}, {}, {StandardForm, TraditionalForm}},
+    TestID -> "typeset: frontmatter rules are opt-in, None disables, cell rules merge, Evaluate -> False still typesets (issue #90)"
+]
+```
+
+A sub-expression with no typeset form until it is evaluated - a `DateObject` built from a date list - is evaluated for its display, while the interpretation stays the code as written (issue #90):
+
+```wl
+VerificationTest[
+    Cases[MarkdownToNotebook["## A\n\n```wl\n(*StandardForm*)DateObject[{2026, 9, 30}]\n```", "Evaluate" -> False],
+        InterpretationBox[FormBox[TemplateBox[_, t_String, ___], _], e_, ___] :> {t, HoldComplete[e]}, Infinity],
+    {{"DateObject", HoldComplete[DateObject[{2026, 9, 30}]]}},
+    TestID -> "typeset: a DateObject shows its date and holds its code (issue #90)"
+]
+```
+
+An approximate number in a typeset display reads as typed: its box carries a precision mark (`1.4` + backtick) that an output cell formats away but an input cell would show verbatim, so the typeset display drops it (issue #90):
+
+```wl
+VerificationTest[
+    Cases[MarkdownToNotebook["## A\n\n```wl\n{(*StandardForm*)Quantity[1.4, \"Meters\"], (*StandardForm*)Quantity[3, \"Meters\"]}\n```", "Evaluate" -> False],
+        TemplateBox[{m_, __}, "Quantity", ___] :> m, Infinity],
+    {"1.4", "3"},
+    TestID -> "typeset: an approximate magnitude shows without its precision mark (issue #90)"
 ]
 ```
 

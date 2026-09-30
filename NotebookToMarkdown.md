@@ -509,3 +509,15 @@ VerificationTest[
 ]
 ```
 
+A typeset input sub-expression walks back as the code it interprets to, behind the comment naming its form - never as its display - so the source re-converts to the same box (issue #90):
+
+```wl
+VerificationTest[
+    NotebookToMarkdown[Notebook[{Cell[BoxData[RowBox[{"f", "[", RowBox[{
+        InterpretationBox[FormBox[RowBox[{"\[Integral]", RowBox[{SuperscriptBox["x", "2"], RowBox[{"\[DifferentialD]", "x"}]}]}], TraditionalForm],
+            Integrate[x^2, x]], ",", " ", "2"}], "]"}]], "Input"]}]],
+    "```wl\nf[(*TraditionalForm*)Integrate[x^2, x], 2]\n```\n",
+    TestID -> "typeset input walks back to its form marker and code (issue #90)"
+]
+```
+

@@ -760,7 +760,7 @@ cellBoxesOf[b_] := With[{v = Lookup[b["Options"], "boxes", False]},
         True, cellLiteralBoxes[b["Code"]]
     ]]
 
-nonExecutableCell[b_] := applyCellMeta[
+nonExecutableCell[b_] := applyTypeset[b, applyCellMeta[
     Which[
         boxesLiteralQ[b],
             Cell[BoxData[cellBoxesOf[b]], "Input"],
@@ -770,7 +770,7 @@ nonExecutableCell[b_] := applyCellMeta[
             Cell[b["Code"], "Program"]
     ],
     Lookup[b, "Options", <||>]
-]
+]]
 
 sectionCells[sections_, key_] := Cases[Lookup[sections, key, {}], b_ /; executableQ[b]]
 
@@ -1712,15 +1712,133 @@ withScreenshotMark[block_, cells_List] := If[
         Cell[c, "Input", o, CellTags -> {"MTNScreenshot"}],
     cells
 ]
+(* === typeset input ===
+   An input cell shows code as typed. On request a sub-expression shows in a typeset
+   form instead - a Quantity as 1 m^3/s, an integral in TraditionalForm - while
+   evaluating the cell still runs exactly the code as written: that sub-expression's
+   boxes become InterpretationBox[FormBox[<typeset>, form], <the code, held>]. Nothing
+   is typeset unless asked, and there are two ways to ask:
+     - a rule, pattern -> form, from the frontmatter's `Typeset:` mapping (indented
+       "pattern: form" lines, or one rule / rule list as a scalar) or a code cell's
+       "#| typeset:" option (a rule, or a list of rules; a list on the left of a rule
+       is alternatives; "None" turns the document's rules off for that cell). The
+       cell's rules are tried before the document's, and the outermost sub-expression
+       a rule matches is the one typeset.
+     - a comment naming a box form right before a sub-expression:
+       f[(*TraditionalForm*)Integrate[x^2, x], 2]. A comment is inert when the code
+       runs as text, so the markdown stays runnable. The front end reparses it as its
+       own box ahead of its operand - except in an argument or element list, where the
+       box after it is the whole sequence and the operand is that sequence's first
+       element.
+   The typeset form is of the expression as written, not of its value, so an integral
+   stays an integral. A sub-expression with no typeset form until it is evaluated (a
+   DateObject built from a date list) is evaluated for the display when the value keeps
+   its head. Typesetting is formatting and happens whether or not the document's
+   examples are evaluated. *)
+$docTypesetRules = {}
+typesetFormOf[s_String] := SelectFirst[$BoxForms, SymbolName[#] === StringTrim[s] &, None]
+typesetFormOf[_] := None
+
+(* {{pattern, form}, ...} from a held rule spec, every pattern kept unevaluated *)
+typesetHeldPattern[HoldComplete[l_List]] := Alternatives @@ Map[typesetHeldPattern,
+    Extract[HoldComplete[l], Table[{1, i}, {i, Length[Unevaluated[l]]}], HoldComplete]]
+typesetHeldPattern[HoldComplete[p_]] := HoldPattern[p]
+typesetRulesOf[held_HoldComplete] := Cases[held,
+    (Rule | RuleDelayed)[l_, f_Symbol] /; MemberQ[$BoxForms, f] :> {typesetHeldPattern[HoldComplete[l]], f},
+    {1, 2}]
+typesetSpecRules[s_String] := With[{h = Quiet @ ToExpression[s, InputForm, HoldComplete]},
+    If[MatchQ[h, _HoldComplete], typesetRulesOf[h], {}]]
+typesetSpecRules[_] := {}
+
+docTypesetRules[meta_] := With[{t = Lookup[meta, "Typeset", None]},
+    Which[
+        AssociationQ[t], Catenate @ KeyValueMap[
+            Function[{p, f}, With[{form = typesetFormOf[f], pat = Quiet @ ToExpression[p, InputForm, HoldPattern]},
+                If[form === None || ! MatchQ[pat, _HoldPattern], {}, {{pat, form}}]]],
+            t],
+        StringQ[t], typesetSpecRules[t],
+        True, {}
+    ]]
+blockTypesetRules[block_] := With[{o = Lookup[Lookup[block, "Options", <||>], "typeset", Missing[]]},
+    Which[
+        MissingQ[o], $docTypesetRules,
+        o === False || (StringQ[o] && StringTrim[o] === "None"), {},
+        StringQ[o], Join[typesetSpecRules[o], $docTypesetRules],
+        True, $docTypesetRules
+    ]]
+typesetMarkerQ[code_String] := StringContainsQ[code, "(*" ~~ WhitespaceCharacter ... ~~
+    (Alternatives @@ (SymbolName /@ $BoxForms)) ~~ WhitespaceCharacter ... ~~ "*)"]
+typesetMarkerQ[_] := False
+
+typesetWsQ[s_String] := StringMatchQ[s, WhitespaceCharacter ...]
+typesetWsQ[_] := False
+typesetMarkerForm[RowBox[{"(*", mid___, "*)"}]] := typesetFormOf[StringJoin @ Cases[{mid}, _String]]
+typesetMarkerForm[_] := None
+heldBoxExpr[b_] := With[{h = Quiet @ MakeExpression[b, StandardForm]}, If[MatchQ[h, HoldComplete[_]], h, $Failed]]
+
+typesetUnForm[FormBox[x_, f_], f_] := x
+typesetUnForm[x_, _] := x
+(* An approximate number's box carries its precision mark ("1.4`", "1.4`20.", "1.4`*^10").
+   An output cell formats the mark away, but an input cell shows its box strings as they
+   stand, where a typeset 1.4 m/s would read "1.4` m/s". The display drops the mark, and
+   the number reads as it was typed; the interpretation is the held code, untouched. *)
+typesetNumberMarks[bx_] := bx /. s_String /; StringMatchQ[s, NumberString ~~ "`" ~~ ___] :>
+    StringReplace[s, "`" ~~ (DigitCharacter | ".") ... -> ""]
+typesetDisplay[HoldComplete[e_], f_] := Module[{bx = typesetUnForm[ToBoxes[Unevaluated[e], f], f], v},
+    If[ MatchQ[Head[Unevaluated[e]], _Symbol] &&
+            MatchQ[bx, RowBox[{SymbolName[Head[Unevaluated[e]]], "[", ___}]],
+        v = Quiet[e];
+        If[ Head[v] === Head[Unevaluated[e]], bx = typesetUnForm[ToBoxes[v, f], f]]
+    ];
+    FormBox[typesetNumberMarks[bx], f]]
+typesetBox[h : HoldComplete[e_], f_] := With[{d = typesetDisplay[h, f]}, InterpretationBox[d, e]]
+typesetSub[b_, f_] := With[{h = heldBoxExpr[b]}, If[h === $Failed, b, typesetBox[h, f]]]
+
+typesetOperand[RowBox[l_List], f_] /; MemberQ[l, ","] :=
+    With[{k = SelectFirst[Range[Length[l]], ! typesetWsQ[l[[#]]] &, 1]},
+        RowBox[ReplacePart[l, k -> typesetSub[l[[k]], f]]]]
+typesetOperand[b_, f_] := typesetSub[b, f]
+typesetMarkerPass[l_List] := Module[{out = {}, i = 1, n = Length[l], f, j},
+    While[i <= n,
+        f = typesetMarkerForm[l[[i]]];
+        j = i + 1;
+        While[f =!= None && j <= n && typesetWsQ[l[[j]]], j++];
+        If[ f =!= None && j <= n,
+            AppendTo[out, typesetOperand[l[[j]], f]]; i = j + 1,
+            AppendTo[out, l[[i]]]; i++
+        ]
+    ];
+    out]
+typesetMarkers[RowBox[l_List]] := RowBox[typesetMarkerPass[typesetMarkers /@ l]]
+typesetMarkers[b_] := b
+
+typesetByRules[b_, {}] := b
+typesetByRules[ib_InterpretationBox, _] := ib
+typesetByRules[RowBox[l_List], rules_] := With[{h = heldBoxExpr[RowBox[l]]},
+    With[{f = If[h === $Failed, None,
+            FirstCase[rules, {p_, form_} /; MatchQ[h, HoldComplete[p]] :> form, None]]},
+        If[f =!= None, typesetBox[h, f], RowBox[typesetByRules[#, rules] & /@ l]]]]
+typesetByRules[b_, _] := b
+typesetBoxes[b_, rules_] := typesetByRules[typesetMarkers[b], rules]
+
+(* the input cells a block produced - every "...Input" style, and "Code" *)
+typesetInputStyleQ[st_String] := StringEndsQ[st, "Input"] || st === "Code"
+applyTypeset[block_, x_] := With[{rules = blockTypesetRules[block]},
+    If[ rules === {} && ! typesetMarkerQ[Lookup[block, "Code", ""]],
+        x,
+        x /. Cell[BoxData[b_], st_String /; typesetInputStyleQ[st], o___] :>
+            Cell[BoxData[typesetBoxes[b, rules]], st, o]
+    ]]
+
 exampleIOFor[block_, n_Integer] :=
-    applyExcluded[block, applyHidden[block, applyCollapse[block, withCellFlag[block, withScreenshotMark[block, exampleIO[
+    applyExcluded[block, applyHidden[block, applyCollapse[block, withCellFlag[block, withScreenshotMark[block, applyTypeset[block, exampleIO[
         block["Code"], block["OutputBoxes"], n,
         extraOutputOpts[block], Lookup[block, "Messages", {}],
         Lookup[block["Options"], "input", True] === False,
         Lookup[block, "Prints", {}],
         Lookup[block, "ExtraCells", {}],
         Lookup[block, "Outputs", Automatic]
-    ]]]]]]
+    ]]]]]]]
 
 (* a document-level flag banner ("Flag" frontmatter) prepended to the notebook *)
 applyDocFlag[nb_, ""] := nb
@@ -4497,7 +4615,7 @@ templateBoxes[boxes_, fmt_] := boxes //. {
     RowBox[{"TemplateExpression", "[", expr_, "]"}] :> TemplateBox[{expr, "General", fmt}, "NotebookTemplateExpression"]
 }
 
-templateCodeCell[b_] := applyCellMeta[
+templateCodeCell[b_] := applyTypeset[b, applyCellMeta[
     Which[
         boxesLiteralQ[b],
             Cell[BoxData[templateBoxes[cellBoxesOf[b], BoxData]], "Input"],
@@ -4507,7 +4625,7 @@ templateCodeCell[b_] := applyCellMeta[
             Cell[b["Code"], "Program"]
     ],
     Lookup[b, "Options", <||>]
-]
+]]
 
 (* an inline `TemplateSlot["x"]` in prose becomes the bare slot cell the
    authoring toolbar inserts, not an InlineFormula wrapped around it *)
@@ -5408,7 +5526,7 @@ styledIOCells[block_, inStyle_String, outStyle_String] := Block[{
     msgs = Lookup[block, "Messages", {}],
     prints = Lookup[block, "Prints", {}]
 },
-    inCell = Cell[BoxData[inputBoxes[code]], inStyle];
+    inCell = applyTypeset[block, Cell[BoxData[inputBoxes[code]], inStyle]];
     Which[
         MissingQ[outBoxes] || outBoxes === Null,
             Flatten[{inCell, asPrintCell /@ prints, messageCell /@ msgs}],
@@ -6311,7 +6429,7 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
        conversion (an example cell that converts another document) otherwise leaves
        the inner document's Name / Paclet / Context / Template / math font in place,
        and the outer notebook is then built under the inner document's identity. *)
-    $docName, $docPaclet, $docContext, $docTemplate, $mathFontFamily,
+    $docName, $docPaclet, $docContext, $docTemplate, $mathFontFamily, $docTypesetRules,
     src, text, parsed, meta, blocks, sections, tmplName, defCode, ctx, ctxPath,
     orderedCode, hashes, cacheDocName, cacheNames, cached, allHit, outputs, data, filled
 },
@@ -6326,6 +6444,7 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
     blocks = resolveIncludes[parsed["Blocks"], src["Base"]];
     tmplName = Lookup[meta, "Template", "Default"];
     $docTemplate = tmplName;
+    $docTypesetRules = docTypesetRules[meta];
     (* a template notebook's code is evaluated by GenerateDocument, never here *)
     If[tmplName === "NotebookTemplate", evalExamples = False];
     (* None (default) / "" / Automatic keep the front end's native math font -
