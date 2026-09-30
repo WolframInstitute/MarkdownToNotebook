@@ -153,7 +153,36 @@ foldFrontmatterLines[lines_List] := Block[{out = {}, buf = "", depth = 0, inQ = 
     out
 ]
 
-parseYamlish[lines_List] := Association @ Map[yamlLine, Select[foldFrontmatterLines[lines], StringContainsQ[#, ":"] &]]
+(* A key with no value followed by indented "sub: value" lines is a nested mapping
+   (YAML block style) and parses to an Association. Its values are kept verbatim -
+   trimmed, never quote-stripped or list-parsed - because the mappings that use the
+   form carry Wolfram Language source (a NotebookTemplate's `Slots:` defaults), where
+   the quotes and braces are content. A sub-line splits at its first ": " so a value
+   may itself contain a colon. *)
+nestedLineQ[line_String] := StringStartsQ[line, " " | "\t"] && StringContainsQ[line, ":"]
+nestedLine[line_String] := With[{parts = StringSplit[StringTrim[line], ":" ~~ (" " | EndOfString), 2]},
+    StringTrim[First[parts]] -> StringTrim[Last[parts]]]
+
+parseYamlish[lines_List] := Block[{folded = foldFrontmatterLines[lines], out = <||>, i = 1, n, line, parts, key, sub},
+    n = Length[folded];
+    While[i <= n,
+        line = folded[[i]];
+        If[ nestedLineQ[line] || ! StringContainsQ[line, ":"], i++; Continue[]];
+        parts = StringSplit[line, ":", 2];
+        key = StringTrim[First[parts]];
+        If[ StringTrim[Last[parts]] === "" && i < n && nestedLineQ[folded[[i + 1]]],
+            sub = <||>;
+            i++;
+            While[i <= n && nestedLineQ[folded[[i]]],
+                AssociateTo[sub, nestedLine[folded[[i]]]];
+                i++];
+            out[key] = sub,
+            out[key] = parseFmValue[Last[parts]];
+            i++
+        ]
+    ];
+    out
+]
 
 extractFrontmatter[text_String] := Block[{lines, close},
     lines = StringSplit[text, "\n"];
@@ -1806,8 +1835,13 @@ applyCellMeta[Cell[c_, st_String, rest___], opts_Association] := Module[{r = {re
         r = Append[DeleteCases[r, CellTags -> _], CellTags -> DeleteDuplicates[tags]]];
     If[KeyExistsQ[opts, "annotation"],
         r = Append[DeleteCases[r, CellFrameLabels -> _], annotationFrameLabels[opts["annotation"]]]];
+    (* a template cell behavior is read by GenerateDocument from CellFrameLabels[[1, 1]] *)
+    If[KeyExistsQ[opts, "behavior"],
+        r = Append[DeleteCases[r, CellFrameLabels -> _], templateBehaviorLabels[opts["behavior"]]]];
     Cell[c, Lookup[opts, "style", st], Sequence @@ r]
 ]
+templateBehaviorLabels[kind_String] := CellFrameLabels ->
+    {{Cell[BoxData[TemplateBox[{kind}, "NotebookTemplateCellBehavior"]]], None}, {None, None}}
 (* an evaluated code cell is wrapped as Cell[CellGroupData[{Input, Output}, ...]];
    apply the block's #| style / tags / annotation to the FIRST (Input) cell inside -
    the one the directive belongs on - so a code cell's tag / annotation round-trips
@@ -1818,8 +1852,8 @@ applyCellMeta[other_, _] := other
 
 applyBlockMeta[cells_List, b_] := Module[{o = Lookup[b, "Options", <||>], hm, out},
     hm = Lookup[o, "headingMeta", <||>];
-    (* the block's OWN style / tags / annotation apply to every cell it produces *)
-    out = If[KeyExistsQ[o, "style"] || KeyExistsQ[o, "tags"] || KeyExistsQ[o, "annotation"],
+    (* the block's OWN style / tags / annotation / behavior apply to every cell it produces *)
+    out = If[KeyExistsQ[o, "style"] || KeyExistsQ[o, "tags"] || KeyExistsQ[o, "annotation"] || KeyExistsQ[o, "behavior"],
         applyCellMeta[#, o] & /@ cells, cells];
     (* a directive inherited from the section heading annotates the first cell only *)
     If[hm =!= <||> && out =!= {}, out = MapAt[applyCellMeta[#, hm] &, out, 1]];
@@ -4367,6 +4401,92 @@ defaultNotebook[data_] := Block[{counter = 0, cells},
     Notebook[cells, StyleDefinitions -> "Default.nb"]
 ]
 
+(* === Notebook Template ===
+   The "NotebookTemplate" document produces a Wolfram template notebook - the one
+   CreateNotebook["Template"] opens and GenerateDocument fills: the NotebookTemplate
+   tagging rules, the authoring toolbar as its docked cell, and a body laid out like
+   the Default template. Its code cells are never evaluated at conversion time; a
+   template is evaluated when GenerateDocument fills it (the entry point forces
+   "Evaluate" off for this template). A slot is written as ordinary Wolfram
+   Language - TemplateSlot["name"], or TemplateSlot["name", default]; an integer
+   name is a positional slot - and TemplateExpression[expr] is an expression
+   evaluated at generation time. Both are rewritten from the parsed boxes to the
+   TemplateBox forms the framework substitutes (NotebookTemplateSlot /
+   NotebookTemplateExpression), because a plain TemplateSlot[...] left in a cell
+   is inert under GenerateDocument. A `#| behavior: ExcludeCell` cell option - or
+   the same directive before a prose block or heading - attaches the framework's
+   cell-behavior label (see templateBehaviorLabels), and the cell, or on a heading
+   its whole group, is dropped from the generated document. *)
+$notebookTemplateOptions = {
+    TaggingRules -> {"NotebookTemplateVersion" -> 2., "NotebookTemplate" -> True, "GeneratedNotebookOptions" -> {}},
+    DockedCells -> FEPrivate`FrontEndResource["NotebookTemplatingExpressions", "AuthoringDockedCell"],
+    CellContext -> Notebook,
+    ShowCellTags -> True,
+    StyleDefinitions -> "Default.nb"
+}
+
+(* the name box is a string box ("\"Rule\"") or an integer box ("1"); the
+   framework's own slot UI writes "" for a slot without a default *)
+templateSlotBox[name_, default_, fmt_] := TemplateBox[
+    {name, default, If[StringQ[name] && StringMatchQ[name, DigitCharacter ..], "Positional", "Named"], fmt},
+    "NotebookTemplateSlot"]
+
+(* the parsed argument list keeps the author's spacing as " " tokens
+   (RowBox[{"\"y\"", ",", " ", "1"}]), which are dropped before the arity is read *)
+templateSlotArgs[RowBox[l_List]] := RowBox[DeleteCases[l, _String?(StringMatchQ[#, Whitespace] &)]]
+templateSlotArgs[other_] := other
+(* A slot written without a default takes the one the frontmatter's `Slots:` mapping
+   declares for its name, parsed to boxes; an inline default always wins. With every
+   slot defaulted, the authoring toolbar's Generate fills the template as converted. *)
+$templateSlotDefaults = <||>
+templateSlotDefault[name_String] := With[{code = Lookup[$templateSlotDefaults, StringTrim[name, "\""], ""]},
+    If[StringQ[code] && StringTrim[code] =!= "", inputBoxes[code], ""]]
+templateSlotDefault[_] := ""
+templateSlotCall[RowBox[{name_, ",", default_}], fmt_] := templateSlotBox[name, default, fmt]
+templateSlotCall[name_, fmt_] := templateSlotBox[name, templateSlotDefault[name], fmt]
+
+templateBoxes[boxes_, fmt_] := boxes //. {
+    RowBox[{"TemplateSlot", "[", args_, "]"}] :> templateSlotCall[templateSlotArgs[args], fmt],
+    RowBox[{"TemplateExpression", "[", expr_, "]"}] :> TemplateBox[{expr, "General", fmt}, "NotebookTemplateExpression"]
+}
+
+templateCodeCell[b_] := applyCellMeta[
+    Which[
+        boxesLiteralQ[b],
+            Cell[BoxData[templateBoxes[cellBoxesOf[b], BoxData]], "Input"],
+        MemberQ[{"wl", "wolfram", "mathematica"}, b["Lang"]],
+            Cell[BoxData[templateBoxes[inputBoxes[b["Code"]], BoxData]], "Input"],
+        True,
+            Cell[b["Code"], "Program"]
+    ],
+    Lookup[b, "Options", <||>]
+]
+
+(* an inline `TemplateSlot["x"]` in prose becomes the bare slot cell the
+   authoring toolbar inserts, not an InlineFormula wrapped around it *)
+templateTextData[items_List] := Replace[templateBoxes[items, TextData],
+    Cell[BoxData[t_TemplateBox], "InlineFormula", ___] :> Cell[BoxData[t]], {1}]
+templateTextData[other_] := other
+
+templateNotebook[data_] := Block[{cells,
+    $templateSlotDefaults = Replace[Lookup[data["meta"], "Slots", <||>], Except[_Association] -> <||>]},
+    cells = Catenate @ Map[
+        block |-> applyBlockMeta[Switch[block["Type"],
+            "Heading", {Cell[headingText[block["Text"]], Lookup[$headingStyleMap, block["Level"], "Subsubsection"]]},
+            "Prose", {Cell[TextData @ templateTextData @ inlineTextData[block["Text"]], "Text"]},
+            "List", listItemCells[block, "Item"],
+            "Table", {tableCell[block]},
+            "Quote", {quoteCell[block["Text"]]},
+            "MathBlock", {mathBlockCell[block["Text"]]},
+            "Image", {imageCell[block]},
+            "Code", withCellFlag[block, {templateCodeCell[block]}],
+            _, {}
+        ], block],
+        data["blocks"]
+    ];
+    Notebook[cells, Sequence @@ $notebookTemplateOptions]
+]
+
 (* === Computational Essay ===
    Stephen Wolfram's notebook genre: title, byline (author + date), an
    abstract paragraph, then narrative-driven body where every code cell sits
@@ -5782,6 +5902,7 @@ buildNotebook["Overview", data_] := overviewNotebook[data]
 buildNotebook["ComputationalEssay", data_] := essayNotebook[data]
 buildNotebook["Essay", data_] := essayNotebook[data]
 buildNotebook["Chapter", data_] := chapterNotebook[data]
+buildNotebook["NotebookTemplate", data_] := templateNotebook[data]
 buildNotebook["BookChapter", data_] := chapterNotebook[data]
 buildNotebook["LLMTool", data_] := resourceNotebook["LLMTool", data]
 buildNotebook["Format", data_] := refSubtypeNotebook["Format", data]
@@ -5873,6 +5994,9 @@ yamlValue[x_] := ToString[x]
 
 fmLine[k_, v_String] := k <> ": " <> yamlValue[v]
 fmLine[k_, v_List] := k <> ": [" <> StringRiffle[yamlValue /@ v, ", "] <> "]"
+(* a nested mapping is written back in the block style parseYamlish reads: the key
+   alone, then one indented "sub: value" line per entry, values verbatim *)
+fmLine[k_, v_Association] := k <> ":\n" <> StringRiffle[KeyValueMap["  " <> #1 <> ": " <> ToString[#2] &, v], "\n"]
 fmLine[k_, v_] := k <> ": " <> ToString[v]
 
 serializeFrontmatter[meta_] := If[meta === <||> || meta === Null, "",
@@ -6122,6 +6246,8 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
     blocks = resolveIncludes[parsed["Blocks"], src["Base"]];
     tmplName = Lookup[meta, "Template", "Default"];
     $docTemplate = tmplName;
+    (* a template notebook's code is evaluated by GenerateDocument, never here *)
+    If[tmplName === "NotebookTemplate", evalExamples = False];
     (* None (default) / "" / Automatic keep the front end's native math font -
        deterministic across machines and correctly sized inline; a family name
        (e.g. "Latin Modern Math") forces the Computer-Modern look. See applyMathFont. *)

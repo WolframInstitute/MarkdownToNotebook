@@ -424,3 +424,19 @@ VerificationTest[
     TestID -> "NotesSubsection walks back to a ### heading inside Details & Options (issue #77)"
 ]
 ```
+
+A template notebook walks back to its `NotebookTemplate` source: the slot and expression boxes become the `TemplateSlot` / `TemplateExpression` code they were written as, in code and in prose, a default shared by every occurrence of a slot is hoisted into the `Slots:` frontmatter mapping, the cell-behavior label becomes its `#| behavior:` directive, and the tagging names the template:
+
+```wl
+VerificationTest[
+    NotebookToMarkdown[Notebook[{
+        Cell[TextData[{"x is ", Cell[BoxData[TemplateBox[{"\"x\"", "", "Named", TextData}, "NotebookTemplateSlot"]]], "."}], "Text"],
+        Cell[BoxData[TemplateBox[{"\"y\"", "1", "Named", BoxData}, "NotebookTemplateSlot"]], "Input"],
+        Cell[BoxData[TemplateBox[{RowBox[{"2", " ", "x"}], "General", BoxData}, "NotebookTemplateExpression"]], "Input",
+            CellFrameLabels -> {{Cell[BoxData[TemplateBox[{"ExcludeCell"}, "NotebookTemplateCellBehavior"]]], None}, {None, None}}]},
+        TaggingRules -> {"NotebookTemplateVersion" -> 2., "NotebookTemplate" -> True}]],
+    "---\nTemplate: NotebookTemplate\nSlots:\n  y: 1\n---\n\nx is `TemplateSlot[\"x\"]`.\n\n```wl\nTemplateSlot[\"y\"]\n```\n\n<!-- #| behavior: ExcludeCell -->\n```wl\nTemplateExpression[2 x]\n```\n",
+    TestID -> "NotebookTemplate walks back: slots, a hoisted Slots: default, expression, behavior directive, template frontmatter"
+]
+```
+

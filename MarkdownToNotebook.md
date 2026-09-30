@@ -33,8 +33,9 @@ the implementation inline:
 ## Details & Options
 
 - The *source* is a local file path, an `http(s)` URL, or a raw markdown string.
-- The layout is the document's own `Template` frontmatter key - `FunctionResource`, `Symbol`, `Guide`, `TechNote`, `Paclet`, `Example`, or `Default` - so the source declares its own layout. The full documentation page-type roster is also covered: `Format`, `ServiceConnection`, `Device`, `Interpreter`, `Entity`, `Character`, `Message`, `Program`, `Workflow`, and `WorkflowGuide` pages each map `## sections` to their type's section styles (`ImportExportSection`, `ServiceSubsection`, `DeviceSubsection`, `InterpreterSection`, `EntitySection`, `ProgramSection`, workflow steps with their circled counters, ...), stamp the matching `Categorization` entity type and `ref/format/`-style URI kind, and ship in the paclet directory `$docTemplateDirectories` maps for them (`ReferencePages/Formats`, `.../Services`, ..., `Workflows`, `WorkflowGuides`).
+- The layout is the document's own `Template` frontmatter key - `FunctionResource`, `Symbol`, `Guide`, `TechNote`, `Paclet`, `Example`, `NotebookTemplate`, or `Default` - so the source declares its own layout. The full documentation page-type roster is also covered: `Format`, `ServiceConnection`, `Device`, `Interpreter`, `Entity`, `Character`, `Message`, `Program`, `Workflow`, and `WorkflowGuide` pages each map `## sections` to their type's section styles (`ImportExportSection`, `ServiceSubsection`, `DeviceSubsection`, `InterpreterSection`, `EntitySection`, `ProgramSection`, workflow steps with their circled counters, ...), stamp the matching `Categorization` entity type and `ref/format/`-style URI kind, and ship in the paclet directory `$docTemplateDirectories` maps for them (`ReferencePages/Formats`, `.../Services`, ..., `Workflows`, `WorkflowGuides`).
 - `FunctionResource` fills the official `FunctionResourceDefinition.nb` template (keeping its docked Deploy/Submit toolbar); `Symbol` and `Guide` fill the DocumentationTools authoring templates; the reference subtypes synthesize their authoring pages natively on the shipped `Reference.nb` stylesheet; `Default` maps headings and code to standard notebook styles.
+- `NotebookTemplate` produces a Wolfram *template notebook* - what [CreateNotebook]()["Template"] opens and [GenerateDocument]() fills - with the template tagging and the authoring toolbar. Its code cells are never evaluated at conversion time. A slot is written as ordinary code, `TemplateSlot["name"]` or `TemplateSlot["name", default]` (an integer name is positional), inline in prose or inside a code cell, and `TemplateExpression[expr]` is evaluated when the document is generated; both become the framework's slot boxes. A `Slots:` frontmatter mapping - indented `name: default` lines of Wolfram Language - declares a default once for every occurrence of that slot (an inline default still wins), and with every slot defaulted the toolbar's *Generate* fills the template as converted. The cell option `#| behavior: ExcludeCell` (or the same `<!-- #| ... -->` directive before a paragraph or heading) drops that cell - on a heading, its whole group - from the generated document.
 - The *frontmatter* is a YAML-style `key: value` header fenced by `---` lines at the very top of the document - the [front matter](https://jekyllrb.com/docs/front-matter/) convention static-site generators use - carrying the resource metadata. Its keys mirror the chosen template's slots (`Name`, `Description`, `Keywords`, `Categories`, `ContributedBy`, `SeeAlso`, `Links`, and so on), so the author fills metadata, never cell styles.
 - The optional second argument selects the result: omitted (or `"Notebook"`) returns the [Notebook](), `"Association"` returns the parsed structure, a `.nb` file name writes the notebook, and a `.md` file name writes a *markdown twin* - the same document with every evaluated output rasterized to an image beside it.
 - The function takes six options:
@@ -411,6 +412,16 @@ Beyond `Symbol` / `Guide` / `TechNote` pages, the full documentation page-type r
 #| screenshot: true
 #| tear: 200
 MarkdownToNotebook["https://raw.githubusercontent.com/WolframInstitute/MarkdownToNotebook/refs/heads/main/examples/Paclet/DocPageExamples/docs/MAZE.md", "Evaluate" -> False]
+```
+
+### Notebook Template
+
+The `NotebookTemplate` template produces the notebook [CreateNotebook]()["Template"] opens: [GenerateDocument]() fills its slots and evaluates the result, so nothing is evaluated at conversion time. The [Wolfram Model Report](https://github.com/WolframInstitute/MarkdownToNotebook/blob/main/examples/NotebookTemplate/WolframModelReport.md) sample is a report template in the style of the Wolfram Physics Project's registry builds: `TemplateSlot["Rule"]`, `TemplateSlot["InitialCondition"]`, `TemplateSlot["EvolutionSteps"]` and `TemplateSlot["ShownSteps"]` all take their defaults from the frontmatter's `Slots:` mapping, so *Generate* produces a full report of the classic `{{x, y}, {x, z}} -> {{x, z}, {x, w}, {y, w}, {z, w}}` model without any input, a `TemplateExpression` stamps the generation date into the byline, and an authoring note marked `#| behavior: ExcludeCell` never reaches a generated report:
+
+```wl
+#| screenshot: true
+#| tear: 200
+MarkdownToNotebook["https://raw.githubusercontent.com/WolframInstitute/MarkdownToNotebook/refs/heads/main/examples/NotebookTemplate/WolframModelReport.md"]
 ```
 
 ## Properties and Relations
@@ -1159,6 +1170,24 @@ VerificationTest[
          Cases[nb, (CellTags -> t_) :> t, Infinity]}],
     {True, {{"keep"}}},
     TestID -> "Chapter template: #| style / #| tags directives land on book cells, free-form and reserved-section alike"
+]
+```
+
+A `NotebookTemplate` document is a template notebook: the framework's tagging, slot boxes for `TemplateSlot` in code and in prose, an expression box for `TemplateExpression`, the cell-behavior label for `#| behavior:`, and no evaluation:
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook[
+        "---\nTemplate: NotebookTemplate\nSlots:\n  z: 7\n---\n\n<!-- #| behavior: ExcludeCell -->\nNote.\n\nx is `TemplateSlot[\"x\"]`.\n\n```wl\nTemplateSlot[\"x\"] + TemplateSlot[\"y\", 1] + TemplateSlot[\"z\"]\n```\n\n```wl\nTemplateExpression[2 x]\n```"]},
+        {MemberQ[Cases[nb, (TaggingRules -> r_) :> r, {1}], KeyValuePattern["NotebookTemplate" -> True]],
+         Cases[nb, TemplateBox[{n_, d_, m_, f_}, "NotebookTemplateSlot"] :> {n, d, m, f}, Infinity],
+         Count[nb, TemplateBox[_, "NotebookTemplateExpression"], Infinity],
+         Cases[nb, (CellFrameLabels -> {{Cell[BoxData[TemplateBox[{k_}, "NotebookTemplateCellBehavior"]]], _}, _}) :> k, Infinity],
+         Count[nb, Cell[_, "Output", ___], Infinity]}],
+    {True,
+     {{"\"x\"", "", "Named", TextData}, {"\"x\"", "", "Named", BoxData}, {"\"y\"", "1", "Named", BoxData}, {"\"z\"", "7", "Named", BoxData}},
+     1, {"ExcludeCell"}, 0},
+    TestID -> "NotebookTemplate: template tagging, slot / expression boxes, a Slots: frontmatter default, cell behavior, no evaluation"
 ]
 ```
 

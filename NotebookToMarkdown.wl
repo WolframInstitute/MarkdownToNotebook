@@ -120,6 +120,36 @@ $linearSyntaxDeactivate = {
 $codeGlyphEscape = Map[# -> "\\[" <> CharacterName[#] <> "]" &, Characters[
     "\[ExponentialE]\[ImaginaryI]\[ImaginaryJ]\[DifferentialD]\[CapitalDifferentialD]" <>
     "\[LeftBracketingBar]\[RightBracketingBar]"]]
+(* === template notebooks ===
+   A "NotebookTemplate" document's slots are the framework's TemplateBox forms
+   (see MarkdownToNotebook's templateBoxes); walked back, each becomes the
+   TemplateSlot["name"] / TemplateSlot["name", default] / TemplateExpression[expr]
+   it was written as. The swap happens on the boxes BEFORE the front-end text
+   call: the FE would otherwise render the slot's display form (its styled name),
+   not code. A slot with no default is stored with "" in the default position. *)
+$templateSlotBoxes = "NotebookTemplateSlot" | "NotebookTemplateExpression";
+(* A slot name whose every occurrence carries the same default was declared once, in
+   the source's `Slots:` frontmatter mapping (MarkdownToNotebook stamps that default on
+   each occurrence). Those defaults are hoisted back into the mapping and the
+   occurrences written bare; a default that varies between occurrences stays inline.
+   Set per notebook in markdownOfNb before the walk, since codeText reads it. *)
+$n2mSlotDefaults = <||>
+slotDefaultsOf[nb_] := Module[{byName},
+    byName = GroupBy[
+        Cases[nb, TemplateBox[{n_String, d_, _, _}, "NotebookTemplateSlot", ___] :> {n, d}, Infinity],
+        First -> Last];
+    Association @ KeyValueMap[
+        Function[{n, ds}, If[Length[DeleteDuplicates[ds]] === 1 && First[ds] =!= "", n -> First[ds], Nothing]],
+        byName]]
+templateSlotCode[b_] := b //. {
+    TemplateBox[{name_, default_, _, _}, "NotebookTemplateSlot", ___] /;
+        default === "" || Lookup[$n2mSlotDefaults, name, Missing[]] === default :>
+        RowBox[{"TemplateSlot", "[", name, "]"}],
+    TemplateBox[{name_, default_, _, _}, "NotebookTemplateSlot", ___] :>
+        RowBox[{"TemplateSlot", "[", RowBox[{name, ",", " ", default}], "]"}],
+    TemplateBox[{expr_, _, _}, "NotebookTemplateExpression", ___] :>
+        RowBox[{"TemplateExpression", "[", expr, "]"}]
+}
 boxToCode[s_String] :=
     n2mNormStr @ StringReplace[s, Join[$linearSyntaxDeactivate, $codeGlyphEscape]]
 (* multi-statement Input cells store as BoxData[{b1, ";", "\n", b2, ...}] -
@@ -156,6 +186,7 @@ boxToCode[StyleBox[disp_, ___]] := boxToCode[disp]
 (* an auto-linked symbol in code / math is just its bare name *)
 boxToCode[TemplateBox[{lbl_, ___}, "PackageLink" | "RefLink" | "RefLinkPlain", ___]] :=
     FirstCase[{lbl}, s_String :> s, "", Infinity]
+boxToCode[tb : TemplateBox[_, $templateSlotBoxes, ___]] := boxToCode[templateSlotCode[tb]]
 boxToCode[TemplateBox[{x_}, "Ket"]] := "|" <> boxToCode[x] <> "\[RightAngleBracket]"
 boxToCode[TemplateBox[{x_}, "Bra"]] := "\[LeftAngleBracket]" <> boxToCode[x] <> "|"
 boxToCode[TemplateBox[{x_, y_}, "Braket" | "BraKet"]] :=
@@ -459,6 +490,9 @@ feInputText[bd_] := Module[{r},
    surfaces them in the recovered fence as raw box source instead of the
    code the cell visually renders as. Every other walker (boxToCode,
    inlineMd, walkerMath) already unwraps these heads (issue #6). *)
+codeText[BoxData[b_]] /; ! FreeQ[b, TemplateBox[_, $templateSlotBoxes, ___]] :=
+    codeText[BoxData[templateSlotCode[b]]]
+
 codeText[BoxData[TagBox[b_, ___]]] := codeText[BoxData[b]]
 codeText[BoxData[ib : InterpretationBox[b_, ___]]] /; ! iconizedBoxQ[ib] := codeText[BoxData[b]]
 (* an Iconize icon is content, not a wrapper: swap each one for its stored
@@ -700,6 +734,11 @@ annotationNoteOf[opts_List] := FirstCase[opts,
     (CellFrameLabels -> {{_, _}, {_, Cell[TextData[{note_String, ___}], "TextAnnotation", ___]}}) :>
         StringTrim[note],
     Missing[]]
+(* a template cell behavior ("ExcludeCell") sits in the top-left frame label,
+   where GenerateDocument reads it *)
+behaviorOf[opts_List] := FirstCase[opts,
+    (CellFrameLabels -> {{Cell[BoxData[TemplateBox[{k_String}, "NotebookTemplateCellBehavior", ___]], ___], _}, _}) :> k,
+    Missing[]]
 
 (* prepend a cell's style/tags/annotation directives (when needed) to its
    rendered body. Automatic skips a template's own default cells whole;
@@ -709,12 +748,13 @@ annotationNoteOf[opts_List] := FirstCase[opts,
    emitted even on a template-default cell (which contributes no style/tags). *)
 withCellMeta[body_, style_, opts_List] := Module[
     {mode = $metadataCarrier, dirs = {}, tags, note = annotationNoteOf[opts], isDefault,
-     shot = MemberQ[allCellTags[opts], "MTNScreenshot"]},
+     beh = behaviorOf[opts], shot = MemberQ[allCellTags[opts], "MTNScreenshot"]},
     If[body === "" || mode === None, Return[body]];
     isDefault = (mode === Automatic && templateDefaultCellQ[style, opts]);
-    (* an annotation or a screenshot mark is authored intent, emitted even on an
-       otherwise template-default cell *)
-    If[isDefault && MissingQ[note] && ! shot, Return[body]];
+    (* an annotation, a cell behavior or a screenshot mark is authored intent,
+       emitted even on an otherwise template-default cell *)
+    If[isDefault && MissingQ[note] && MissingQ[beh] && ! shot, Return[body]];
+    If[! MissingQ[beh], AppendTo[dirs, {"behavior", beh}]];
     If[shot, AppendTo[dirs, {"screenshot", "true"}]];
     If[! isDefault,
         If[! MemberQ[$knownBlockStyles, style] && ! MemberQ[$dropStyles, style],
@@ -1407,7 +1447,20 @@ subtypeFrontmatter[nb_] := Module[{md = docMetaOf[nb], tmpl, name, humanTitle, e
     ]
 ]
 
+(* a template notebook carries "NotebookTemplate" -> True in its TaggingRules -
+   the mark CreateNotebook["Template"] sets and TemplateNotebookQ reads *)
+notebookTemplateQ[nb_] := AnyTrue[Cases[nb, (TaggingRules -> v_) :> v, {1}],
+    MemberQ[Normal[#] /. r_RuleDelayed :> Rule @@ r, "NotebookTemplate" -> True] &]
+templateFrontmatter[nb_] := If[! notebookTemplateQ[nb], "",
+    StringJoin["---\nTemplate: NotebookTemplate\n",
+        If[$n2mSlotDefaults === <||>, "",
+            "Slots:\n" <> StringJoin @ KeyValueMap[
+                "  " <> StringTrim[#1, "\""] <> ": " <> boxToCode[#2] <> "\n" &, $n2mSlotDefaults]],
+        "---\n\n"]]
+
 frontmatter[nb_, name_] := Module[{cat, paclet, ctx, uri, kw, sa, rg, rt, res},
+    res = templateFrontmatter[nb];
+    If[res =!= "", Return[res]];
     res = guideFrontmatter[nb];
     If[res =!= "", Return[res]];
     res = resourceFrontmatter[nb];
@@ -1548,7 +1601,8 @@ markdownOfNb[nb0 : Notebook[_List, ___], opts : OptionsPattern[NotebookToMarkdow
      $preserveOutputs    = TrueQ @ OptionValue[NotebookToMarkdown, {opts}, "PreserveOutputs"],
      $outputInlineLimit  = OptionValue[NotebookToMarkdown, {opts}, "OutputInlineLimit"],
      $outputCommentLimit = OptionValue[NotebookToMarkdown, {opts}, "OutputCommentLimit"],
-     $docPageQ           = docNotebookQ[nb0]},
+     $docPageQ           = docNotebookQ[nb0],
+     $n2mSlotDefaults    = slotDefaultsOf[nb0]},
     name = cellPlain @ FirstCase[nb, Cell[t_, "ObjectName", ___] :> t, "", Infinity];
     (* a reference-subtype / workflow page keeps its Notes cells inside its own
        type sections - suppress the Symbol-page "## Details & Options" header
