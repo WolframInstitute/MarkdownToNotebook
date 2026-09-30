@@ -2635,13 +2635,30 @@ fillDocString[nb_, style_String, value_String] := If[ value === "",
     nb /. Cell["XXXX", style, o___] :> Cell[headingText[value], style, o]
 ]
 
+(* the same, one cell per paragraph: a multi-paragraph "## Abstract" becomes
+   consecutive GuideAbstract cells - the shipped guides' own form - rather than
+   one run-together block. Soft-wrapped lines inside a paragraph were already
+   joined by the parser, so only blank-line breaks split. *)
+fillDocParagraphs[nb_, style_String, paras_List] := Block[{vals = DeleteCases[paras, ""], first = True},
+    If[ vals === {},
+        nb,
+        nb /. Cell["XXXX", style, o___] :> If[ first,
+            first = False; Sequence @@ Map[Cell[headingText[#], style, placeholderOptions[o]] &, vals],
+            Sequence @@ {}
+        ]
+    ]
+]
+
 (* replace the placeholder cells of a style with one cell per item (first match
-   expands to all items; any further placeholders of that style are dropped) *)
+   expands to all items; any further placeholders of that style are dropped).
+   Each copy drops the placeholder's CellID / ExpressionUUID: stampCellID keeps
+   an existing CellID, so copying it would give every item the same one. *)
+placeholderOptions[o___] := Sequence @@ DeleteCases[{o}, (CellID | ExpressionUUID) -> _]
 fillDocList[nb_, style_String, items_List] := Block[{vals = DeleteCases[items, ""], first = True},
     If[ vals === {},
         nb,
         nb /. Cell["XXXX", style, o___] :> If[ first,
-            first = False; Sequence @@ Map[Cell[#, style, o] &, vals],
+            first = False; Sequence @@ Map[Cell[#, style, placeholderOptions[o]] &, vals],
             Sequence @@ {}
         ]
     ]
@@ -2737,7 +2754,7 @@ fillDocCells[nb_, style_String, contents_List] := Block[{vals = contents, first 
     If[ vals === {},
         nb,
         nb /. Cell["XXXX", style, o___] :> If[ first,
-            first = False; Sequence @@ Map[Cell[#, style, o] &, vals],
+            first = False; Sequence @@ Map[Cell[#, style, placeholderOptions[o]] &, vals],
             Sequence @@ {}
         ]
     ]
@@ -3656,16 +3673,22 @@ tableItemSize[ncol_Integer] := GridBoxItemSize -> {"Columns" -> Map[Scaled,
    styles its own TableNotes tables, so that path adds only row rules; the
    "Text" path has no stylesheet support at all, so it draws the full cell
    frame and sets Scaled column widths so cells wrap. *)
+(* Markdown requires a header row, so a table with no real header - a documentation
+   option / property table has none by convention, and NotebookToMarkdown writes
+   "|   |   |" for such a grid - is authored with an empty one. An all-empty header
+   row is dropped rather than drawn as a row of blank bold cells above the data. *)
+tableHeaderRows[header_List, row_] := If[AllTrue[header, StringTrim[#] === "" &], {}, {row}]
+
 tableCell[block_] := Block[{ncol = Length[block["Header"]], modStyle = tableModStyleFor[Length[block["Header"]]], rows},
     If[modStyle =!= None,
         rows = Join[
-            {tableModRow[block["Header"], ncol, FontWeight -> Bold]},
+            tableHeaderRows[block["Header"], tableModRow[block["Header"], ncol, FontWeight -> Bold]],
             tableModRow[#, ncol] & /@ block["Rows"]
         ];
         Cell[BoxData[GridBox[rows]], modStyle]
         ,
         rows = Join[
-            {tableGridRow[block["Header"], ncol, FontWeight -> Bold]},
+            tableHeaderRows[block["Header"], tableGridRow[block["Header"], ncol, FontWeight -> Bold]],
             tableGridRow[#, ncol] & /@ block["Rows"]
         ];
         Cell[BoxData[GridBox[rows,
@@ -3729,7 +3752,14 @@ fillCategorization[nb_, type_String, meta_] := Block[{
    Bare-symbol names "CellGroup" / "Notebook" / "InheritFromParent" map
    to the corresponding symbol; anything else passes through as a literal
    context string (e.g. `"Global`"`). *)
-$docCellContextDefault = <|"Symbol" -> CellGroup, "Guide" -> CellGroup, "Tech Note" -> CellGroup, "Tutorial" -> CellGroup,
+(* A reference page's examples are independent, so each cell group gets its own
+   private context. A Tech Note / Tutorial is narrative instead: a symbol bound in one
+   section is used in a later one, and MTN bakes those threaded results into the output
+   cells, so stamping CellContext -> CellGroup would leave a reader re-evaluating a
+   later section in a context that never saw the binding - the page's own displayed
+   output and the reader's result would disagree. Those two types are absent here and
+   keep the ambient context. *)
+$docCellContextDefault = <|"Symbol" -> CellGroup, "Guide" -> CellGroup,
     (* the reference subtypes + workflow pages (setDocMetadata is keyed by the
        Categorization entity-type string, not the Template name) *)
     "Format" -> CellGroup, "Service Connection" -> CellGroup, "Device Connection" -> CellGroup,
@@ -3984,7 +4014,24 @@ guideLeadingSymbols[item_String] := Block[{rest = StringTrim[item], syms, m, aft
     {syms, rest}
 ]
 
+(* the palette's "Inline Listing": a "## Functions" item made only of code spans
+   joined by \[FilledVerySmallSquare] ("`A` \[FilledVerySmallSquare] `B` ...") is a compact row of related
+   functions with no descriptions - an InlineGuideFunctionListing cell of the same
+   chips the 1-Line Function form uses, separated by the template's InlineSeparator
+   cell. It needs two or more names; a single span is the 1-Line Function form. The
+   template's trailing InlineListingAddButton is authoring chrome and is not emitted. *)
+$inlineListingSeparator = Cell[TextData[StyleBox[" \[FilledVerySmallSquare] ", "InlineSeparator"]]]
+inlineListingNames[item_String] := Module[{parts = StringTrim /@ StringSplit[StringTrim[item], "\[FilledVerySmallSquare]"]},
+    If[ Length[parts] >= 2 &&
+            AllTrue[parts, StringMatchQ[#, ("*`" ~~ Except["`"] .. ~~ "`*") | ("`" ~~ Except["`"] .. ~~ "`")] &],
+        StringTrim[StringTrim[#, "*"], "`"] & /@ parts,
+        None]]
+inlineListingCell[names_List, paclet_String] := Cell[
+    TextData @ Riffle[guideFnChip[#, paclet] & /@ names, $inlineListingSeparator],
+    "InlineGuideFunctionListing"]
+
 guideFunctionItem[item_String, paclet_String] := Block[{syms, rest, desc, chips},
+    With[{names = inlineListingNames[item]}, If[names =!= None, Return @ inlineListingCell[names, paclet]]];
     {syms, rest} = guideLeadingSymbols[item];
     If[ syms === {},
         Return @ Cell[TextData @ inlineTextData[item], "GuideText"]
@@ -4113,10 +4160,10 @@ guideNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"],
        fall back to Name ("CategoryTheory") only when no Title is given. *)
     title = Lookup[meta, "Title", Lookup[meta, "Name", ""]];
     paclet = Lookup[meta, "Paclet", ""];
-    abstract = sectionText[sections, "abstract"];
-    If[ abstract === "", abstract = Lookup[meta, "Description", ""] ];
+    abstract = Cases[Lookup[sections, "abstract", {}], b_ /; b["Type"] === "Prose" :> b["Text"]];
+    If[ abstract === {}, abstract = {Lookup[meta, "Description", ""]} ];
     nb = fillDocString[nb, "GuideTitle", title];
-    nb = fillDocString[nb, "GuideAbstract", abstract];
+    nb = fillDocParagraphs[nb, "GuideAbstract", abstract];
     (* the Functions section: replace the GuideText / InlineGuideFunctionListing
        placeholders with one GuideText chip-led cell per "## Functions" item.
        A "## Guides" section (a curated index of sub-guides) follows as its own
@@ -4900,6 +4947,50 @@ styleLevelFunction[levels_List] := Function[cell,
 
 (* one chunk -> its cells, tagged by role so the assembly can order
    abstract / body / examples without growing lists imperatively *)
+(* A subtype page's "## Examples" has the Symbol page's shape: the examples before the
+   first section heading form the primary group, and every other section is its own
+   ExampleSection group under a "More Examples" (ExtendedExamplesSection) group.
+   DocumentationBuild wraps the whole primary group as "Basic Examples", so a section
+   inside that group would nest under Basic Examples and count as one example. A
+   "### Basic Examples" heading names the primary group itself and is dropped: the
+   build supplies that title, and keeping ours would render it twice. The
+   section level is the shallowest heading in the section, so deeper headings stay
+   inside their section as its own subsections. *)
+exampleSectionCell[title_String] :=
+    Cell[BoxData[InterpretationBox[Cell[title, "ExampleSection"], $Line = 0; Null]], "ExampleSection"]
+(* the header as the Symbol template ships it - opener button included - which is
+   the form DocumentationBuild is known to accept *)
+extendedExamplesHeader[] := extendedExamplesHeader[] = Replace[
+    FirstCase[Quiet @ docTemplate["FunctionBaseTemplateExt.nb"],
+        c : Cell[_, "ExtendedExamplesSection", ___] :> c, Missing[], Infinity],
+    {c_Cell :> DeleteCases[c, (CellID | ExpressionUUID | CellChangeTimes) -> _],
+     _ -> Cell["More Examples", "ExtendedExamplesSection", CellTags -> "ExtendedExamples"]}]
+
+refExampleGroups[blocks_List] := Module[{heads, lvl, cuts, runs, primary, extended},
+    heads = Select[blocks, #["Type"] === "Heading" &];
+    lvl = If[heads === {}, None, Min[#["Level"] & /@ heads]];
+    (* split before each section-level heading; a leading run has no heading *)
+    cuts = Flatten @ Position[blocks, b_ /; b["Type"] === "Heading" && b["Level"] === lvl, {1}, Heads -> False];
+    runs = If[cuts === {}, {blocks},
+        DeleteCases[MapThread[blocks[[#1 ;; #2]] &, {Prepend[cuts, 1], Append[cuts - 1, Length[blocks]]}], {}]];
+    primary = Catenate @ Select[runs,
+        First[#]["Type"] =!= "Heading" || First[#]["Level"] =!= lvl || sectionKey[First[#]["Text"]] === "basic examples" &];
+    primary = DeleteCases[primary, b_ /; b["Type"] === "Heading" && b["Level"] === lvl];
+    extended = Select[runs,
+        First[#]["Type"] === "Heading" && First[#]["Level"] === lvl && sectionKey[First[#]["Text"]] =!= "basic examples" &];
+    Join[
+        {Cell[CellGroupData[Join[
+            {Cell["Examples", "PrimaryExamplesSection", CellTags -> "PrimaryExamplesSection"]},
+            exampleContent[primary, "ExampleText"]], Open]]},
+        If[ extended === {}, {},
+            {Cell[CellGroupData[Join[
+                {extendedExamplesHeader[]},
+                Map[Cell[CellGroupData[
+                    Prepend[exampleContent[Rest[#], "ExampleText"], exampleSectionCell[First[#]["Text"]]],
+                    Open]] &, extended]], Open]]}]
+    ]
+]
+
 refChunkCells[type_String, cfg_, subStyle_String, {heading_, blocks_}] := Block[{
     key = If[heading === None, "", sectionKey[heading["Text"]]]
 },
@@ -4915,18 +5006,7 @@ refChunkCells[type_String, cfg_, subStyle_String, {heading_, blocks_}] := Block[
                 ]],
                 blocks],
         MemberQ[$refExamplesKeys, key],
-            (* A "### Basic Examples" heading inside the examples section is
-               dropped: DocumentationBuild already wraps the primary examples in
-               its own "Basic Examples" ExampleSection, so keeping ours rendered
-               the title twice (Examples > Basic Examples > Basic Examples).
-               Any other subsection heading is a real extra example section. *)
-            "examples" -> {Cell[CellGroupData[Join[
-                {Cell["Examples", "PrimaryExamplesSection", CellTags -> "PrimaryExamplesSection"]},
-                exampleContent[
-                    DeleteCases[blocks,
-                        b_ /; b["Type"] === "Heading" && sectionKey[b["Text"]] === "basic examples"],
-                    "ExampleText"]
-            ], Open]]},
+            "examples" -> refExampleGroups[blocks],
         True,
             "body" -> Join[
                 {Cell[headingText[heading["Text"]], Lookup[cfg["SectionStyles"], key, cfg["DefaultSectionStyle"]]]},

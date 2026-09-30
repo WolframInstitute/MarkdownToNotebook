@@ -41,12 +41,16 @@ URI: Publisher/PacletName/guide/GuideName
 Description: One-line summary of the paclet
 Keywords: [keyword one, keyword two]
 RelatedGuides: [OtherGuide, Accessibility]
+RelatedTutorials: [GettingStarted, WorkingWithColors]
 Links: ["[label](https://example.com)"]
 ---
 ```
 
 `RelatedGuides` are context-aware: a guide that is not the paclet's own (e.g. a
 System overview guide like `Colors`) links to `paclet:guide/Name`.
+`RelatedTutorials` fills the guide's **Tech Notes** section, one link per entry to
+the paclet's `tutorial/Name` page - list every tech note a reader of this guide
+should know about. Leaving it out leaves the Tech Notes section empty.
 
 ## Sections
 
@@ -56,6 +60,11 @@ System overview guide like `Colors`) links to `paclet:guide/Name`.
   `` `Symbol` description ``. Each item becomes a docked "1-Line Function" entry: a
   chip linking to the symbol's `ref/` page, an em-dash, and the inline-formatted
   description. The backticked symbol at the start is required for the link.
+- A list item made only of backticked symbols joined by `▪`
+  (`\[FilledVerySmallSquare]`) - `` - `PlotStyle` ▪ `PlotLabel` ▪ `AxesLabel` `` -
+  is an **inline listing**: one compact row of linked chips with no descriptions,
+  for a group of related options or secondary functions that need no sentence each.
+  It needs two or more symbols; a single symbol is the 1-Line Function form above.
 
 Group functions under `### Subheadings` if the guide has sections of related
 functions. Keep the page a concise overview, not full documentation - the symbol

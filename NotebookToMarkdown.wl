@@ -111,15 +111,31 @@ walkerMath[x_] := StringReplace[
 $linearSyntaxDeactivate = {
     FromCharacterCode[63425] -> "\\!", FromCharacterCode[63433] -> "\\(",
     FromCharacterCode[63432] -> "\\*", FromCharacterCode[63424] -> "\\)"};
-(* meaning-bearing code glyphs: the named constants (\[ImaginaryI], \[ImaginaryJ],
-   \[ExponentialE], \[DifferentialD], \[CapitalDifferentialD]) and the bracketing
-   bars sit in the same PUA band, but normStr's prose letters (i, j, e, d, D, |)
-   re-parse as plain symbols / Alternatives, not the constant or the BracketingBar
-   operator. Each becomes its ASCII \[Name] escape, which normStr passes through
-   and the reader parses back to the original token. *)
-$codeGlyphEscape = Map[# -> "\\[" <> CharacterName[#] <> "]" &, Characters[
-    "\[ExponentialE]\[ImaginaryI]\[ImaginaryJ]\[DifferentialD]\[CapitalDifferentialD]" <>
-    "\[LeftBracketingBar]\[RightBracketingBar]"]]
+(* The front end's structural private-use band (U+E000-U+F7FF) holds the language's
+   own operator glyphs alongside the FE's layout markers, and normStr scrubs the whole
+   band. Recovered code must RE-PARSE to the same expression, so every named character
+   in the band is written back as its \[Name] escape before normStr sees it; only
+   characters whose deletion cannot change a parse are dropped: the 13 inert ones, for
+   which "a <glyph> b" parses as "a b" - pure spacing, page breaks, alignment - and the
+   box chrome below. The rest carry structure, from \[Rule] and \[Equal] to the
+   association brackets and the dagger family. \[LongEqual]
+   matters twice over: normStr maps it to "=", which re-parses as Set, not Equal.
+   Unnamed band characters have no escape and stay dropped. *)
+$codeGlyphDrop = Characters[StringJoin[
+    (* inert: no expression structure to lose *)
+    "\[InvisibleSpace]\[NegativeVeryThinSpace]\[NegativeThinSpace]\[NegativeMediumSpace]",
+    "\[NegativeThickSpace]\[AutoSpace]\[Continuation]\[RoundSpaceIndicator]",
+    "\[PageBreakAbove]\[PageBreakBelow]\[DiscretionaryPageBreakAbove]",
+    "\[DiscretionaryPageBreakBelow]\[AlignmentMarker]",
+    (* box chrome: carries structure in a box, never authored in code *)
+    "\[SpanFromLeft]\[SpanFromAbove]\[SpanFromBoth]\[AutoPlaceholder]\[AutoOperand]",
+    "\[AutoLeftMatch]\[AutoRightMatch]\[InvisiblePrefixScriptBase]",
+    "\[InvisiblePostfixScriptBase]\[EntityStart]\[EntityEnd]\[IndentingNewLine]",
+    "\[Placeholder]\[SelectionPlaceholder]"]]
+codeGlyphText[c_String] := With[{nm = Quiet @ CharacterName[c]},
+    If[! MemberQ[$codeGlyphDrop, c] && StringQ[nm] && nm =!= "", "\\[" <> nm <> "]", ""]]
+escapeCodeGlyphs[s_String] := StringReplace[s,
+    c : RegularExpression["[\\x{E000}-\\x{F7FF}]"] :> codeGlyphText[c]]
 (* === template notebooks ===
    A "NotebookTemplate" document's slots are the framework's TemplateBox forms
    (see MarkdownToNotebook's templateBoxes); walked back, each becomes the
@@ -151,7 +167,7 @@ templateSlotCode[b_] := b //. {
         RowBox[{"TemplateExpression", "[", expr, "]"}]
 }
 boxToCode[s_String] :=
-    n2mNormStr @ StringReplace[s, Join[$linearSyntaxDeactivate, $codeGlyphEscape]]
+    n2mNormStr @ escapeCodeGlyphs @ StringReplace[s, $linearSyntaxDeactivate]
 (* multi-statement Input cells store as BoxData[{b1, ";", "\n", b2, ...}] -
    a bare List of boxes. Without this rule the headless boxToCode fallback
    dumps the raw box tree via ToString[InputForm] (issue #16). *)
@@ -670,6 +686,7 @@ $knownBlockStyles = {
     "Usage", "UsageDescription", "UsageLine", "Notes", "NotesSubsection",
     "GuideTitle", "GuideAbstract", "GuideFunctionsSection",
     "GuideFunctionsSubsection", "GuideText", "GuideDelimiter", "GuideTOCLink",
+    "InlineGuideFunctionListing",
     "2ColumnTableMod", "3ColumnTableMod", "TableNotes",
     "Text", "Quote", "Caption", "ExampleText", "CodeText",
     "Item", "Item1", "Item2", "Bullet", "Subitem", "Subsubitem", "ItemNumbered", "ItemNumbered1",
@@ -876,7 +893,7 @@ blockFor["Notes", c_] := With[{b = StringRepeat["  ", $cellIndentDepth] <> "- " 
 blockFor["NotesSubsection", c_] := With[{h = "### " <> cellPlain[c]},
     If[TrueQ[$detailsHeadingDone], h,
         $detailsHeadingDone = True; "## Details & Options\n\n" <> h]]
-blockFor["2ColumnTableMod" | "3ColumnTableMod" | "TableNotes", BoxData[GridBox[rows_List, ___]]] := gridTable[rows]
+blockFor["2ColumnTableMod" | "3ColumnTableMod" | "TableNotes" | "DefinitionBox", BoxData[GridBox[rows_List, ___]]] := gridTable[rows]
 blockFor["2ColumnTableMod" | "3ColumnTableMod", c_] := tidy @ inlineMd[c]
 (* a generic-path table (Default template, or a table wider than the Mod
    styles cover): a "Text" cell that is exactly a row-ruled GridBox. The
@@ -917,7 +934,11 @@ blockFor["Program", c_] := fencedCode[codeText[c], ""]
 
 (* Example-section scaffold (the resource template's nested example structure). *)
 blockFor["PrimaryExamplesSection", _] := "## Basic Examples"
-blockFor["ExampleSection", c_] := "## " <> andFormTitle @ sectionTitle[c]
+(* A Symbol page's extra example sections are top-level "## Scope" sections of its
+   source, but a reference subtype's sit under its "## Examples" section as "###",
+   where MarkdownToNotebook reads them back (refExampleGroups); a "##" there would
+   re-convert as an ordinary body section. *)
+blockFor["ExampleSection", c_] := If[TrueQ[$subtypePageQ], "### ", "## "] <> andFormTitle @ sectionTitle[c]
 blockFor["ExampleSubsection", c_] := "### " <> andFormTitle @ sectionTitle[c]
 blockFor["ExampleSubsubsection", c_] := "#### " <> sectionTitle[c]
 blockFor["ExampleDelimiter", _] := "---"
@@ -1007,7 +1028,11 @@ guideItemMd[TextData[x_]] := guideItemMd[TextData[{x}]]
 guideItemMd[other_] := tidy @ inlineMd[other]
 
 blockFor["GuideTitle", _] := ""                       (* the frontmatter Title *)
-blockFor["GuideAbstract", c_] := "## Abstract\n\n" <> tidy @ inlineMd[c]
+(* a multi-paragraph abstract is consecutive GuideAbstract cells: the section
+   heading opens only the first, the rest are its paragraphs *)
+blockFor["GuideAbstract", c_] := With[{b = tidy @ inlineMd[c]},
+    If[TrueQ[$abstractHeadingDone], b,
+        $abstractHeadingDone = True; "## Abstract\n\n" <> b]]
 blockFor["GuideFunctionsSection", _] := "## Functions"
 (* the OrangeLink label with the template's decorative trailing chevron trimmed *)
 orangeLinkLabel[lbl_] := StringTrim @ StringReplace[cellPlain[lbl],
@@ -1035,6 +1060,9 @@ blockFor["GuideTOCLink", c_] := "- " <> guideItemMd[c]
    bullet between the chips, keeping the "- " item form instead of demoting
    to the prose fallback (which leaks the separator's spacing glyphs). *)
 blockFor["InlineGuideFunctionListing", c_] := "- " <> guideItemMd[c /. {
+    (* the template's separator is a style-less Cell around the InlineSeparator
+       StyleBox, so the whole cell is swapped, not just the StyleBox inside it *)
+    Cell[TextData[StyleBox[_, "InlineSeparator", ___]], ___] :> " \[FilledVerySmallSquare] ",
     StyleBox[_, "InlineSeparator", ___] :> " \[FilledVerySmallSquare] ",
     Cell[_, "InlineSeparator", ___] :> " \[FilledVerySmallSquare] ",
     "\[NonBreakingSpace]" -> " "}]
@@ -1347,12 +1375,16 @@ docMetaOf[nb_] := FirstCase[
     Cases[nb, (TaggingRules -> v_) :> v, {1}],
     tr_List /; ! FreeQ[Keys[tr], "Metadata"] :> Association["Metadata" /. tr],
     <||>, {1}]
-guideFrontmatter[nb_] := Module[{md = docMetaOf[nb], title, rg, links},
+guideFrontmatter[nb_] := Module[{md = docMetaOf[nb], title, rg, rt, links, linkNamesOf},
     If[Lookup[md, "type", ""] =!= "Guide", Return[""]];
     title = cellPlain @ FirstCase[nb, Cell[t_, "GuideTitle", ___] :> t, "", Infinity];
-    rg = DeleteCases[
-        Cases[nb, Cell[c_, "GuideMoreAbout", ___] :> FirstCase[{c}, s_String :> s, "", Infinity], Infinity],
-        ""];
+    (* the Related Guides / Tech Notes link cells each hold one link; its label is
+       the first string inside, and an unfilled "XXXX" placeholder is not an entry *)
+    linkNamesOf[style_] := DeleteCases[
+        Cases[nb, Cell[c_, style, ___] :> FirstCase[{c}, s_String :> s, "", Infinity], Infinity],
+        "" | "XXXX"];
+    rg = linkNamesOf["GuideMoreAbout"];
+    rt = linkNamesOf["GuideTutorial"];
     links = resourceLinkMd /@ Cases[nb, Cell[c_, "GuideRelatedLinks", ___] :> c, Infinity];
     StringJoin[
         "---\n",
@@ -1365,6 +1397,7 @@ guideFrontmatter[nb_] := Module[{md = docMetaOf[nb], title, rg, links},
         fmField["Description", Lookup[md, "summary", ""]],
         fmList["Keywords", Lookup[md, "keywords", {}]],
         fmList["RelatedGuides", rg],
+        fmList["RelatedTutorials", rt],
         fmQuotedList["Links", links],
         "---\n\n"
     ]
@@ -1596,7 +1629,8 @@ demangleLinkBoxes[expr_] := expr //.
             TemplateBox[{Cell[TextData[name]], "paclet:ref/" <> name}, "RefLinkPlain", BaseStyle -> "InlineFormula"]]
 
 markdownOfNb[nb0 : Notebook[_List, ___], opts : OptionsPattern[NotebookToMarkdown]] := Block[
-    {nb = demangleLinkBoxes[nb0], name, blocks, fm, cells, $detailsHeadingDone = False,
+    {nb = demangleLinkBoxes[nb0], name, blocks, fm, cells, $detailsHeadingDone = False, $abstractHeadingDone = False,
+     $subtypePageQ = False,
      $metadataCarrier    = OptionValue[NotebookToMarkdown, {opts}, "Metadata"],
      $preserveOutputs    = TrueQ @ OptionValue[NotebookToMarkdown, {opts}, "PreserveOutputs"],
      $outputInlineLimit  = OptionValue[NotebookToMarkdown, {opts}, "OutputInlineLimit"],
@@ -1607,8 +1641,8 @@ markdownOfNb[nb0 : Notebook[_List, ___], opts : OptionsPattern[NotebookToMarkdow
     (* a reference-subtype / workflow page keeps its Notes cells inside its own
        type sections - suppress the Symbol-page "## Details & Options" header
        injection blockFor["Notes"] does on the first Notes cell *)
-    If[ KeyExistsQ[$docTypeToTemplate, Lookup[docMetaOf[nb], "type", ""]],
-        $detailsHeadingDone = True];
+    $subtypePageQ = KeyExistsQ[$docTypeToTemplate, Lookup[docMetaOf[nb], "type", ""]];
+    If[ $subtypePageQ, $detailsHeadingDone = True];
     cells = If[resourceDefNotebookQ[nb], prepResourceBody[First[nb], resourceTypeOf[nb]], First[nb]];
     (* the walker is grouping-agnostic, so doc pages run on the flat cell list; the
        screenshot pre-pass relies on it (Output follows its Input) *)

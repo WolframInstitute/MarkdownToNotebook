@@ -440,3 +440,72 @@ VerificationTest[
 ]
 ```
 
+Recovered code must re-parse to the same expression, so the front end's structural private-use band is written back as `\[Name]` escapes rather than scrubbed - operator glyphs live in that band, and `\[LongEqual]` scrubbed to `=` would re-parse as `Set` (issue #88):
+
+```wl
+VerificationTest[
+    Map[boxToCode, {
+        RowBox[{"AspectRatio", "\[Rule]", RowBox[{"1", "/", "2"}]}],
+        RowBox[{"\[LeftAssociation]", RowBox[{"a", "\[Rule]", "1"}], "\[RightAssociation]"}],
+        RowBox[{"m", "\[ConjugateTranspose]"}],
+        RowBox[{"a", "\[LongEqual]", "b"}],
+        RowBox[{"a", "\[NegativeThinSpace]", "b"}]}],
+    {"AspectRatio\\[Rule]1/2", "\\[LeftAssociation]a\\[Rule]1\\[RightAssociation]",
+     "m\\[ConjugateTranspose]", "a\\[LongEqual]b", "ab"},
+    TestID -> "boxToCode: band operator glyphs survive as long-name escapes, inert spacing still drops (issue #88)"
+]
+```
+
+Each of those re-parses to the expression the boxes held, `\[LongEqual]` as `Equal` rather than `Set`:
+
+```wl
+VerificationTest[
+    Map[ToExpression[boxToCode[#], InputForm, Hold] &, {
+        RowBox[{"AspectRatio", "\[Rule]", RowBox[{"1", "/", "2"}]}],
+        RowBox[{"\[LeftAssociation]", RowBox[{"a", "\[Rule]", "1"}], "\[RightAssociation]"}],
+        RowBox[{"a", "\[LongEqual]", "b"}]}],
+    {Hold[AspectRatio -> 1/2], Hold[<|a -> 1|>], Hold[a == b]},
+    TestID -> "boxToCode: recovered code re-parses to the original expression (issue #88)"
+]
+```
+
+A `DefinitionBox` option/property grid recovers as a markdown table, like the `*TableMod` grids (issue #89):
+
+```wl
+VerificationTest[
+    StringContainsQ[
+        NotebookToMarkdown[Notebook[{Cell[BoxData[GridBox[{{"Option", "Default"}, {"\"Method\"", "Automatic"}}]], "DefinitionBox"]}]],
+        "| `Option` | `Default` |"],
+    True,
+    TestID -> "DefinitionBox grid recovers as a markdown table (issue #89)"
+]
+```
+
+An inline function listing walks back to the `▪`-joined list item it is built from - the separator is a style-less cell around the `InlineSeparator` StyleBox, and the whole cell is replaced (issue #91):
+
+```wl
+VerificationTest[
+    NotebookToMarkdown[Notebook[{Cell[TextData[{
+        Cell[BoxData["PlotStyle"], "InlineGuideFunction"],
+        Cell[TextData[StyleBox[" \[FilledVerySmallSquare] ", "InlineSeparator"]]],
+        Cell[BoxData["PlotLabel"], "InlineGuideFunction"]}], "InlineGuideFunctionListing"]}]],
+    "- `PlotStyle` \[FilledVerySmallSquare] `PlotLabel`\n",
+    TestID -> "InlineGuideFunctionListing walks back as one \[FilledVerySmallSquare]-joined item, no style directive (issue #91)"
+]
+```
+
+A guide's Tech Notes links and multi-paragraph abstract walk back as `RelatedTutorials:` frontmatter and one `## Abstract` section with a paragraph per cell (issues #98, #100):
+
+```wl
+VerificationTest[
+    With[{md = NotebookToMarkdown[MarkdownToNotebook[
+        "---\nTemplate: Guide\nName: G\nTitle: G\nPaclet: X/Y\nContext: X`\nURI: X/Y/guide/G\nRelatedTutorials: [One, Two]\n---\n\n## Abstract\n\nFirst.\n\nSecond.\n\n## Functions\n\n- `Plot` - plot\n",
+        "Evaluate" -> False]]},
+        {StringContainsQ[md, "RelatedTutorials: [One, Two]"],
+         StringCount[md, "## Abstract"],
+         StringContainsQ[md, "## Abstract\n\nFirst.\n\nSecond."]}],
+    {True, 1, True},
+    TestID -> "Guide walk-back: RelatedTutorials recovered, abstract paragraphs under one heading (issues #98, #100)"
+]
+```
+

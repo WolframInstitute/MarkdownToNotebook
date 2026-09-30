@@ -1191,3 +1191,77 @@ VerificationTest[
 ]
 ```
 
+A reference page stamps `CellContext -> CellGroup` so its independent examples cannot leak bindings into one another, while a narrative Tech Note or Tutorial keeps the ambient context - it threads state across sections, and a private per-group context would make a reader's re-evaluation disagree with the output the page displays (issue #97):
+
+```wl
+VerificationTest[
+    Map[
+        Cases[MarkdownToNotebook[
+            "---\nTemplate: " <> # <> "\nName: N\nContext: Global`\nPaclet: X/Y\nURI: X/Y/ref/N\n---\n\n## Usage\n\nN[x] does x.\n",
+            "Evaluate" -> False][[2 ;;]],
+            HoldPattern[CellContext -> v_] :> v, Infinity, Heads -> True] &,
+        {"Symbol", "TechNote"}],
+    {{CellGroup}, {}},
+    TestID -> "CellContext: CellGroup on a reference page, ambient on a narrative Tech Note (issue #97)"
+]
+```
+
+A `## Functions` item made only of code spans joined by `▪` is an inline listing: one `InlineGuideFunctionListing` row of the same chips a 1-Line Function uses, separated by the template's `InlineSeparator` cell, while an ordinary item keeps the 1-Line Function form (issue #91):
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook[
+        "---\nTemplate: Guide\nName: G\nTitle: G\nPaclet: X/Y\nContext: X`\nURI: X/Y/guide/G\n---\n\n## Functions\n\n- `Plot` - plot\n- `PlotStyle` \[FilledVerySmallSquare] `PlotLabel` \[FilledVerySmallSquare] `AxesLabel`\n",
+        "Evaluate" -> False]},
+        With[{lst = Cases[nb, c : Cell[_, "InlineGuideFunctionListing", ___] :> c, Infinity]},
+            {Length[lst], Count[lst, Cell[_, "InlineGuideFunction", ___], Infinity],
+             Count[lst, StyleBox[_, "InlineSeparator"], Infinity],
+             Count[nb, Cell[TextData[{___, " \[LongDash] ", ___}], "GuideText", ___], Infinity]}]],
+    {1, 3, 2, 1},
+    TestID -> "Guide: a code-span row joined by \[FilledVerySmallSquare] builds an InlineGuideFunctionListing (issue #91)"
+]
+```
+
+Each `## Abstract` paragraph is its own `GuideAbstract` cell rather than one run-together block, and a placeholder expanded into several cells gives each its own `CellID` - three `RelatedTutorials` fill three `GuideTutorial` cells with no ID shared (issues #100, #98):
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook[
+        "---\nTemplate: Guide\nName: G\nTitle: G\nPaclet: X/Y\nContext: X`\nURI: X/Y/guide/G\nKeywords: [a, b, c]\nRelatedTutorials: [One, Two, Three]\n---\n\n## Abstract\n\nFirst.\n\nSecond.\n\n## Functions\n\n- `Plot` - plot\n",
+        "Evaluate" -> False]},
+        {Cases[nb, Cell[t_, "GuideAbstract", ___] :> t, Infinity],
+         Count[nb, Cell[_, "GuideTutorial", ___], Infinity],
+         Select[Tally[Cases[nb, (CellID -> id_) :> id, Infinity]], Last[#] > 1 &]}],
+    {{"First.", "Second."}, 3, {}},
+    TestID -> "Guide: abstract paragraphs stay separate cells; expanded placeholders get distinct CellIDs (issues #100, #98)"
+]
+```
+
+A table with an empty header row - how an option table without a header is written in markdown - builds no blank first row (issue #92):
+
+```wl
+VerificationTest[
+    Length @ FirstCase[
+        MarkdownToNotebook["## T\n\n|   |   |\n|---|---|\n| a | 1 |\n| b | 2 |\n", "Evaluate" -> False],
+        GridBox[rows_, ___] :> rows, {}, Infinity],
+    2,
+    TestID -> "an empty markdown header row is not built as a blank first row (issue #92)"
+]
+```
+
+A reference subtype's example sections follow the Symbol page's shape - the primary group holds only the examples before the first section heading, and each later section is its own `ExampleSection` group under a "More Examples" group - instead of nesting inside Basic Examples as `ExampleSubsection` cells (issue #99):
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook[
+        "---\nTemplate: ServiceConnection\nName: S\nPaclet: X/Y\nContext: X`\nURI: X/Y/ref/service/S\n---\n\nA service.\n\n## Examples\n\n### Basic Examples\n\n```wl\n1 + 1\n```\n\n### Scope\n\n```wl\n2 + 2\n```\n\n### Authentication\n\n```wl\n3 + 3\n```\n",
+        "Evaluate" -> False]},
+        {Count[FirstCase[nb, g : Cell[CellGroupData[{Cell[_, "PrimaryExamplesSection", ___], ___}, _], ___] :> g, {}, Infinity],
+            Cell[_, "ExampleSubsection", ___], Infinity],
+         Cases[nb, Cell[BoxData[InterpretationBox[Cell[t_String, "ExampleSection"], _]], "ExampleSection", ___] :> t, Infinity],
+         Count[nb, Cell[_, "ExtendedExamplesSection", ___], Infinity]}],
+    {0, {"Scope", "Authentication"}, 1},
+    TestID -> "subtype page: extra example sections are ExampleSection groups under More Examples (issue #99)"
+]
+```
+
