@@ -18,6 +18,7 @@ BeginPackage["WolframInstitute`DocPageExamples`"]
 
 MazeGenerate::usage = "MazeGenerate[{rows, cols}] generates a random perfect maze as a matrix of characters in the MAZE format (# wall, . open, S start, G goal)."
 MazeParse::usage = "MazeParse[lines] parses a list of MAZE-format lines into a character matrix, padding ragged lines with walls."
+MazeWalkTime::usage = "MazeWalkTime[maze, speed] gives the time to walk the shortest path from the start S to the goal G of maze at the given walking speed."
 
 Begin["`Private`"]
 
@@ -87,6 +88,36 @@ MazeGenerate[{rows_Integer?Positive, cols_Integer?Positive}] := Block[{
     grid[[2, 2]] = "S";
     grid[[2 rows, 2 cols]] = "G";
     grid
+]
+
+(* === MazeWalkTime (Symbol page) ===
+   The walk moves between orthogonally adjacent open cells (anything but #),
+   one "CellSize" per step, so the shortest S-to-G step count times the cell
+   size over the speed is the time. Exact inputs give an exact time. A goal
+   walled off from the start has no walking time; a speed without length-per-
+   time units leaves the call unevaluated. *)
+
+Options[MazeWalkTime] = {"CellSize" -> Quantity[1, "Meters"]};
+
+mazeSteps[maze_] := Module[{open, openQ, start, goal},
+    open = Position[maze, Except["#"], {2}, Heads -> False];
+    openQ = AssociationThread[open -> True];
+    start = FirstPosition[maze, "S", Missing[], {2}];
+    goal = FirstPosition[maze, "G", Missing[], {2}];
+    If[MissingQ[start] || MissingQ[goal], Return[Infinity]];
+    GraphDistance[
+        Graph[open, Flatten @ Table[
+            If[Lookup[openQ, Key[p + d], False], UndirectedEdge[p, p + d], Nothing],
+            {p, open}, {d, {{0, 1}, {1, 0}}}]],
+        start, goal]
+]
+
+MazeWalkTime[maze_?MatrixQ, speed_Quantity /; CompatibleUnitQ[speed, "Meters"/"Seconds"],
+        OptionsPattern[]] := With[{n = mazeSteps[maze]},
+    If[ n === Infinity,
+        Missing["NotReachable"],
+        UnitConvert[n OptionValue["CellSize"]/speed, "Seconds"]
+    ]
 ]
 
 (* === RandomSignal device (Device page) ===

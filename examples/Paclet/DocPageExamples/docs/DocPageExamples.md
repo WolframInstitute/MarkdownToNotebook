@@ -27,6 +27,7 @@ rather than illustrating a hypothetical.
 
 - MazeGenerate - generate a random perfect maze as a character matrix in the MAZE format
 - MazeParse - parse MAZE-format lines into a character matrix, padding ragged lines with walls
+- `MazeWalkTime` - the time to walk a maze's shortest path at a given speed - a *symbol* page, its `Quantity` inputs shown typeset
 
 ### Reference Pages
 

@@ -16,7 +16,8 @@ PacletObject[<|
             "Context" -> {"WolframInstitute`DocPageExamples`"},
             "Symbols" -> {
                 "WolframInstitute`DocPageExamples`MazeGenerate",
-                "WolframInstitute`DocPageExamples`MazeParse"
+                "WolframInstitute`DocPageExamples`MazeParse",
+                "WolframInstitute`DocPageExamples`MazeWalkTime"
             }
         },
         {

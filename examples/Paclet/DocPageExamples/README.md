@@ -2,7 +2,7 @@
 
 A minimal **real** paclet backing one markdown-authored documentation page of
 every reference subtype `MarkdownToNotebook` supports beyond Symbol / Guide /
-TechNote:
+TechNote, plus a Symbol page:
 
 | Page | Template | The real thing behind it |
 |---|---|---|
@@ -16,6 +16,7 @@ TechNote:
 | [mazegen](docs/mazegen.md) | `Program` | `Scripts/mazegen.wls`, a wolframscript CLI over `MazeGenerate` |
 | [Filter a Dataset](docs/FilterADataset.md) | `Workflow` | plain system code, every step evaluates |
 | [Data Wrangling](docs/DataWrangling.md) | `WorkflowGuide` | a curated index of workflow pages |
+| [MazeWalkTime](docs/MazeWalkTime.md) | `Symbol` | `MazeWalkTime`, a function over `Quantity` values - its inputs show the quantities typeset, by a `Typeset:` frontmatter rule and an inline `(*TraditionalForm*)` marker |
 
 Loading the paclet registers the MAZE format, the Lorem service, the
 RandomSignal device class, and the WallpaperGroup entity store - so every
