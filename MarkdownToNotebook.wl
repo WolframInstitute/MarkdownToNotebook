@@ -6353,16 +6353,24 @@ exampleCacheName[docName_String, cellIdx_Integer, h_Integer] :=
         "/" <> IntegerString[cellIdx, 10, 3] <>
         "-" <> IntegerString[h, 36]
 
-(* Store the entry Compress'd. PersistentSymbol serializes via Put, which renders an
+(* Store the entry as WXF bytes. PersistentSymbol serializes via Put, which renders an
    embedded raw format-wrapper expression (TraditionalForm[...] / OutputForm[...], as
    Interpretation / Manipulate / DynamicModule outputs carry) as 2D text - fraction
    bars, "cos(...)" - that Get can no longer parse (Syntax::sntx), so the entry reads
    back Missing and, since allHit needs every entry, the whole doc re-evaluates on
-   every warm build and re-poisons the entry (issue #60). Compress round-trips any
-   expression as an opaque ASCII string. Legacy uncompressed entries (an Association,
-   not a String) pass through unchanged. *)
-exampleCacheGet[name_String] := Replace[PersistentSymbol[name, $cacheLocation], c_String :> Uncompress[c]]
-exampleCacheSet[name_String, v_] := (PersistentSymbol[name, $cacheLocation] = Compress[v];)
+   every warm build and re-poisons the entry (issue #60); a ByteArray passes through
+   Put and Get opaque. WXF also records each symbol's context, which a textual form
+   (Compress) leaves to the reader's $Context: a front-end option symbol in cached
+   boxes - AllowKernelInitialization in a Graph's - that the kernel has not created yet
+   comes back in System`, not as a Global` copy that the next formatted Graph would
+   shadow (AllowKernelInitialization::shdw, captured into that example's output). An
+   entry in any other form - a pre-WXF Compress string, a legacy uncompressed
+   Association, unreadable bytes - reads as a miss and is recomputed. *)
+exampleCacheGet[name_String] := Replace[PersistentSymbol[name, $cacheLocation], {
+    b_ByteArray :> Replace[Quiet @ BinaryDeserialize[b], Except[_Association] -> Missing["NotFound"]],
+    m_Missing :> m,
+    _ -> Missing["NotFound"]}]
+exampleCacheSet[name_String, v_] := (PersistentSymbol[name, $cacheLocation] = BinarySerialize[v, PerformanceGoal -> "Size"];)
 
 (* === entry point === *)
 

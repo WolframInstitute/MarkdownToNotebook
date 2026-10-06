@@ -935,7 +935,7 @@ VerificationTest[
 ]
 ```
 
-An example-output cache entry whose boxes embed a raw format-wrapper expression (a `TraditionalForm[...]` inside an `Interpretation` / `Manipulate` / `DynamicModule` output) round-trips through the persistent cache: it is stored `Compress`'d, so `Put` cannot render it as un-reparseable 2D text and force the whole document to permanently cache-miss:
+An example-output cache entry whose boxes embed a raw format-wrapper expression (a `TraditionalForm[...]` inside an `Interpretation` / `Manipulate` / `DynamicModule` output) round-trips through the persistent cache: it is stored as WXF bytes, so `Put` cannot render it as un-reparseable 2D text and force the whole document to permanently cache-miss:
 
 ```wl
 VerificationTest[
@@ -948,7 +948,7 @@ VerificationTest[
         DeleteObject[PersistentObjects[name, "Local"]];
         got === entry],
     True,
-    TestID -> "cache survives an embedded TraditionalForm wrapper (Compress round-trip, issue #60)"
+    TestID -> "cache survives an embedded TraditionalForm wrapper (WXF round-trip, issue #60)"
 ]
 ```
 
@@ -1316,6 +1316,23 @@ VerificationTest[
         TemplateBox[{m_, __}, "Quantity", ___] :> m, Infinity],
     {"1.4", "3"},
     TestID -> "typeset: an approximate magnitude shows without its precision mark (issue #90)"
+]
+```
+
+
+Example outputs are cached as WXF, which keeps every symbol's context, so a front-end symbol in cached boxes reads back into ``System` `` rather than as a ``Global` `` copy; an entry in the older `Compress` form reads as a miss and is recomputed (issue #101):
+
+```wl
+VerificationTest[
+    Module[{name = "MarkdownToNotebook/ExampleOutput/test-" <> CreateUUID[], entry = <|"boxes" -> RowBox[{"1", "+", "1"}], "msgs" -> {}|>, r},
+        exampleCacheSet[name, entry];
+        r = {Head[PersistentSymbol[name, $cacheLocation]], exampleCacheGet[name] === entry};
+        PersistentSymbol[name, $cacheLocation] = Compress[entry];
+        r = Append[r, MissingQ[exampleCacheGet[name]]];
+        DeleteObject[PersistentObject[name, $cacheLocation]];
+        r],
+    {ByteArray, True, True},
+    TestID -> "example cache: entries are WXF, and a pre-WXF Compress entry reads as a miss (issue #101)"
 ]
 ```
 
