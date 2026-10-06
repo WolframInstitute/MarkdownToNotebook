@@ -521,3 +521,53 @@ VerificationTest[
 ]
 ```
 
+A formula typed with the front end's Insert > TeX keeps its author's TeX, and walks back as that TeX rather than as a dump of its template box (issue #103):
+
+```wl
+VerificationTest[
+    NotebookToMarkdown[Notebook[{Cell[TextData[{"rate ", Cell[BoxData[TemplateBox[
+        <|"boxes" -> FormBox["\[Eta]", TraditionalForm], "errors" -> {}, "input" -> "\\eta", "state" -> "Boxes"|>,
+        "TeXAssistantTemplate"]], "InlineFormula"], " end"}], "Text"]}]],
+    "rate $\\eta$ end\n",
+    TestID -> "a TeX-assistant formula walks back as the TeX its author typed (issue #103)"
+]
+```
+
+A web link made with Insert > Hyperlink walks back as a markdown link (issue #104):
+
+```wl
+VerificationTest[
+    NotebookToMarkdown[Notebook[{Cell[TextData[{"See ", Cell[BoxData[TemplateBox[{"AccuracyGoal",
+        {URL["https://reference.wolfram.com/language/ref/AccuracyGoal.html"], None},
+        "https://reference.wolfram.com/language/ref/AccuracyGoal.html", "HyperlinkActionRecycled", {"HyperlinkActive"},
+        BaseStyle -> {"Hyperlink"}, HyperlinkAction -> "Recycled"}, "HyperlinkTemplate"]]], "."}], "Text"]}]],
+    "See [AccuracyGoal](https://reference.wolfram.com/language/ref/AccuracyGoal.html).\n",
+    TestID -> "an Insert > Hyperlink web link walks back as a markdown link (issue #104)"
+]
+```
+
+A hand-authored signature may wrap its head's link in a `HyperlinkDefault` template and type an argument as a text cell of its own; both read as the link and the argument they hold (issue #105):
+
+```wl
+VerificationTest[
+    {inlineMd[RowBox[{ButtonBox["FockState", BaseStyle -> "Link", ButtonData -> "paclet:Wolfram/QuantumFramework/ref/FockState"],
+        "[", Cell[TextData[StyleBox["n", "TI"]], ExpressionUUID -> "x"], ",", StyleBox["size", "TI"], "]"}]],
+     sig[RowBox[{TemplateBox[{ButtonBox["AnnihilationOperator", ButtonData -> "paclet:Wolfram/QuantumFramework/ref/AnnihilationOperator",
+        BaseStyle -> "Link"], {FrontEnd`EvaluationNotebook[], "2"}, ""}, "HyperlinkDefault"],
+        "[", Cell[TextData[StyleBox["n", "TI"]], ExpressionUUID -> "x"], ",", StyleBox["size", "TI"], "]"}]]},
+    {"[FockState]()[*n*,*size*]", "[AnnihilationOperator]()[*n*,*size*]"},
+    TestID -> "signatures: a HyperlinkDefault head link and an argument typed as its own cell (issue #105)"
+]
+```
+
+Every `DefinitionBox` column variant recovers as a markdown table, like the two-column one (issue #106):
+
+```wl
+VerificationTest[
+    blockFor[#, BoxData[GridBox[{{"\"ShowWires\"", "True", Cell["whether to show wires", "TableText"]}}]]] & /@
+        {"DefinitionBox3Col", "DefinitionBox4Col"},
+    ConstantArray["|   |   |   |\n|---|---|---|\n| `\"ShowWires\"` | `True` | whether to show wires |", 2],
+    TestID -> "every DefinitionBox column variant recovers as a markdown table (issue #106)"
+]
+```
+

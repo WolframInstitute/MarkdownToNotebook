@@ -297,6 +297,12 @@ inferredLinkMd[tb_] := With[{name = linkBoxName[tb], uri = linkBoxUri[tb]},
 sig[s_String] := cleanStr[s]
 sig[bb_ButtonBox] := "[" <> cellPlain[bb[[1]]] <> "]()"
 sig[tb_TemplateBox] /; linkTemplateBoxQ[tb] := inferredLinkMd[tb]
+(* a hand-authored signature wraps the head's link in the HyperlinkDefault
+   template, and types an argument as a text cell of its own *)
+sig[TemplateBox[{bb_ButtonBox, ___}, "HyperlinkDefault", ___]] := sig[bb]
+sig[c : Cell[content : (_TextData | _String | _BoxData), ___]] /; ! decorationCellQ[c] := sig[content]
+sig[(TextData | BoxData)[xs_List]] := StringJoin[sig /@ xs]
+sig[(TextData | BoxData)[x_]] := sig[x]
 sig[StyleBox[s_String, "TI", ___]] := emWrap[n2mNormStr[s], "*"]
 sig[StyleBox[s_, ___]] := sig[s]
 sig[SubscriptBox[a_, b_]] := "$" <> sigSub[a] <> "_{" <> sigSub[b] <> "}$"
@@ -408,6 +414,15 @@ inlineMd[ButtonBox[name_String, BaseStyle -> "Hyperlink", ButtonData -> {URL[u_S
 (* a generic ButtonBox - the FE often wraps the label in a StyleBox/RowBox and
    may give BaseStyle a Dynamic mouse-over. Treat it as an inferred symbol link. *)
 inlineMd[bb_ButtonBox] := "[" <> cellPlain[bb[[1]]] <> "]()"
+(* a web link made with Insert > Hyperlink (HyperlinkTemplate: label, {URL[u], None},
+   ...) or formatted from Hyperlink[...] (HyperlinkURL: label, u) -> [label](u); a
+   HyperlinkDefault template wraps a link button, which renders as itself *)
+inlineMd[TemplateBox[{lbl_, {URL[u_String], ___}, ___}, "HyperlinkTemplate" | "HyperlinkURL", ___]] :=
+    "[" <> cellPlain[lbl] <> "](" <> u <> ")"
+inlineMd[TemplateBox[{lbl_, u_String, ___}, "HyperlinkURL", ___]] := "[" <> cellPlain[lbl] <> "](" <> u <> ")"
+inlineMd[TemplateBox[{bb_ButtonBox, ___}, "HyperlinkDefault", ___]] := inlineMd[bb]
+inlineMd[Cell[BoxData[tb : TemplateBox[_, "HyperlinkTemplate" | "HyperlinkURL" | "HyperlinkDefault", ___]], ___]] :=
+    inlineMd[tb]
 
 (* An InlineMath cell (BookToolsStyles) is a "$math$" span by style alone: the
    book stylesheet sizes inline math itself, so the cell carries no FormBox or
@@ -486,8 +501,9 @@ inlineMd[OverscriptBox[a_, "^"]] := "$\\hat{" <> walkerMath[a] <> "}$"
 (* nested cells (a doc table cell can wrap its prose several Cells deep:
    Cell[TextData[Cell[BoxData[Cell[TextData[...],"TableText"]]]]]). Recurse into
    the content instead of letting boxToCode ToString-dump the inner Cell:
-   a TEXT cell (TextData / String content) -> unwrap to its content. *)
-inlineMd[c0 : Cell[content : (_TextData | _String), _String, ___]] /; ! decorationCellQ[c0] := inlineMd[content]
+   a TEXT cell (TextData / String content) -> unwrap to its content, with or
+   without a style (an argument typed as a cell of its own carries none). *)
+inlineMd[c0 : Cell[content : (_TextData | _String), ___]] /; ! decorationCellQ[c0] := inlineMd[content]
 
 inlineMd[RowBox[xs_List]] := StringJoin[inlineMd /@ xs]
 inlineMd[TextData[xs_List]] := StringJoin[inlineMd /@ xs]
@@ -905,7 +921,11 @@ blockFor["Notes", c_] := With[{b = StringRepeat["  ", $cellIndentDepth] <> "- " 
 blockFor["NotesSubsection", c_] := With[{h = "### " <> cellPlain[c]},
     If[TrueQ[$detailsHeadingDone], h,
         $detailsHeadingDone = True; "## Details & Options\n\n" <> h]]
-blockFor["2ColumnTableMod" | "3ColumnTableMod" | "TableNotes" | "DefinitionBox", BoxData[GridBox[rows_List, ___]]] := gridTable[rows]
+(* the option / property grids: the *TableMod styles and the DefinitionBox family -
+   DefinitionBox, and DefinitionBox1Col through DefinitionBox6Col by column count *)
+tableGridStyleQ[st_String] := MemberQ[{"2ColumnTableMod", "3ColumnTableMod", "TableNotes"}, st] ||
+    StringMatchQ[st, "DefinitionBox" ~~ ("" | (DigitCharacter .. ~~ "Col"))]
+blockFor[st_String?tableGridStyleQ, BoxData[GridBox[rows_List, ___]]] := gridTable[rows]
 blockFor["2ColumnTableMod" | "3ColumnTableMod", c_] := tidy @ inlineMd[c]
 (* a generic-path table (Default template, or a table wider than the Mod
    styles cover): a "Text" cell that is exactly a row-ruled GridBox. The
