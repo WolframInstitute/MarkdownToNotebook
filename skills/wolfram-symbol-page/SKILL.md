@@ -47,7 +47,11 @@ RelatedGuides: [GuideName]
 
 `SeeAlso` and `RelatedGuides` are context-aware links: a **System** symbol links to
 its system ref page, a paclet symbol to the paclet's ref page (the converter
-resolves this). `URI` is the page's `ref/` path.
+resolves this). A `RelatedGuides` entry is a guide's page name (`EquationSolving`):
+a guide the installed documentation has links to its system page, any other to the
+paclet's own, and the link shows the guide's title - a system guide's own, a
+paclet guide's `Title:`, else the name split into words. Write `[Title](Name)` to
+set the title yourself. `URI` is the page's `ref/` path.
 
 ## Hierarchy (where a symbol sits in the tree)
 

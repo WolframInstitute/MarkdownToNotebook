@@ -1319,7 +1319,10 @@ prepResourceBody[cells_List, family_String] := Switch[family,
 ]
 
 fmField[key_, val_] := If[StringTrim[val] === "", "", key <> ": " <> val <> "\n"]
-fmList[key_, items_] := If[items === {}, "", key <> ": [" <> StringRiffle[items, ", "] <> "]\n"]
+(* an item holding a comma - a guide title in a "[Title](Name)" entry, a keyword
+   phrase - is quoted so the YAML-ish parser keeps it whole *)
+fmList[key_, items_] := If[items === {}, "", key <> ": [" <>
+    StringRiffle[If[StringQ[#] && StringContainsQ[#, ","], "\"" <> # <> "\"", #] & /@ items, ", "] <> "]\n"]
 (* items that may contain commas or markdown links are quoted so the YAML-ish
    parser keeps each element whole *)
 fmQuotedList[key_, items_] := If[items === {}, "",
@@ -1415,7 +1418,12 @@ guideFrontmatter[nb_] := Module[{md = docMetaOf[nb], title, rg, rt, links, linkN
     linkNamesOf[style_] := DeleteCases[
         Cases[nb, Cell[c_, style, ___] :> FirstCase[{c}, s_String :> s, "", Infinity], Infinity],
         "" | "XXXX"];
-    rg = linkNamesOf["GuideMoreAbout"];
+    (* a Related Guides cell's link walks back to its page name (guideLinkEntry);
+       a cell with no link keeps its text *)
+    rg = DeleteCases[
+        Flatten @ Cases[nb, Cell[c_, "GuideMoreAbout", ___] :>
+            Replace[guideLinkEntries[c], {} :> {FirstCase[{c}, s_String :> s, "", Infinity]}], Infinity],
+        "" | "XXXX"];
     rt = linkNamesOf["GuideTutorial"];
     links = resourceLinkMd /@ Cases[nb, Cell[c_, "GuideRelatedLinks", ___] :> c, Infinity];
     StringJoin[
@@ -1453,6 +1461,18 @@ rowLinkNames[nb_, style_] := DeleteDuplicates @ Join[
     Cases[FirstCase[nb, Cell[td_, style, ___] :> td, TextData[{}], Infinity],
         TemplateBox[{Cell[TextData[n_String]], _String, ___}, _, ___] :> n, Infinity],
     linkNames[nb, style]]
+
+(* A related-guide link shows the guide's title (Equation Solving) but targets its
+   page name (paclet:guide/EquationSolving). It walks back to that page name -
+   MarkdownToNotebook rebuilds the title from it - or to "[Title](Name)" when the
+   title is not the name's words, which reads back to the same link. *)
+guideLinkEntry[label_String, uri_String] := With[{n = Last @ StringSplit[uri, "/"]},
+    If[StringDelete[label, Whitespace] === n, n, "[" <> label <> "](" <> n <> ")"]]
+$guideLinkPattern = TemplateBox[{Cell[TextData[l_String]], u_String, ___}, _, ___] |
+    ButtonBox[l_String, ___, ButtonData -> u_String, ___]
+guideLinkEntries[content_] := Cases[{content}, $guideLinkPattern :> guideLinkEntry[l, u], Infinity]
+rowGuideEntries[nb_, style_] := DeleteDuplicates @
+    guideLinkEntries[FirstCase[nb, Cell[td_, style, ___] :> td, TextData[{}], Infinity]]
 
 (* external [label](url) hyperlink cells of the given style *)
 rowExternalLinks[nb_, style_] := Cases[nb,
@@ -1503,7 +1523,7 @@ subtypeFrontmatter[nb_] := Module[{md = docMetaOf[nb], tmpl, name, humanTitle, e
         fmField["URI", Lookup[md, "uri", ""]],
         fmField["Description", Lookup[md, "summary", ""]],
         fmList["Keywords", Lookup[md, "keywords", {}]],
-        Map[With[{names = rowLinkNames[nb, #[[2]]]},
+        Map[With[{names = If[#[[1]] === "RelatedGuides", rowGuideEntries, rowLinkNames][nb, #[[2]]]},
             If[names === {}, "", fmList[#[[1]], names]]] &,
             $subtypeLinkKeys[tmpl]],
         With[{ln = rowExternalLinks[nb, linksStyle]},

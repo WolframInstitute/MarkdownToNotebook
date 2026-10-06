@@ -2851,7 +2851,7 @@ linkURI[name_String, paclet_String, kind_String] := Block[{pkg = packagePath[pac
     Which[
         kind === "ref" && symbolInContextQ[name, "System`"] && ! symbolInDocQ[name],
             "ref/" <> name,
-        kind === "guide" && symbolInContextQ[name, "System`"] && ! symbolInDocQ[name] && pkg === "",
+        kind === "guide" && systemGuideQ[name],
             "guide/" <> name,
         pkg =!= "",
             pkg <> "/" <> kind <> "/" <> name,
@@ -2860,12 +2860,64 @@ linkURI[name_String, paclet_String, kind_String] := Block[{pkg = packagePath[pac
     ]
 ]
 
+(* === related-guide links ===
+   A Related Guides entry names a guide by its page name (EquationSolving), by its
+   title (Equation Solving), or as an explicit link ([Equation Solving](paclet:guide/
+   EquationSolving)), and its link shows the guide's title, as the palette's link
+   does. A name the installed documentation resolves under paclet:guide/ is a system
+   guide, titled as that guide titles itself - unless the documented paclet has a
+   guide page of the same name beside this document's source. A paclet guide takes
+   the Title of that source page, and any other guide its name split into words. *)
+$docSourceDir = None
+splitCamelCase[s_String] := StringReplace[s, {
+    RegularExpression["(?<=[a-z0-9])(?=[A-Z])"] -> " ",
+    RegularExpression["(?<=[A-Z])(?=[A-Z][a-z])"] -> " "}]
+(* the frontmatter of <name>.md with Template: Guide in this document's source
+   directory, its parent, or a sibling directory (docs/Guides beside docs/Symbols) *)
+pacletGuideMeta[name_String] := If[ ! StringQ[$docSourceDir], Missing[],
+    SelectFirst[
+        Map[First @ extractFrontmatter[Quiet @ Import[#, "Text", CharacterEncoding -> "UTF-8"]] &,
+            FileNames[name <> ".md", ParentDirectory[$docSourceDir], 2]],
+        AssociationQ[#] && Lookup[#, "Template", ""] === "Guide" &, Missing[]]]
+systemGuideNotebook[name_String] := systemGuideNotebook[name] =
+    With[{p = Quiet @ Documentation`ResolveLink["paclet:guide/" <> name]}, If[StringQ[p] && FileExistsQ[p], p, Missing[]]]
+systemGuideQ[name_String] := StringMatchQ[name, (LetterCharacter | DigitCharacter) ..] &&
+    ! MissingQ[systemGuideNotebook[name]] && MissingQ[pacletGuideMeta[name]]
+systemGuideTitle[name_String] := systemGuideTitle[name] = Replace[
+    Quiet @ FirstCase[Get[systemGuideNotebook[name]],
+        Cell[t_, "GuideTitle", ___] :> If[StringQ[t], t, StringJoin @ Cases[{t}, _String, Infinity]], Missing[], Infinity],
+    Except[_String?(StringTrim[#] =!= "" &)] -> splitCamelCase[name]]
+guideTitle[name_String] := Which[
+    systemGuideQ[name], systemGuideTitle[name],
+    StringQ[Lookup[Replace[pacletGuideMeta[name], _Missing -> <||>], "Title", None]], pacletGuideMeta[name]["Title"],
+    True, splitCamelCase[name]]
+(* an entry -> {title, uri}. An explicit link's target is a paclet: URI or the
+   guide's page name ([Title](Name), the form NotebookToMarkdown writes when a
+   title is not its page name in words); an empty target names the guide by the
+   title's words. *)
+guideEntry[entry_String, paclet_String] := Module[{e = StringTrim[entry], m},
+    m = StringCases[e, StartOfString ~~ "[" ~~ l : Except["]"] .. ~~ "](" ~~ t : Except[")"] ... ~~ ")" ~~ EndOfString :> {l, t}];
+    Which[
+        m =!= {} && StringStartsQ[m[[1, 2]], "paclet:"],
+            {m[[1, 1]], StringDrop[m[[1, 2]], 7]},
+        m =!= {} && StringTrim[m[[1, 2]]] =!= "",
+            {m[[1, 1]], linkURI[StringTrim[m[[1, 2]]], paclet, "guide"]},
+        m =!= {},
+            {m[[1, 1]], linkURI[StringDelete[m[[1, 1]], Whitespace], paclet, "guide"]},
+        StringContainsQ[e, Whitespace],
+            {e, linkURI[StringDelete[e, Whitespace], paclet, "guide"]},
+        True,
+            {guideTitle[e], linkURI[e, paclet, "guide"]}
+    ]
+]
+
 (* a related-guide / related-tutorial link cell: a RefLinkPlain TemplateBox
    wrapped in an InlineFormula BoxData cell inside TextData (issue #20).  The
    BoxData wrapper is required: a bare TemplateBox directly in TextData breaks
    Export[..., "NB"] (the SeeAlso path does the same via docLinkCell). *)
-guideLinkContent[name_String, paclet_String, kind_String] :=
-    TextData[Cell[BoxData[refLinkPlainBox[name, "paclet:" <> linkURI[name, paclet, kind]]], "InlineFormula"]]
+guideLinkContent[name_String, paclet_String, kind_String] := With[{
+    g = If[kind === "guide", guideEntry[name, paclet], {name, linkURI[name, paclet, kind]}]},
+    TextData[Cell[BoxData[refLinkPlainBox[First[g], "paclet:" <> Last[g]]], "InlineFormula"]]]
 
 (* fill a style's XXXX placeholders with one cell per given content expression *)
 fillDocCells[nb_, style_String, contents_List] := Block[{vals = contents, first = True},
@@ -2885,9 +2937,9 @@ fillDocCells[nb_, style_String, contents_List] := Block[{vals = contents, first 
    in the built page, so the authoring notebook carries the palette's
    ButtonBox form there.  The other link-row styles (SeeAlso,
    TutorialMoreAbout, RelatedTutorials) pass typed boxes through fine. *)
-guideButtonCell[name_String, paclet_String, kind_String] := Cell[BoxData[
-    ButtonBox[name, BaseStyle -> "Link", ButtonData -> "paclet:" <> linkURI[name, paclet, kind]]
-], "InlineFormula"]
+guideButtonCell[name_String, paclet_String, kind_String] := With[{
+    g = If[kind === "guide", guideEntry[name, paclet], {name, linkURI[name, paclet, kind]}]},
+    Cell[BoxData[ButtonBox[First[g], BaseStyle -> "Link", ButtonData -> "paclet:" <> Last[g]]], "InlineFormula"]]
 
 (* a symbol page's Tech Notes entry: a plain ButtonBox directly in TextData.
    DocumentationBuild's tech-note harvesters (GetTutorialsSectionList /
@@ -2942,6 +2994,7 @@ linkRowCell[names_List, style_String, paclet_String, kind_String] := Cell[
             With[{rf = resourceFnName[#]}, Which[
                 rf =!= None,           resourceFnLinkCell[rf],
                 style === "MoreAbout", guideButtonCell[#, paclet, kind],
+                kind === "guide",      docLinkCell @@ guideEntry[#, paclet],
                 True,                  docLinkCell[#, linkURI[#, paclet, kind]]
             ]] &,
             names
@@ -6437,12 +6490,14 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
        conversion (an example cell that converts another document) otherwise leaves
        the inner document's Name / Paclet / Context / Template / math font in place,
        and the outer notebook is then built under the inner document's identity. *)
-    $docName, $docPaclet, $docContext, $docTemplate, $mathFontFamily, $docTypesetRules,
+    $docName, $docPaclet, $docContext, $docTemplate, $mathFontFamily, $docTypesetRules, $docSourceDir,
     src, text, parsed, meta, blocks, sections, tmplName, defCode, ctx, ctxPath,
     orderedCode, hashes, cacheDocName, cacheNames, cached, allHit, outputs, data, filled
 },
     ensureParser[];
     src = resolveSource[file];
+    (* a local source's directory, where a related guide's own page is looked up *)
+    $docSourceDir = If[TrueQ[src["Local"]], src["Base"], None];
     text = src["Text"];
     parsed = litParse[text];
     meta = parsed["Metadata"];

@@ -46,8 +46,11 @@ Links: ["[label](https://example.com)"]
 ---
 ```
 
-`RelatedGuides` are context-aware: a guide that is not the paclet's own (e.g. a
-System overview guide like `Colors`) links to `paclet:guide/Name`.
+`RelatedGuides` are context-aware: each entry is a guide's page name, and a guide
+the installed documentation has (a System overview guide like `EquationSolving`)
+links to `paclet:guide/Name`, any other to the paclet's own guide. The link shows
+the guide's title - a system guide's own, a paclet guide's `Title:`, else the name
+split into words (`Equation Solving`); write `[Title](Name)` to set it yourself.
 `RelatedTutorials` fills the guide's **Tech Notes** section, one link per entry to
 the paclet's `tutorial/Name` page - list every tech note a reader of this guide
 should know about. Leaving it out leaves the Tech Notes section empty.

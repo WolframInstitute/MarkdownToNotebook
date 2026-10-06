@@ -1336,3 +1336,18 @@ VerificationTest[
 ]
 ```
 
+A Related Guides entry links under the guide's title: a system guide the installed documentation knows (`EquationSolving`) links to its own page, a paclet guide's name is split into words, and an explicit `[Title](Name)` keeps its title (issue #102):
+
+```wl
+VerificationTest[
+    Cases[MarkdownToNotebook["---\nTemplate: Symbol\nName: F\nContext: X`\nPaclet: X/Y\nURI: X/Y/ref/F\nRelatedGuides: [EquationSolving, MyPacletGuide, \"[Custom Title](OtherGuide)\"]\n---\n\n# F\n\n## Usage\n\nF[x] does x.\n",
+            "Evaluate" -> False],
+        ButtonBox[l_, ___, ButtonData -> d_String, ___] /; StringContainsQ[d, "guide/"] :> {l, d}, Infinity],
+    {{"Equation Solving", If[StringQ[Quiet @ Documentation`ResolveLink["paclet:guide/EquationSolving"]],
+        "paclet:guide/EquationSolving", "paclet:X/Y/guide/EquationSolving"]},
+     {"My Paclet Guide", "paclet:X/Y/guide/MyPacletGuide"},
+     {"Custom Title", "paclet:X/Y/guide/OtherGuide"}},
+    TestID -> "RelatedGuides: a system guide links to its own page; every guide shows its title (issue #102)"
+]
+```
+

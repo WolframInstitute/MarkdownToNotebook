@@ -571,3 +571,15 @@ VerificationTest[
 ]
 ```
 
+A related-guide link walks back to its guide's page name, which re-converts to the same title and target, and an explicit title that is not the name's words to `[Title](Name)` (issue #102):
+
+```wl
+VerificationTest[
+    StringCases[NotebookToMarkdown[MarkdownToNotebook[
+        "---\nTemplate: Guide\nName: G\nTitle: G\nPaclet: X/Y\nContext: X`\nURI: X/Y/guide/G\nRelatedGuides: [EquationSolving, \"[Custom Title](OtherGuide)\"]\n---\n\n## Functions\n\n- `Plot` - plot\n",
+        "Evaluate" -> False]], "RelatedGuides: " ~~ Except["\n"] ..],
+    {"RelatedGuides: [EquationSolving, [Custom Title](OtherGuide)]"},
+    TestID -> "RelatedGuides walk back to page names, an explicit title as [Title](Name) (issue #102)"
+]
+```
+
