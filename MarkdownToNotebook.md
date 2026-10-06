@@ -1351,3 +1351,26 @@ VerificationTest[
 ]
 ```
 
+In a chapter, inline math takes the book stylesheet's own `InlineMath` style, which sizes it for the book, while a code span stays an `InlineFormula` (issue #108):
+
+```wl
+VerificationTest[
+    Cases[MarkdownToNotebook["---\nTemplate: Chapter\nName: \"Repro\"\nChapterNumber: 3\n---\n\n# Repro\n\nInline math $x^2$ and `code`.\n", "Evaluate" -> False],
+        Cell[BoxData[_], st : ("InlineFormula" | "InlineMath"), o___] :> {st, o}, Infinity],
+    {{"InlineMath"}, {"InlineFormula", FontSize -> 0.9 Inherited}},
+    TestID -> "Chapter: inline math takes the InlineMath style, a code span stays InlineFormula (issue #108)"
+]
+```
+
+A display formula inside a solved example or a proof sizes a bare big operator like any display formula (issue #109):
+
+```wl
+VerificationTest[
+    Cases[MarkdownToNotebook["---\nTemplate: Chapter\nName: \"Repro\"\nChapterNumber: 3\n---\n\n# Repro\n\n$$\\int f$$\n\n::: solved-example\nFind it.\n\n$$\\int f$$\n:::\n\n::: proof\nSince\n\n$$\\int f$$\n:::\n",
+            "Evaluate" -> False],
+        Cell[BoxData[PaneBox[b_, ___]], st_String, ___] :>
+            {st, Cases[b, StyleBox["\[Integral]", ___, FontSize -> f_, ___] :> f, {0, Infinity}]}, Infinity],
+    {{"DisplayFormula", {1.4 Inherited}}, {"SolvedExampleDisplayFormula", {1.4 Inherited}}, {"ProofTheoremDisplayFormula", {1.4 Inherited}}},
+    TestID -> "Chapter: solved-example and proof display formulas size big operators like any display formula (issue #109)"
+]
+```

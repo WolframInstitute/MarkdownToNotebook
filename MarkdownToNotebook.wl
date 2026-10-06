@@ -3469,10 +3469,19 @@ dampenBigOps[boxes_, scale_] := boxes /.
     StyleBox[s_String, a___, FontSize -> (r_?NumericQ) Inherited, b___] /; bigOpGlyphQ[s] && r > 1.5 :>
         StyleBox[s, a, FontSize -> scale Inherited, b]
 
+(* The cell a "$math$" span builds: an InlineFormula sized by $inlineFontSize - or,
+   in a chapter, the BookToolsStyles stylesheet's own InlineMath style, which sizes
+   inline math for the book and takes no size override (chapterNotebook sets it).
+   Code spans and symbol links stay InlineFormula either way. *)
+$inlineMathStyle = "InlineFormula"
+inlineMathCell[boxes_] := If[ $inlineMathStyle === "InlineFormula",
+    Cell[BoxData[boxes], "InlineFormula", FontSize -> $inlineFontSize],
+    Cell[BoxData[boxes], $inlineMathStyle]
+]
 mathInline[math_String] := Block[{boxes = texBoxes[math]},
-    If[ boxes === $Failed,
-        Cell[BoxData[FormBox[inputBoxes[math], TraditionalForm]], "InlineFormula", FontSize -> $inlineFontSize],
-        Cell[BoxData[dampenBigOps[boxes, $bigOpInlineScale]], "InlineFormula", FontSize -> $inlineFontSize]
+    inlineMathCell @ If[ boxes === $Failed,
+        FormBox[inputBoxes[math], TraditionalForm],
+        dampenBigOps[boxes, $bigOpInlineScale]
     ]
 ]
 
@@ -3480,12 +3489,15 @@ mathInline[math_String] := Block[{boxes = texBoxes[math]},
    cell. Stylesheets vary in whether DisplayFormula centers within the cell or
    left-indents it, so wrap the formula in a PaneBox that takes the full cell width
    and centers its content; that way the equation sits horizontally centered the way
-   a markdown viewer renders display math, in any stylesheet. *)
-mathBlockCell[math_String] := With[{
-    boxes = dampenBigOps[Replace[texBoxes[math], $Failed -> FormBox[inputBoxes[math], TraditionalForm]], $bigOpDisplayScale]
-},
-    Cell[BoxData[PaneBox[boxes, ImageSize -> Full, Alignment -> Center]], "DisplayFormula"]
-]
+   a markdown viewer renders display math, in any stylesheet. Every display site -
+   this cell and the book's solved-example and proof formulas - builds through
+   displayMathCell, so the parse, its TraditionalForm fallback and the display
+   big-operator size are the same everywhere. *)
+displayMathBoxes[math_String] :=
+    dampenBigOps[Replace[texBoxes[math], $Failed -> FormBox[inputBoxes[math], TraditionalForm]], $bigOpDisplayScale]
+displayMathCell[math_String, style_String] :=
+    Cell[BoxData[PaneBox[displayMathBoxes[math], ImageSize -> Full, Alignment -> Center]], style]
+mathBlockCell[math_String] := displayMathCell[math, "DisplayFormula"]
 
 (* the web-deployed resource templates (Function / Paclet / Example / Data
    Repository, Prompt, Demonstration). Their notebooks keep the official resource
@@ -5705,14 +5717,8 @@ bookSolvedInnerCells[block_, counterSym_] := applyBlockMeta[Switch[block["Type"]
             {Cell[block["Code"], "SolvedExampleInput"]}
         ],
     "MathBlock",
-        With[{nm = Lookup[block, "Numbered", False]},
-            {Cell[BoxData[PaneBox[
-                Replace[texBoxes[block["Text"]], $Failed ->
-                    FormBox[inputBoxes[block["Text"]], TraditionalForm]],
-                ImageSize -> Full, Alignment -> Center]],
-                If[TrueQ[nm], "SolvedExampleDisplayFormulaNumbered",
-                    "SolvedExampleDisplayFormula"]]}
-        ],
+        {displayMathCell[block["Text"],
+            If[TrueQ[Lookup[block, "Numbered", False]], "SolvedExampleDisplayFormulaNumbered", "SolvedExampleDisplayFormula"]]},
     "List",
         listItemCells[block, "Item"],
     _, bookFreeCells[block, "", counterSym]
@@ -5760,11 +5766,7 @@ bookProofInnerCells[block_, counterSym_] := applyBlockMeta[Switch[block["Type"],
     "Prose",
         {Cell[TextData @ inlineTextData[block["Text"]], "ProofContent"]},
     "MathBlock",
-        {Cell[BoxData[PaneBox[
-            Replace[texBoxes[block["Text"]], $Failed ->
-                FormBox[inputBoxes[block["Text"]], TraditionalForm]],
-            ImageSize -> Full, Alignment -> Center]],
-            "ProofTheoremDisplayFormula"]},
+        {displayMathCell[block["Text"], "ProofTheoremDisplayFormula"]},
     _, bookFreeCells[block, "", counterSym]
 ], block]
 
@@ -6094,7 +6096,7 @@ chapterGroupCells[heading_Association, blocks_, counterSym_] := Block[{
 chapterNotebook[data_] := Block[{
     meta = data["meta"], blocks = data["blocks"],
     title, chapterNum, groups, bodyCells, $chapterCounter = 0, frontmatterOpts,
-    firstH1, contentBlocks
+    firstH1, contentBlocks, $inlineMathStyle = "InlineMath"
 },
     (* Drop the H1 heading from the body: the chapter title is the Section
        heading we emit ourselves, not a Subsection/.. inside the chapter.
