@@ -935,6 +935,38 @@ VerificationTest[
 ]
 ```
 
+The markdown twin reads a captured message as the front end shows it. A `ResourceFunctionMessage` message arrives as a `Row`, which boxes to a `TemplateBox[..., "RowDefault"]`: its parts are joined and its string literals lose their quotes, instead of the raw boxes leaking into the blockquote:
+
+```wl
+VerificationTest[
+    messageMd[messageBoxData["ResourceFunction::usermessage", "`1`",
+        {Row[{RawBoxes[StyleBox[RowBox[{"Memoize", "::", "flat"}], "MessageName"]], ": ",
+            Row[{"Memoize does not support ", joined, ", which has the attribute Flat."}]}]}]],
+    "> ResourceFunction::usermessage: Memoize::flat: Memoize does not support joined, which has the attribute Flat.",
+    TestID -> "a ResourceFunctionMessage message reads as text in the markdown twin"
+]
+```
+
+A `Row` with a separator reads with its separator between the parts:
+
+```wl
+VerificationTest[
+    messageMd[messageBoxData["f::m", "got `1`", {Row[{1, "b"}, ", "]}]],
+    "> f::m: got 1, b",
+    TestID -> "a Row with a separator reads as text in the markdown twin"
+]
+```
+
+An echo reads in the markdown twin as the front end shows it, after the `»` marker of an `Echo` cell, and a machine number shows without the precision mark its boxes carry:
+
+```wl
+VerificationTest[
+    printTextForm /@ captureCellRun["Echo[2.5, \"computing\"]"]["prints"],
+    {"\[RightGuillemet] computing 2.5"},
+    TestID -> "an echo reads as the front end shows it in the markdown twin"
+]
+```
+
 An example-output cache entry whose boxes embed a raw format-wrapper expression (a `TraditionalForm[...]` inside an `Interpretation` / `Manipulate` / `DynamicModule` output) round-trips through the persistent cache: it is stored as WXF bytes, so `Put` cannot render it as un-reparseable 2D text and force the whole document to permanently cache-miss:
 
 ```wl

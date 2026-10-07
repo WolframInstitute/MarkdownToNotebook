@@ -965,10 +965,21 @@ asPrintCell[s_String] := Cell[s, "Print"]
 asPrintCell[c_Cell] := c
 asPrintCell[other_] := Cell[ToString[other, InputForm], "Print"]
 
-(* box -> plain text, for the markdown twin's blockquote of a captured message
-   (a StyleBox keeps only its content; a RowBox concatenates its parts). *)
-msgBoxText[s_String] := s
+(* A number's box string carries the precision marks the front end hides when it shows the
+   number ("2.5`", "3.14`10."); the twin's text shows the number as the front end does. *)
+displayedNumberText[s_String] := StringReplace[s,
+    RegularExpression["^(-?\\d+\\.?\\d*)`[\\d.]*$"] -> "$1"]
+
+(* box -> plain text, for the markdown twin's blockquote of a captured message, read as the
+   front end shows it: a StyleBox keeps only its content; a RowBox, and the TemplateBox a Row
+   boxes to, join their parts (a ResourceFunctionMessage message arrives as such a Row); a
+   string literal shows without its quotes and escapes. *)
+msgBoxText[s_String] /; StringLength[s] >= 2 && StringStartsQ[s, "\""] && StringEndsQ[s, "\""] :=
+    StringReplace[StringTake[s, {2, -2}], {"\\\"" -> "\"", "\\\\" -> "\\", "\\n" -> "\n", "\\t" -> "\t"}]
+msgBoxText[s_String] := displayedNumberText[s]
 msgBoxText[RowBox[xs_List]] := StringJoin[msgBoxText /@ xs]
+msgBoxText[TemplateBox[xs_List, "RowDefault", ___]] := StringJoin[msgBoxText /@ xs]
+msgBoxText[TemplateBox[{sep_, _, xs___}, "RowWithSeparators", ___]] := StringRiffle[msgBoxText /@ {xs}, msgBoxText[sep]]
 msgBoxText[(StyleBox | TagBox | InterpretationBox | FrameBox)[b_, ___]] := msgBoxText[b]
 msgBoxText[b_] := ToString[b, InputForm]
 
@@ -986,9 +997,9 @@ messageMd[box_] := With[{t = StringTrim[msgBoxText[box]]},
    rasterised image. *)
 printTextForm[s_String] := s
 printTextForm[Cell[s_String, "Print", ___]] := s
-printTextForm[Cell[BoxData[s_String], "Print", ___]] := s
+printTextForm[Cell[BoxData[s_String], "Print", ___]] := displayedNumberText[s]
 printTextForm[Cell[BoxData[RowBox[lst_List]], "Print", ___]] /;
-    AllTrue[lst, StringQ] := StringJoin[lst]
+    AllTrue[lst, StringQ] := StringJoin[displayedNumberText /@ lst]
 printTextForm[_] := Missing["Rich"]
 
 (* Capture EVERYTHING a cell's evaluation would produce in a real notebook,
@@ -1042,9 +1053,10 @@ captureCellRun[code_String, opts_Association : <||>] := Block[{stmts, outs, cell
            chunk - so Print[graphics], Print[image], Print[dataset], or
            Print["count: ", n] each render correctly downstream. *)
         Print[args___] := (AppendTo[prints, printCellFromArgs[{args}]]; Null);
-        Echo[e_] := (Print[">> ", e]; e);
-        Echo[e_, label_] := (Print[">> ", label, " ", e]; e);
-        Echo[e_, label_, f_] := (Print[">> ", label, " ", f[e]]; e);
+        (* an echo reads as the front end's Echo cell does, after its \[RightGuillemet] marker *)
+        Echo[e_] := (Print["\[RightGuillemet] ", e]; e);
+        Echo[e_, label_] := (Print["\[RightGuillemet] ", label, " ", e]; e);
+        Echo[e_, label_, f_] := (Print["\[RightGuillemet] ", label, " ", f[e]]; e);
         CellPrint[c_Cell] := (AppendTo[cellsExtra, c]; Null);
         CellPrint[cs_List] := (cellsExtra = Join[cellsExtra, Cases[cs, _Cell]]; Null);
         (* Walk statements: each held position is extracted with Extract,
