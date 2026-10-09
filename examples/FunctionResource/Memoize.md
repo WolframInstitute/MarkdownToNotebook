@@ -2,9 +2,9 @@
 Template: FunctionResource
 ResourceType: Function
 Name: Memoize
-Description: Rewrite the definitions of a symbol so that each distinct call is computed once and then looked up
+Description: Rewrite the definitions of a symbol so that each distinct call is computed once and thereafter looked up
 ContributedBy: Nikolay Murzin
-Keywords: [memoization, caching, cache, dynamic programming, recursion, definitions, DownValues, performance]
+Keywords: [memoization, caching, cache, dynamic programming, recursion, stored definitions, DownValues]
 Categories: [Core Language & Structure]
 SeeAlso: [SetDelayed, Set, DownValues, Once, Hash]
 Links: ["[Functions That Remember Values They Have Found (Wolfram Language tutorial)](https://reference.wolfram.com/language/tutorial/FunctionsThatRememberValuesTheyHaveFound.html)", "[Memoization (Wikipedia)](https://en.wikipedia.org/wiki/Memoization)"]
@@ -23,16 +23,16 @@ and the example cells are evaluated when the definition notebook is built.
 
 ## Usage
 
-<code>[Memoize]()[*f*]</code> rewrites the definitions of the symbol *f* so that each distinct call of *f* is computed once and then looked up, and returns *f*.
+<code>[Memoize]()[*f*]</code> computes and returns *f* after rewriting its definition so that each subsequent call is looked up.
 
-<code>[Memoize]()[*def*]</code> makes the definitions *def* and memoizes the function they define, so definitions followed by `; // Memoize` are cached as they are made.
+<code>[Memoize]()[*def*]</code> makes the definitions *def* and memoizes each function they define.
 
 <code>[Memoize]()[*f*, *crit*]</code> caches only the calls whose arguments *crit* gives `True` for.
 
 ## Details & Options
 
-- `Memoize` has the attribute [HoldAll](), so it receives definitions before they are made. Definitions followed by `; // Memoize` reach it as one [CompoundExpression]().
-- *def* is a [SetDelayed](), a [Set]() or a [CompoundExpression]() of definitions. `Memoize[def]` makes them, then memoizes each function they define and returns it, or the list of the functions when they define several.
+- `Memoize` has the attribute [HoldAll](), so it receives definitions before they are made: definitions followed by `; // Memoize` reach it as one [CompoundExpression]() and are memoized as they are made.
+- Input for *def* should be a [SetDelayed](), a [Set]() or a [CompoundExpression]() of definitions. `Memoize[def]` makes them, then memoizes each function they define and returns it (or the list of the functions when they define several).
 - Definitions in *def* whose left-hand side is headed by a system symbol, such as `Options[f] = …`, `Default[f] = …` or `f::tag = …`, are made and leave nothing else to memoize.
 - `Memoize[f]` gives *f* one rule that looks each call up in a private cache. A call that is not there is computed by applying the original definitions of *f* to it, which `Memoize` keeps aside as rules.
 - The original definitions still call *f*, so the calls a recursive definition makes go through the cache too.
@@ -43,7 +43,7 @@ and the example cells are evaluated when the definition notebook is built.
 - A result for which [FailureQ]() gives `True` is returned but not cached, so the call is computed again, with its messages, the next time it is made.
 - Options of *f* read with [OptionValue]() and default values of its optional arguments keep working, and a call computed after [SetOptions]() reads the new options.
 - In `Memoize[f, crit]` and `Memoize[def, crit]`, *crit* is evaluated once, then applied to the arguments of each computed call, and only the calls for which it gives `True` are cached. It is applied only when a call is computed, never when a call is found in the cache.
-- `Memoize` changes only calls of the form *f*[*args*]. Up values, subvalues such as *f*[*a*][*b*] and own values of *f* are left as they are.
+- `Memoize` changes only calls of the form `f[args]`. Up values, subvalues such as `f[a][b]` and own values of *f* are left as they are.
 
 ## Basic Examples
 
