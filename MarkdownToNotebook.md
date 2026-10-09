@@ -486,6 +486,23 @@ VerificationTest[
 ]
 ```
 
+Math in a usage signature is read argument by argument: a braced list `$\{a_1, b\}$` becomes the literal braces and commas around template arguments, as `{$a_1$, $b$}` would, and math with an operator (`$n \geq 1$`) is typeset, so no `$` is left in the usage line:
+
+```wl
+VerificationTest[
+    With[{u = FirstCase[
+        FirstCase[
+            MarkdownToNotebook["---\nTemplate: Symbol\nName: Foo\nContext: P`Q`\nPaclet: P/Q\nURI: P/Q/ref/Foo\n---\n\n## Usage\n\n<code>[Foo]()[$\\{a_1, b\\}$, $n \\geq 1$]</code> does.\n", "Evaluate" -> False],
+            Cell[t_, "Usage", ___] :> t, None, Infinity],
+        Cell[BoxData[b_], "InlineFormula", ___] :> b, None, Infinity]},
+        {Cases[u, s_String /; StringContainsQ[s, "$"], {0, Infinity}],
+         ! FreeQ[u, RowBox[{"{", RowBox[{SubscriptBox[StyleBox["a", "TI"], StyleBox["1", "TR"]], ",", " ", StyleBox["b", "TI"]}], "}"}]],
+         ! FreeQ[u, RowBox[{StyleBox["n", "TI"], "\[GreaterEqual]", "1"}]]}],
+    {{}, True, True},
+    TestID -> "a braced list or operator math in a usage signature leaves no $ in the usage line"
+]
+```
+
 A bullet list with indented continuation lines folds each continuation into the preceding item, so a three-bullet list with two-line continuations is three items, not six (regression: the list parser used to break at the continuation, producing alternating one-item lists and stray paragraphs):
 
 ```wl

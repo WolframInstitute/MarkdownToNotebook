@@ -38,11 +38,25 @@ The convention is:
 ### Argument names are italics, not math
 
 In a `## Usage` signature and in prose, write argument names in *italics*:
-<code>[Range]()[*n*]</code>, <code>[Map]()[*f*, *list*]</code>. **Do not** use
-the `$x$` math form for an argument name - it renders as ugly inline LaTeX.
-Genuine mathematics in prose - a proposition like $\forall n \in \mathbb{N}$
-in a tutorial - stays in `$...$`; that is math, not an argument name. (The
-Symbol skill uses `$x_i$` for subscripted args; `*x_i*` works for that too.)
+<code>[Range]()[*n*]</code>, <code>[Map]()[*f*, *list*]</code>. In prose,
+`$...$` is always math: **do not** use the `$x$` form for an argument name there -
+it renders as inline LaTeX. Genuine mathematics in prose - a proposition like
+$\forall n \in \mathbb{N}$ in a tutorial - stays in `$...$`; that is math, not an
+argument name.
+
+Inside a `<code>` usage signature the converter reads `$...$` as arguments, so
+either form works there:
+
+| In the signature | Becomes |
+|---|---|
+| `$n$`, `*n*` | the italic template argument *n* |
+| `$x_1$`, `$x_{ij}$`, `*x_i*` | a subscripted argument |
+| `$\beta$`, `$\beta_1$` | the Greek letter as an argument, subscripted or not |
+| `$\{a, b\}$`, `$\{t_1, t_2\}$` | literal braces and commas around arguments, as `{$a$, $b$}` |
+| `$x^2$`, `$n \geq 1$`, `$a + b$` | typeset math |
+
+A math span holding a comma outside a braced list (`$a, b$`) is not read; write
+each argument as its own span (`$a$, $b$`).
 
 ### Cells: no ceremony, one output each
 

@@ -2170,6 +2170,10 @@ mathArgsToTemplate[s_String] := StringJoin @ Replace[
 ]
 
 mathArgsRewrite[s_String] := StringReplace[s, {
+    (* a braced list, "$\{a, b\}$" (or "${a, b}$" once the markdown escapes are
+       undone): the literal braces and commas, each element read as an argument of
+       its own, as "{$a$, $b$}" would be *)
+    "$" ~~ ("\\{" | "{") ~~ inner : Shortest[Except["$"] ..] ~~ ("\\}" | "}") ~~ "$" :> mathListArgs[inner],
     "$" ~~ mac:("\\" ~~ LetterCharacter ..) ~~ "_" ~~ "{" ~~ sub:Shortest[Except["}"]..] ~~ "}" ~~ "$" :> latexMacroChar[mac] <> "$" <> sub,
     "$" ~~ mac:("\\" ~~ LetterCharacter ..) ~~ "_" ~~ sub:(DigitCharacter | LetterCharacter) ~~ "$" :> latexMacroChar[mac] <> "$" <> ToString[sub],
     "$" ~~ mac:("\\" ~~ LetterCharacter ..) ~~ "$" :> latexMacroChar[mac],
@@ -2184,8 +2188,31 @@ mathArgsRewrite[s_String] := StringReplace[s, {
        rendering exactly as they did. *)
     "$" ~~ m:($mathArgBase ~~ "_" ~~ $mathArgScript ~~ "^" ~~ $mathArgScript) ~~ "$" :> parkMath[m],
     "$" ~~ m:($mathArgBase ~~ "^" ~~ $mathArgScript ~~ "_" ~~ $mathArgScript) ~~ "$" :> parkMath[m],
-    "$" ~~ m:($mathArgBase ~~ "^" ~~ $mathArgScript) ~~ "$" :> parkMath[m]
+    "$" ~~ m:($mathArgBase ~~ "^" ~~ $mathArgScript) ~~ "$" :> parkMath[m],
+    (* any other math with an operator or a macro in it ("$n \geq 1$", "$a + b$") is
+       typeset the same way. Its text holds no "$", bracket, comma or quote, so the
+       span cannot run from a "$" symbol of one argument into the next argument. *)
+    "$" ~~ m:(Except["$" | "[" | "]" | "," | "\"" | "\n"] ..) ~~ "$" /;
+        StringContainsQ[m, "\\" | "+" | "-" | "=" | "<" | ">" | "^" | "/" | "*" | "|" | "!" | "("] :> parkMath[m]
 }]
+
+(* the elements of a braced math list, split at its top-level commas, each read as
+   a "$...$" argument; an element no rule reads keeps its text, never its "$" *)
+mathListArgs[inner_String] := "{" <> StringRiffle[
+    Map[
+        With[{t = StringTrim[#]}, With[{r = mathArgsRewrite["$" <> t <> "$"]}, If[r === "$" <> t <> "$", t, r]]] &,
+        topLevelCommaSplit[inner]],
+    ", "] <> "}"
+topLevelCommaSplit[s_String] := Module[{depth = 0, cur = "", out = {}},
+    Scan[
+        Function[c, Which[
+            c === "," && depth === 0, AppendTo[out, cur]; cur = "",
+            True,
+                If[MemberQ[{"{", "("}, c], depth++];
+                If[MemberQ[{"}", ")"}, c], depth--];
+                cur = cur <> c]],
+        Characters[s]];
+    Append[out, cur]]
 
 (* Sanitize the markdown styling out of a usage signature, leaving the plain WL
    signature string that templateBox / ParseTextTemplate can render. Strips
