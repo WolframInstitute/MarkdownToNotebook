@@ -11,10 +11,9 @@
    not flagged "out of date" when opened in a newer front end. *)
 Quiet @ PacletInstall["DefinitionNotebookClient", UpdateSites -> True]
 
-(* pin the front end session to light up front: a headless session resolves the
-   Automatic appearance to Dark, which would darken the example notebook thumbnails
-   (rendered during conversion) and the deployed page. *)
-Quiet @ UsingFrontEnd[CurrentValue[$FrontEnd, LightDark] = "Light"]
+(* The appearance is pinned per notebook, never on $FrontEnd (a front end setting can
+   persist into the desktop app): the converter renders example thumbnails in its
+   "LightDark" mode (light by default) and gives a resource notebook LightDark -> "Light". *)
 
 dir = DirectoryName[$InputFileName]
 
@@ -82,7 +81,6 @@ buildOne[mdName_String, entrySymbol_Symbol, cloudPath_String] := Block[
     Print["    $Failed outputs: ", failedOut];
     If[ TrueQ[$CloudConnected] && failedOut === 0,
         deployed = UsingFrontEnd @ Block[{nbo, ro, rf, defBytes},
-            CurrentValue[$FrontEnd, LightDark] = "Light";
             nbo = NotebookOpen[File[outNb]];
             CurrentValue[nbo, CreateCellID] = True;
             SelectionMove[nbo, All, Notebook];
