@@ -1456,6 +1456,18 @@ VerificationTest[
 ]
 ```
 
+A blank code span, which a span holding a backtick fence splits into, takes the literal path too, so no internal of the Template Input client reaches the notebook:
+
+```wl
+VerificationTest[
+    FreeQ[
+        MarkdownToNotebook["---\nTemplate: FunctionResource\nName: TinyFn\nDescription: d\n---\n\n## Definition\n\n```wl\nTinyFn[x_] := x\n```\n\n## Details\n\n- A cell that shows a ` ``` ` fence.\n", "Evaluate" -> False],
+        s_Symbol /; StringStartsQ[Context[s], "DefinitionNotebookClient`DocumentationTools"]],
+    True,
+    TestID -> "a blank code span in a Function resource leaves no Template Input internal"
+]
+```
+
 A `[!REVIEW]` quote after a `#| comment:` directive places the cell the directive carries exactly as it was - a reviewer's signature, label, CellID and wording included - where the quote stands, and the cells around it keep the CellIDs they have without it:
 
 ```wl

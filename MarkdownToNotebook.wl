@@ -3305,16 +3305,19 @@ codeToInline[code_String] := Cell[BoxData[inputBoxes[code]], "InlineFormula", Fo
    documented symbol a link and the resource's own name plain, in an InlineFormula cell set
    in the toolbar's Source Sans Pro. *)
 functionResourceTemplateQ[] := MemberQ[{"FunctionResource", "FunctionResourceReview"}, $docTemplate]
-(* Template Input is for Wolfram Language code: a span of markdown or YAML syntax
-   ("#| eval: false", "key: value", "---", "[!REVIEW]") keeps the literal boxes any
-   template gives it. String literals are set aside before the check. *)
+(* Template Input is for Wolfram Language code: a blank span, and a span of markdown or
+   YAML syntax ("#| eval: false", "key: value", "---", "[!REVIEW]"), keeps the literal
+   boxes any template gives it. String literals are set aside before the check. *)
 templateInputQ[code_String] := With[{bare = StringDelete[code, "\"" ~~ Shortest[___] ~~ "\""]},
+    StringTrim[code] =!= "" &&
     StringFreeQ[bare, "#|" | "##" | "---" | "[!" | "<!" | "`" | (WordCharacter ~~ ": ")] &&
         ! StringStartsQ[StringTrim[bare], "# " | "> "]]
+(* boxes that still hold one of the client's own symbols are an unevaluated internal
+   (StringTemplateInput[""] returns its private postProcessTemplate[]), never content *)
 templateInputBoxes[code_String] := Module[{boxes},
     Needs["DefinitionNotebookClient`"];
     boxes = UsingFrontEnd @ DefinitionNotebookClient`StringTemplateInput[StringTrim[code], $docName];
-    If[FreeQ[boxes, $Failed | _DefinitionNotebookClient`StringTemplateInput], boxes, inputBoxes[code]]
+    If[FreeQ[boxes, $Failed | s_Symbol /; StringStartsQ[Context[s], "DefinitionNotebookClient`"]], boxes, inputBoxes[code]]
 ]
 
 (* a variable in prose, "*f*" - one identifier, which Template Input would italicise - is
