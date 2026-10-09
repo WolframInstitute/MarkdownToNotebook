@@ -430,6 +430,46 @@ inlineMd[Cell[BoxData[tb : TemplateBox[_, "HyperlinkTemplate" | "HyperlinkURL" |
    when one is present, so a single rule covers both box shapes. *)
 inlineMd[Cell[BoxData[b_], "InlineMath", ___]] := "$" <> walkerMath[b] <> "$"
 
+(* In a Function Repository definition notebook an InlineFormula is what the toolbar's
+   Template Input makes of the code text (MarkdownToNotebook builds a code span the same
+   way), so it walks back to that text in a code span: the TI and link wrappers Template
+   Input adds are dropped (it adds them again), and the tokens are spaced around infix
+   operators and after commas for reading, whitespace Template Input drops again. A lone
+   variable is "*f*", a link button "[Name]()" and typeset math "$...$", as on any page.
+   These rules precede the general InlineFormula rules below: the ones of equal pattern
+   generality are tried in the order they are defined. *)
+$functionResourceQ = False
+$frSpacedInfix = {"=", ":=", "->", ":>", "//", "/.", "//.", "/;", "==", "===", "=!=", "!=",
+    "&&", "||", "+", "-", "<>", "@@", "/@", "@@@", "^=", "^:=", "+=", "-=", "<", ">", "<=", ">=",
+    "|", "\[Rule]", "\[RuleDelayed]", "\[Equal]", "\[LessEqual]", "\[GreaterEqual]", "\[NotEqual]"};
+frArgumentQ[s_String] := StringMatchQ[s, RegularExpression["[a-z\\x{3b1}-\\x{3c9}][A-Za-z0-9]*"]]
+frSpacedQ[toks_List, i_Integer] := 1 < i < Length[toks] && MemberQ[$frSpacedInfix, toks[[i]]]
+frSep[toks_List, parts_List, i_Integer] := If[
+    frSpacedQ[toks, i] || frSpacedQ[toks, i + 1] || MemberQ[{",", ";"}, toks[[i]]] ||
+        (StringEndsQ[parts[[i]], WordCharacter] && StringStartsQ[parts[[i + 1]], WordCharacter]),
+    " ", ""]
+(* a row with whitespace tokens is literal input (a span that is not Wolfram Language
+   code, or one built before Template Input), kept exactly as it was typed *)
+frCode[RowBox[xs_List]] /; MemberQ[xs, s_String /; StringMatchQ[s, WhitespaceCharacter ..]] := StringJoin[frCode /@ xs]
+frCode[RowBox[xs_List]] := With[{parts = frCode /@ xs},
+    If[Length[parts] < 2, StringJoin[parts],
+        StringJoin @ Riffle[parts, Table[frSep[xs, parts, i], {i, Length[parts] - 1}]]]]
+frCode[(StyleBox | TagBox | ButtonBox)[b_, ___]] := frCode[b]
+frCode[SubscriptBox[a_, i_, ___]] := frCode[a] <> "$" <> frCode[i]
+(* a string literal Template Input wrote with a TI word inside it, "\"\!\(\*StyleBox[\"word\",\"TI\"]\)\"" *)
+frCode[s_String] := boxToCode @ StringReplace[s,
+    "\!\(\*StyleBox[\"" ~~ w : Shortest[__] ~~ "\",\"TI\"]\)" :> w]
+frCode[b_] := boxToCode[b]
+inlineMd[Cell[BoxData[StyleBox[s_String, "TI", ___]], "InlineFormula", ___]] /; $functionResourceQ :=
+    If[frArgumentQ[s], "*" <> s <> "*", "`" <> frCode[s] <> "`"]
+inlineMd[Cell[BoxData[TagBox[ButtonBox[StyleBox[name_String, "SymbolsRefLink", ___], ___], ___]], "InlineFormula", ___]] /; $functionResourceQ :=
+    "`" <> name <> "`"
+inlineMd[c : Cell[BoxData[s_String], "InlineFormula", ___]] /; $functionResourceQ && ! decorationCellQ[c] :=
+    "`" <> frCode[s] <> "`"
+inlineMd[c : Cell[BoxData[b_], "InlineFormula", ___]] /; $functionResourceQ && ! decorationCellQ[c] &&
+    ! MatchQ[b, _FormBox | _ButtonBox | StyleBox[_, "TI", ___] | (_TemplateBox ? linkTemplateBoxQ)] :=
+    "`" <> frCode[b] <> "`"
+
 (* An InlineFormula cell wraps either a FormBox (typeset math from a "$...$"
    span), a Link/call box (a "`Symbol`" or call-form signature), a 2D math
    tree, or a plain WL box tree. Dispatch on the shape so a signature renders
@@ -503,6 +543,11 @@ inlineMd[OverscriptBox[a_, "^"]] := "$\\hat{" <> walkerMath[a] <> "}$"
    the content instead of letting boxToCode ToString-dump the inner Cell:
    a TEXT cell (TextData / String content) -> unwrap to its content, with or
    without a style (an argument typed as a cell of its own carries none). *)
+(* a literal code span: a verbatim token (a path, a URL, a lone operator) is a string
+   InlineCode cell, a double-backtick span an InlineCode StyleBox inside one. Defined
+   ahead of the text-cell unwrap below, which would otherwise take the string cell. *)
+inlineMd[Cell[s_String, "InlineCode", ___]] := "`" <> s <> "`"
+inlineMd[Cell[BoxData[StyleBox[s_String, "InlineCode", ___]], "InlineCode", ___]] := "``" <> s <> "``"
 inlineMd[c0 : Cell[content : (_TextData | _String), ___]] /; ! decorationCellQ[c0] := inlineMd[content]
 
 inlineMd[RowBox[xs_List]] := StringJoin[inlineMd /@ xs]
@@ -1107,6 +1152,12 @@ blockFor[_String, c_] := tidy @ inlineMd[c]
 
 (* === tree walk === *)
 walkCell[Cell[CellGroupData[inner_List, ___]]] := walkCells[inner]
+(* A definition notebook comment - a Function Repository reviewer's, which the reviewers
+   sign, or the author's reply - walks to a "[!REVIEW]" / "[!COMMENT]" quote headed by its
+   label and UTC time. A reviewer's quote follows a "#| comment:" directive that carries the
+   whole cell as base64 WXF, which MarkdownToNotebook places back unchanged, signature
+   included; an author's reply is rebuilt from its text (see commentMd). *)
+walkCell[c : Cell[content_, style : "ReviewerComment" | "AuthorComment", opts___]] := commentMd[c]
 (* A nested bullet whose style family has no deeper style carries its depth as a
    left CellMargins offset (see MarkdownToNotebook's nestedItemMargins); bind it
    so the list-item rules can re-emit the markdown indent and the nesting
@@ -1114,6 +1165,35 @@ walkCell[Cell[CellGroupData[inner_List, ___]]] := walkCells[inner]
 walkCell[Cell[content_, style_String, opts___]] := Block[{$cellIndentDepth = marginIndentDepth[{opts}]},
     withCellMeta[blockFor[style, content], style, {opts}]]
 walkCell[_] := ""
+
+$commentMarkers = <|"ReviewerComment" -> "REVIEW", "AuthorComment" -> "COMMENT"|>;
+(* the commenter and the absolute UTC time of the CommentCellLabelTemplate frame label *)
+commentLabelOf[opts_List] := FirstCase[opts,
+    (CellFrameLabels -> {{_, Cell[BoxData[TemplateBox[{who_, when_, ___}, "CommentCellLabelTemplate", ___]], ___]}, _}) :>
+        {commentWho[who], when},
+    {"", None}]
+(* the commenter's name inside the label boxes: a reviewer's sits in a
+   ReviewerCommentLabelTemplate, an author's is a bare string box *)
+commentWho[StyleBox[b_, ___]] := commentWho[b]
+commentWho[TemplateBox[{b_, ___}, _String, ___]] := commentWho[b]
+commentWho[s_String] := StringTrim[StringTrim[s], "\""]
+commentWho[_] := ""
+commentTimeText[t_ ? NumericQ] :=
+    DateString[DateObject[t, TimeZone -> 0], {"Year", "-", "Month", "-", "Day", " ", "Hour24", ":", "Minute"}] <> " UTC"
+commentTimeText[_] := ""
+(* A reviewer's comment is placed back from its directive, so its quote is a readable copy,
+   each code span in the plain doc-page form that shows which arguments are TI. An author's
+   reply is the author's own text: it carries no directive and is written the way the rest
+   of the page is, so it is edited in the markdown and rebuilt from it. *)
+commentMd[c : Cell[content_, style_String, opts___]] := Module[{who, when, body, reviewerQ = style =!= "AuthorComment"},
+    {who, when} = commentLabelOf[{opts}];
+    body = If[reviewerQ, Block[{$functionResourceQ = False}, tidy @ inlineMd[content]], tidy @ inlineMd[content]];
+    StringJoin[
+        If[! reviewerQ || $metadataCarrier === None, "",
+            directiveOne["comment", BaseEncode[BinarySerialize[c, PerformanceGoal -> "Size"]]] <> "\n"],
+        "> [!", $commentMarkers[style], "] ", StringRiffle[DeleteCases[{who, commentTimeText[when]}, ""], ", "], "\n",
+        "> ", StringReplace[body, "\n" -> "\n> "]]
+]
 
 (* 18 points of left margin per nesting level, matching nestedItemMargins *)
 marginIndentDepth[opts_List] := Replace[
@@ -1178,9 +1258,9 @@ $docPageQ = True
    Information section groups the "Contributed By" / "Keywords" / "Related Symbols"
    / "Links" subsections. Reconstruct the canonical YAML the forward path reads
    (Name, Description, ContributedBy, Keywords, SeeAlso, Links) from those cells.
-   Categories live in a checkbox widget whose *checked* state doesn't survive as
-   text, so that slot is dropped; ShortName / RelatedResources are legacy keys the
-   current schema folds into Name / (nothing). *)
+   Categories and the Compatibility fields live in checkbox widgets, whose checked
+   state is read from their "CheckboxData" (resourceCheckboxes); ShortName /
+   RelatedResources are legacy keys the current schema folds into Name / (nothing). *)
 $resourceTypeTemplate = <|"Function" -> "FunctionResource"|>;
 templateForResourceType[rt_String] := Lookup[$resourceTypeTemplate, rt, rt]
 resourceTypeOf[nb_] := FirstCase[Cases[nb, (TaggingRules -> v_) :> v, {1}],
@@ -1258,7 +1338,9 @@ usageDescParts[s_] := {s}
 mergeUsageLines[cells_] := cells //.
     {a___, Cell[ui_, "UsageInputs", ___], Cell[ud_, "UsageDescription", ___], b___} :>
         {a, Cell[TextData[Flatten[{Cell[ui, "InlineFormula"], " ", usageDescParts[ud]}]], "UsageLine"], b}
-blockFor["UsageLine", TextData[xs_List]] := tidy @ StringJoin[inlineMd /@ xs]
+(* the signature keeps the "<code>[f]()[*x*]</code>" form on every resource page *)
+blockFor["UsageLine", TextData[{sig_, rest___}]] := tidy @ StringJoin[
+    Block[{$functionResourceQ = False}, inlineMd[sig]], inlineMd /@ {rest}]
 
 (* flatten every CellGroupData wrapper into the bare cell sequence; grouping carries
    no information the walker needs, and the FE's regrouping makes it unreliable. *)
@@ -1358,8 +1440,49 @@ resourceContentItems[nb_, tags_List] := Cases[resourceSectionKidsAny[nb, tags],
     cell : Cell[content_, "Item", ___] /; ! cellHasTagQ[cell, "DefaultContent"] :> content]
 resourceSubsectionText[nb_, tags_List] := StringRiffle[
     cellPlain /@ Cases[resourceSectionKidsAny[nb, tags], Cell[c_, "Text", ___] :> c], ", "]
+(* The checked values of a resource's checkbox widgets (Categories and the Compatibility
+   fields): a widget keeps its state in a "CheckboxData" TaggingRule, an Association in
+   compressed WXF naming the "Property" and its "Checked" list, read here held. *)
+resourceCheckboxes[nb_] := Association @ Cases[nb,
+    ("CheckboxData" -> s_String) :> With[{bytes = BaseDecode[s]},
+        Replace[If[ByteArrayQ[bytes], BinaryDeserialize[bytes, Hold], None], {
+            Hold[a_Association] /; StringQ[a["Property"]] && ListQ[a["Checked"]] :> (a["Property"] -> a["Checked"]),
+            _ :> Nothing}]],
+    Infinity]
+(* the Function template's own Compatibility values; a field left at its default stays
+   out of the frontmatter *)
+$functionCompatibilityDefaults = <|
+    "CompatibilityOperatingSystem" -> {"Windows", "MacOSX", "Unix"},
+    "CompatibilityEvaluationEnvironment" -> {"Session", "Script", "Subkernel", "WebEvaluation", "WebAPI", "Scheduled", "BatchJob"},
+    "CompatibilityCloudSupport" -> {True},
+    "CompatibilityFeatures" -> {}|>;
+fmCheckedList[key_, items_List] := key <> ": [" <> StringRiffle[items, ", "] <> "]\n"
+resourceCheckboxFrontmatter[nb_, rt_] := Module[{cb = resourceCheckboxes[nb], changed},
+    changed[prop_] := KeyExistsQ[cb, prop] && Sort[cb[prop]] =!= Sort[$functionCompatibilityDefaults[prop]];
+    StringJoin[
+        fmList["Categories", Lookup[cb, "Categories", {}]],
+        If[rt === "Function", StringJoin[
+            If[changed["CompatibilityOperatingSystem"], fmCheckedList["OperatingSystems", cb["CompatibilityOperatingSystem"]], ""],
+            If[changed["CompatibilityEvaluationEnvironment"], fmCheckedList["Environments", cb["CompatibilityEvaluationEnvironment"]], ""],
+            If[changed["CompatibilityCloudSupport"], "CloudSupport: " <> If[MemberQ[cb["CompatibilityCloudSupport"], True], "true", "false"] <> "\n", ""],
+            If[changed["CompatibilityFeatures"], fmCheckedList["Features", cb["CompatibilityFeatures"]], ""]],
+            ""]
+    ]
+]
+
+(* The submission a definition notebook sent back by the repository's reviewers belongs
+   to: its "SubmissionReviewData" TaggingRules with "Review" -> True. The entries after
+   "Review" become the "SubmissionReview:" mapping of the FunctionResourceReview template,
+   which writes them back for the toolbar's Submit Update. None for any other notebook. *)
+submissionReviewOf[nb_] := With[{
+    srd = Lookup[Association @ Normal @ FirstCase[nb, (TaggingRules -> v_) :> v, {}, {1}], "SubmissionReviewData", {}]},
+    If[MatchQ[srd, {___Rule}] && TrueQ[Lookup[srd, "Review", False]], DeleteCases[srd, "Review" -> _], None]]
+fmSubmissionReview[None] := ""
+fmSubmissionReview[srd_List] := "SubmissionReview:\n" <> StringJoin[
+    ("  " <> ToString[First[#]] <> ": " <> If[StringQ[Last[#]], Last[#], ToString[Last[#], InputForm]] <> "\n") & /@ srd]
+
 resourceFrontmatter[nb_] := Module[
-    {rt = resourceTypeOf[nb], pacletQ, name, desc, contrib, kw, sa, rr, links, sources},
+    {rt = resourceTypeOf[nb], pacletQ, name, desc, contrib, kw, sa, rr, links, sources, review = submissionReviewOf[nb]},
     If[! resourceDefNotebookQ[nb], Return[""]];
     pacletQ = rt === "Paclet";
     name    = taggedCellText[nb, "Name"];
@@ -1376,7 +1499,7 @@ resourceFrontmatter[nb_] := Module[
     links   = resourceLinkMd /@ resourceContentItems[nb, {"Links", "External Links"}];
     StringJoin[
         "---\n",
-        "Template: ", templateForResourceType[rt], "\n",
+        "Template: ", If[rt === "Function" && review =!= None, "FunctionResourceReview", templateForResourceType[rt]], "\n",
         "ResourceType: ", rt, "\n",
         fmField["Name", name],
         If[pacletQ, StringJoin[
@@ -1397,6 +1520,8 @@ resourceFrontmatter[nb_] := Module[
         (* each Links item is already a markdown link; quote it so the YAML element
            is a string the forward parser unquotes *)
         fmQuotedList["Links", links],
+        resourceCheckboxFrontmatter[nb, rt],
+        fmSubmissionReview[review],
         "---\n\n"
     ]
 ]
@@ -1688,6 +1813,7 @@ markdownOfNb[nb0 : Notebook[_List, ___], opts : OptionsPattern[NotebookToMarkdow
      $outputInlineLimit  = OptionValue[NotebookToMarkdown, {opts}, "OutputInlineLimit"],
      $outputCommentLimit = OptionValue[NotebookToMarkdown, {opts}, "OutputCommentLimit"],
      $docPageQ           = docNotebookQ[nb0],
+     $functionResourceQ  = resourceDefNotebookQ[nb0] && resourceTypeOf[nb0] === "Function",
      $n2mSlotDefaults    = slotDefaultsOf[nb0]},
     name = cellPlain @ FirstCase[nb, Cell[t_, "ObjectName", ___] :> t, "", Infinity];
     (* a reference-subtype / workflow page keeps its Notes cells inside its own

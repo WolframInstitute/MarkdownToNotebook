@@ -84,6 +84,10 @@ ensureParser[] := If[! TrueQ[$parserReady] && ! TrueQ[$parserTried],
    literal Wolfram`Parser` here emits StringForm::sfr "Item 0 requested" instead of the text. *)
 MarkdownToNotebook::noparser =
     "The Wolfram/Parser paclet is unavailable, so LaTeX math falls back to ImportString, which mis-decodes non-ASCII characters. Run PacletInstall[\"Wolfram/Parser\"] for correct math.";
+MarkdownToNotebook::revcomment =
+    "The reviewer comment \"`1`\" has no \"#| comment:\" directive holding its cell; a reviewer comment is never rebuilt from text, so it is kept as a quote.";
+MarkdownToNotebook::comdate =
+    "The comment header \"`1`\" gives no time as \"Name, YYYY-MM-DD HH:MM UTC\"; the comment is dated at build time.";
 
 mdSep = "\n(*--cell--*)\n"
 
@@ -510,7 +514,8 @@ blockLoop[lines_List, acc_] := Block[{line = First[lines], rest = Rest[lines], s
         ,
         blockquoteQ[line],
             split = quoteSplit[lines, {}];
-            blockLoop[Last[split], Prepend[acc, <|"Type" -> "Quote", "Text" -> StringRiffle[First[split], " "]|>]]
+            blockLoop[Last[split], Prepend[acc,
+                <|"Type" -> "Quote", "Text" -> StringRiffle[First[split], " "], "Lines" -> First[split]|>]]
         ,
         mathBlockOpenQ[line],
             split = mathBlockGather[lines];
@@ -1431,8 +1436,11 @@ fillCheckbox[property_String, checked_List, type_String : "Function"] := {
    verbatim. A real code cell never matches: it carries whitespace or a
    call/bracket shape, not a lone operator-joined token; a genuine number
    (`3.14`, `1.5e3`) has no alphabetic extension and no interior hyphen, so it
-   still reparses; and a single symbol (`Range`) has no operator at all. *)
-verbatimInlineQ[s_String] := StringFreeQ[s, Whitespace] && Or[
+   still reparses; and a single symbol (`Range`) has no operator at all. A postfix
+   application written tight (`f//N`, `;//Memoize`) is code though it holds a "/":
+   a path never carries a "//" outside its "://" (a lone `//` stays the literal token). *)
+postfixCodeQ[s_String] := StringContainsQ[StringReplace[s, "://" -> ""], "//"] && ! StringMatchQ[s, "/" ..]
+verbatimInlineQ[s_String] := StringFreeQ[s, Whitespace] && ! postfixCodeQ[s] && Or[
     StringStartsQ[s, "~" | "/" | "./" | "../"],
     StringMatchQ[s, "." ~~ LetterCharacter ~~ ___],   (* dotfile: .gitignore, .prime *)
     StringContainsQ[s, "://"],
@@ -1997,7 +2005,7 @@ proseBlockCells[blocks_, style_String : "Text"] := Catenate @ Map[
         "Prose", {Cell[TextData @ inlineTextData[b["Text"]], style]},
         "List",  listItemCells[b, style],
         "Table", {tableCell[b]},
-        "Quote", {quoteCell[b["Text"]]},
+        "Quote", quoteBlockCells[b],
         "MathBlock", {mathBlockCell[b["Text"]]},
         _, {}
     ], b],
@@ -2306,9 +2314,17 @@ usagePair[{code_String, desc_String}] := {
 (* a free usage paragraph: description-only, no UsageInputs partner *)
 usagePair[{None, text_String}] := {Cell[TextData @ inlineTextData[StringTrim[text]], "UsageDescription"]}
 
-usageSlot[opts_, sections_] := Block[{pairs = usageLines[sections]},
-    If[ pairs === {}, Return[slotDefault[opts]] ];
-    {Cell[CellGroupData[Catenate[usagePair /@ pairs], Open]]}
+(* the usage pairs in section order; a comment between two usage lines stays between
+   them, where a reviewer placed it to remark on the line above *)
+usageSlot[opts_, sections_] := Block[{cells = Catenate @ Map[
+        Function[b, Which[
+            b["Type"] === "Prose",
+                Catenate[usagePair /@ Replace[usageStatement[b["Text"]], {} :> {{None, b["Text"]}}]],
+            commentQuoteQ[b], commentCells[b],
+            True, {}]],
+        Lookup[sections, "usage", {}]]},
+    If[ FreeQ[cells, Cell[_, "UsageInputs" | "UsageDescription", ___]], Return[slotDefault[opts]] ];
+    {Cell[CellGroupData[cells, Open]]}
 ]
 
 (* the Details & Options notes: one "Notes" cell per item, so each renders as its
@@ -2322,6 +2338,73 @@ quoteCell[text_String] := Cell[TextData @ inlineTextData[text], "Text",
     CellFrame -> {{3, 0}, {0, 0}}, CellFrameColor -> GrayLevel[0.55], CellFrameMargins -> 10,
     CellMargins -> {{40, 10}, {7, 7}},
     Background -> LightDarkSwitched[GrayLevel[0.96], GrayLevel[0.2]]]
+
+(* === definition notebook comments ===
+   A blockquote whose first line opens with "[!REVIEW]" or "[!COMMENT]" is a comment cell
+   of a resource definition notebook: a ReviewerComment, which the Function Repository
+   reviewers sign, or an AuthorComment, the author's reply. The rest of that line names the
+   commenter and the time ("WFR Team, 2026-10-09 19:30 UTC") and the following quote lines
+   are the comment. NotebookToMarkdown keeps a reviewer comment's cell in a "#| comment:"
+   directive (the Cell as base64 WXF), and that cell is placed as it was, so the reviewers'
+   signature, label and wording survive a round trip and the quote is its readable copy.
+   An author comment is built from the quote (or placed from a directive when it has one);
+   a reviewer comment is never made up from text. *)
+$commentStyles = <|"REVIEW" -> "ReviewerComment", "COMMENT" -> "AuthorComment"|>;
+commentHeader[b_Association] := If[ b["Type"] =!= "Quote", None,
+    FirstCase[
+        StringCases[StringTrim[First[Lookup[b, "Lines", {""}], ""]],
+            StartOfString ~~ "[!" ~~ k : (LetterCharacter ..) ~~ "]" ~~ rest___ :> {ToUpperCase[k], StringTrim[rest]}],
+        {k_, rest_} /; KeyExistsQ[$commentStyles, k] :> {$commentStyles[k], rest},
+        None]]
+commentQuoteQ[b_Association] := commentHeader[b] =!= None
+
+(* the cell a "#| comment:" directive carries, held so nothing in it evaluates *)
+commentCellOf[blob_String] := With[{bytes = BaseDecode[blob]},
+    If[ByteArrayQ[bytes], BinaryDeserialize[bytes, Hold], $Failed]]
+
+commentCells[b_Association] := Module[{style, header, blob, held, body},
+    {style, header} = commentHeader[b];
+    blob = Lookup[Lookup[b, "Options", <||>], "comment", None];
+    held = If[StringQ[blob], commentCellOf[blob], None];
+    body = StringRiffle[Rest[b["Lines"]], " "];
+    Which[
+        MatchQ[held, Hold[Cell[_, "ReviewerComment" | "AuthorComment" | "Comment", ___]]],
+            {ReleaseHold[held]},
+        style === "AuthorComment",
+            {authorCommentCell[header, body]},
+        True,
+            Message[MarkdownToNotebook::revcomment, header];
+            {quoteCell[body]}
+    ]
+]
+quoteBlockCells[b_Association] := If[commentQuoteQ[b], commentCells[b], {quoteCell[b["Text"]]}]
+
+(* an author comment written in markdown, with the label and time the toolbar's Reply
+   button gives one *)
+authorCommentCell[header_String, body_String] := Module[{who, when},
+    {who, when} = commentWhoWhen[header];
+    Cell[TextData @ inlineTextData[body], "AuthorComment",
+        CellFrameLabels -> {{None, Cell[BoxData @ TemplateBox[
+            {ToBoxes @ Style[who, ShowStringCharacters -> False], when}, "CommentCellLabelTemplate"],
+            Background -> None]}, {None, None}},
+        CellTags -> {"AuthorComment", "CommentCell"}]
+]
+
+(* "Name, YYYY-MM-DD HH:MM UTC" -> {name, absolute time in UTC}, the pair the
+   CommentCellLabelTemplate shows *)
+commentWhoWhen[s_String] := Replace[
+    StringCases[s,
+        StartOfString ~~ who : Shortest[___] ~~ "," ~~ WhitespaceCharacter ... ~~
+            d : (Repeated[DigitCharacter, {4}] ~~ "-" ~~ Repeated[DigitCharacter, {2}] ~~ "-" ~~ Repeated[DigitCharacter, {2}]) ~~
+            t : (((" " | "T") ~~ Repeated[DigitCharacter, {2}] ~~ ":" ~~ Repeated[DigitCharacter, {2}]) | "") ~~
+            WhitespaceCharacter ... ~~ ("UTC" | "") ~~ EndOfString :> {who, d, t}],
+    {
+        {{who_, d_, t_}, ___} :> {StringTrim[who], AbsoluteTime[
+            DateObject[{d <> " " <> If[t === "", "00:00", StringDrop[t, 1]],
+                {"Year", "-", "Month", "-", "Day", " ", "Hour", ":", "Minute"}}, TimeZone -> 0],
+            TimeZone -> 0]},
+        _ :> (Message[MarkdownToNotebook::comdate, s]; {StringTrim[s], AbsoluteTime[TimeZone -> 0]})
+    }]
 
 (* the nested-bullet style ladder for each base style: an indented sub-bullet
    steps to the next entry (Item -> Subitem -> Subsubitem, the doc-stylesheet
@@ -2367,7 +2450,7 @@ detailsCells[sections_, headingStyle_String : "Subsubsection"] := Catenate @ Map
         "Prose", {Cell[TextData @ inlineTextData[block["Text"]], "Notes"]},
         "List", listItemCells[block, "Notes"],
         "Table", {tableCell[block]},
-        "Quote", {quoteCell[block["Text"]]},
+        "Quote", quoteBlockCells[block],
         "MathBlock", {mathBlockCell[block["Text"]]},
         "Heading", {Cell[headingText[block["Text"]], headingStyle]},
         _, {}
@@ -2396,7 +2479,7 @@ functionEssayCells[sections_] := Catenate @ Map[
         "Prose", {Cell[TextData @ inlineTextData[block["Text"]], "FunctionEssay"]},
         "List", listItemCells[block, "FunctionEssay"],
         "Table", {tableCell[block]},
-        "Quote", {quoteCell[block["Text"]]},
+        "Quote", quoteBlockCells[block],
         "MathBlock", {mathBlockCell[block["Text"]]},
         _, {}
     ], block],
@@ -2563,7 +2646,7 @@ exampleContent[sectionBlocks_, textStyle_String] := Block[{counter = 0, chunks =
             block["Type"] === "List",
                 cur = Join[cur, applyBlockMeta[listItemCells[block, "Item"], block]],
             block["Type"] === "Quote",
-                cur = Join[cur, applyBlockMeta[{quoteCell[block["Text"]]}, block]],
+                cur = Join[cur, applyBlockMeta[quoteBlockCells[block], block]],
             block["Type"] === "MathBlock",
                 cur = Join[cur, applyBlockMeta[{mathBlockCell[block["Text"]]}, block]],
             block["Type"] === "Image",
@@ -3184,7 +3267,32 @@ stripLinks[boxes_] := boxes //. ButtonBox[content_, ___] :> content
    bare string, so the FE has nothing to reparse.) *)
 codeToInline[code_String] /; verbatimInlineQ[StringTrim[code]] :=
     Cell[StringTrim[code], "InlineCode"]
+codeToInline[code_String] /; functionResourceTemplateQ[] && templateInputQ[code] :=
+    Cell[BoxData[templateInputBoxes[code]], "InlineFormula", FontFamily -> "Source Sans Pro"]
 codeToInline[code_String] := Cell[BoxData[inputBoxes[code]], "InlineFormula", FontSize -> $inlineFontSize]
+
+(* In a Function Repository definition notebook a code span is what the toolbar's Template
+   Input button makes of the same text (DefinitionNotebookClient`StringTemplateInput, the
+   function behind the button), the formatting the repository's reviewers ask for: no
+   whitespace tokens (";//Memoize"), each lowercase identifier a TI template argument, a
+   documented symbol a link and the resource's own name plain, in an InlineFormula cell set
+   in the toolbar's Source Sans Pro. *)
+functionResourceTemplateQ[] := MemberQ[{"FunctionResource", "FunctionResourceReview"}, $docTemplate]
+(* Template Input is for Wolfram Language code: a span of markdown or YAML syntax
+   ("#| eval: false", "key: value", "---", "[!REVIEW]") keeps the literal boxes any
+   template gives it. String literals are set aside before the check. *)
+templateInputQ[code_String] := With[{bare = StringDelete[code, "\"" ~~ Shortest[___] ~~ "\""]},
+    StringFreeQ[bare, "#|" | "##" | "---" | "[!" | "<!" | "`" | (WordCharacter ~~ ": ")] &&
+        ! StringStartsQ[StringTrim[bare], "# " | "> "]]
+templateInputBoxes[code_String] := Module[{boxes},
+    Needs["DefinitionNotebookClient`"];
+    boxes = UsingFrontEnd @ DefinitionNotebookClient`StringTemplateInput[StringTrim[code], $docName];
+    If[FreeQ[boxes, $Failed | _DefinitionNotebookClient`StringTemplateInput], boxes, inputBoxes[code]]
+]
+
+(* a variable in prose, "*f*" - one identifier, which Template Input would italicise - is
+   the same TI InlineFormula cell in a Function Repository notebook, not italic text *)
+templateArgumentQ[s_String] := StringMatchQ[s, RegularExpression["[a-z\\x{3b1}-\\x{3c9}][A-Za-z0-9]*"]]
 
 (* double-backtick ``code`` -> the palette's "Code (Inline)": a literal,
    non-linkified monospace span (InlineCode), unlike Template Input. *)
@@ -3223,6 +3331,8 @@ wrapStyle[other_, _] := other
 emWith[s_String, opts_List] := Sequence @@ Map[wrapStyle[#, opts] &, inlineTextDataCore[s]]
 
 emBoldBox[s_String] := emWith[s, {FontWeight -> "Bold"}]
+emItalicBox[s_String] /; functionResourceTemplateQ[] && templateArgumentQ[s] :=
+    Cell[BoxData[StyleBox[s, "TI"]], "InlineFormula", FontFamily -> "Source Sans Pro"]
 emItalicBox[s_String] := emWith[s, {"TI"}]
 emBoldItalicBox[s_String] := emWith[s, {"TI", FontWeight -> "Bold"}]
 emStrikeBox[s_String] := emWith[s, {FontVariations -> {"StrikeThrough" -> True}}]
@@ -3518,7 +3628,7 @@ mathBlockCell[math_String] := displayMathCell[math, "DisplayFormula"]
    URIs don't resolve. So a symbol reference in one must be a plain Hyperlink to the
    public web URL, not the typed TemplateBox a built doc page (Symbol/Guide/TechNote)
    uses. Doc pages go through DocumentationBuild + the doc center, where both hold. *)
-$resourceTemplates = {"FunctionResource", "Paclet", "Example", "Data", "Prompt", "Demonstration"}
+$resourceTemplates = {"FunctionResource", "FunctionResourceReview", "Paclet", "Example", "Data", "Prompt", "Demonstration"}
 resourceTemplateQ[] := MemberQ[$resourceTemplates, $docTemplate]
 
 (* markdown links: [text](paclet:Pub/Name/ref/Sym) -> a reference Link (palette
@@ -4416,7 +4526,7 @@ tutorialBody[blocks_] := Block[{counter = 0},
             "Prose", {Cell[TextData @ inlineTextData[block["Text"]], "Text"]},
             "List", listItemCells[block, "Item"],
             "Table", {tableCell[block]},
-            "Quote", {quoteCell[block["Text"]]},
+            "Quote", quoteBlockCells[block],
             "MathBlock", {mathBlockCell[block["Text"]]},
             "Image", {imageCell[block]},
             "Code", If[executableQ[block], (counter += 1; exampleIOFor[block, counter]), withCellFlag[block, {nonExecutableCell[block]}]],
@@ -4628,7 +4738,7 @@ defaultNotebook[data_] := Block[{counter = 0, cells},
             "Prose", {Cell[TextData @ inlineTextData[block["Text"]], "Text"]},
             "List", listItemCells[block, "Item"],
             "Table", {tableCell[block]},
-            "Quote", {quoteCell[block["Text"]]},
+            "Quote", quoteBlockCells[block],
             "MathBlock", {mathBlockCell[block["Text"]]},
             "Image", {imageCell[block]},
             "Code",
@@ -4718,7 +4828,7 @@ templateNotebook[data_] := Block[{cells,
             "Prose", {Cell[TextData @ templateTextData @ inlineTextData[block["Text"]], "Text"]},
             "List", listItemCells[block, "Item"],
             "Table", {tableCell[block]},
-            "Quote", {quoteCell[block["Text"]]},
+            "Quote", quoteBlockCells[block],
             "MathBlock", {mathBlockCell[block["Text"]]},
             "Image", {imageCell[block]},
             "Code", withCellFlag[block, {templateCodeCell[block]}],
@@ -4811,7 +4921,7 @@ essayNotebook[data_] := Block[{meta = data["meta"], counter = 0, header, body,
                         {Cell[TextData @ inlineTextData[text], If[captionStyle, "CodeText", "Text"]]},
                     "List", listItemCells[block, "Item"],
                     "Table", {tableCell[block]},
-                    "Quote", {quoteCell[block["Text"]]},
+                    "Quote", quoteBlockCells[block],
                     "MathBlock", {mathBlockCell[block["Text"]]},
                     "Image", {imageCell[block]},
                     "Code",
@@ -5063,7 +5173,7 @@ refSectionContent[type_String, blocks_, subsectionStyle_String] := Catenate @ Ma
             "Table",
                 applyBlockMeta[{tableCell[block]}, block],
             "Quote",
-                applyBlockMeta[{quoteCell[block["Text"]]}, block],
+                applyBlockMeta[quoteBlockCells[block], block],
             "MathBlock",
                 applyBlockMeta[{mathBlockCell[block["Text"]]}, block],
             "Image",
@@ -5479,6 +5589,13 @@ applyPacletDisclosures[nb_, meta_Association] := With[{
 ]
 applyPacletDisclosures[other_, _] := other
 
+(* The Function Repository sets every InlineFormula / UsageInputs cell that names no font
+   in Source Sans Pro (DefinitionNotebookClient's FixInlineFormulaFonts, which the
+   reviewers' tools run on a submission); a Function resource's slot content gets it here. *)
+slotFonts[cells_] /; functionResourceTemplateQ[] := cells /.
+    Cell[a__, sty : "InlineFormula" | "UsageInputs", b___] /; FreeQ[{b}, FontFamily -> _, {1}] :>
+        Cell[a, sty, FontFamily -> "Source Sans Pro", b]
+slotFonts[cells_] := cells
 
 resourceNotebook[resourceType_String, data0_] := Block[{template, data = Append[data0, "resourceType" -> resourceType]},
     Needs["DefinitionNotebookClient`"];
@@ -5492,7 +5609,7 @@ resourceNotebook[resourceType_String, data0_] := Block[{template, data = Append[
         rawSlotValue[n, {o}, data["meta"]];
     (* ReplaceRepeated: some slots (e.g. the Compatibility group) nest sub-slots
        inside their DefaultValue, which a single pass would not reach. *)
-    template = template //. TemplateSlot[n_, o___] :> Sequence @@ fillSlot[n, {o}, data];
+    template = template //. TemplateSlot[n_, o___] :> Sequence @@ slotFonts[fillSlot[n, {o}, data]];
     (* "Disclosures: [list]" frontmatter toggles the named Paclet disclosure
        checkboxes (see applyPacletDisclosures); a no-op for templates whose
        Disclosures section has no such checkboxes, or for documents that
@@ -5650,7 +5767,7 @@ bookFreeCells[block_, next_String, counterSym_] := applyBlockMeta[Switch[block["
     "Table",
         {tableCell[block]},
     "Quote",
-        {quoteCell[block["Text"]]},
+        quoteBlockCells[block],
     "MathBlock",
         {mathBlockCell[block["Text"]]},
     "Image",
@@ -6154,7 +6271,23 @@ chapterNotebook[data_] := Block[{
     ]
 ]
 
+(* === Template: FunctionResourceReview ===
+   A Function definition notebook the repository's reviewers sent back. It is the
+   FunctionResource notebook (reviewer comments are "[!REVIEW]" quotes, see
+   commentCells) whose TaggingRules carry the submission under review,
+   "SubmissionReviewData" -> {"Review" -> True, "SubmissionID" -> ..., ...}: the toolbar's
+   Submit Update reads it to update that submission rather than open a new one. The
+   frontmatter's "SubmissionReview:" mapping holds the entries after "Review", in order. *)
+submissionReviewData[meta_] := Prepend[Normal @ Lookup[meta, "SubmissionReview", <||>], "Review" -> True]
+submissionReviewNotebook[Notebook[cells_, opts___], meta_] := Notebook[cells,
+    Sequence @@ Replace[{opts},
+        (TaggingRules -> tr_) :> (TaggingRules -> If[MemberQ[Normal[tr], "SubmissionReviewData" -> _],
+            Replace[Normal[tr], ("SubmissionReviewData" -> _) :> ("SubmissionReviewData" -> submissionReviewData[meta]), {1}],
+            Append[Normal[tr], "SubmissionReviewData" -> submissionReviewData[meta]]]),
+        {1}]]
+
 buildNotebook["FunctionResource", data_] := resourceNotebook["Function", data]
+buildNotebook["FunctionResourceReview", data_] := submissionReviewNotebook[resourceNotebook["Function", data], data["meta"]]
 buildNotebook["Paclet", data_] := resourceNotebook["Paclet", data]
 buildNotebook["Example", data_] := resourceNotebook["Example", data]
 buildNotebook["Data", data_] := resourceNotebook["Data", data]
@@ -6200,15 +6333,24 @@ buildNotebook[_, data_] := defaultNotebook[data]
    CellID only when it fits in a signed 32-bit integer, so the 64-bit hash is
    folded into 1..2^31-1. *)
 stampCellID[Cell[CellGroupData[inner_List, gopts___], copts___], idx_] :=
-    Cell[CellGroupData[MapIndexed[stampCellID[#1, Join[idx, #2]] &, inner], gopts], copts]
+    Cell[CellGroupData[MapThread[stampCellID[#1, Join[idx, #2]] &, {inner, structuralPositions[inner]}], gopts], copts]
 stampCellID[Cell[content_, style_String, opts___], idx_] :=
     If[FreeQ[{opts}, CellID],
         Cell[content, style, opts, CellID -> Mod[Hash[Prepend[idx, "MTNCellID"]], 2^31 - 1] + 1],
         Cell[content, style, opts]]
 stampCellID[other_, _] := other
 
+(* A comment cell annotates the content and takes no structural position, so the cells
+   around a reviewer's comment keep the CellIDs they have without it (the ones the
+   reviewers saw); a comment without a CellID of its own is numbered after the cell it
+   follows. *)
+commentStyleCellQ[Cell[_, "ReviewerComment" | "AuthorComment" | "Comment", ___]] := True
+commentStyleCellQ[_] := False
+structuralPositions[cells_List] := Module[{k = 0, j = 0},
+    Map[If[commentStyleCellQ[#], {k, "Comment", ++j}, j = 0; {++k}] &, cells]]
+
 withDeterministicIDs[Notebook[cells_List, o : OptionsPattern[]]] :=
-    Notebook[MapIndexed[stampCellID[#1, #2] &, cells],
+    Notebook[MapThread[stampCellID[#1, #2] &, {cells, structuralPositions[cells]}],
         Sequence @@ FilterRules[{o}, Except[CreateCellID]]]
 withDeterministicIDs[other_] := other
 
@@ -6223,14 +6365,20 @@ deterministicUUID[n_Integer] := StringInsert[
     IntegerString[Hash[{"MTNuuidHi", n}], 16, 16] <> IntegerString[Hash[{"MTNuuidLo", n}], 16, 16],
     "-", {9, 13, 17, 21}]
 
-deterministicUUIDText[txt_String] := Module[{i = 0},
+(* The ids in keep stay as they are: a comment cell placed from its "#| comment:" directive
+   keeps the ExpressionUUIDs it was read with (its own and its inline cells'), like the
+   rest of that cell. *)
+deterministicUUIDText[txt_String, keep_List : {}] := Module[{i = 0},
     StringReplace[txt,
         pre : ("ExpressionUUID" ~~ WhitespaceCharacter ... ~~ "->" ~~ WhitespaceCharacter ... ~~ "\"") ~~
-            Except["\""] .. ~~ "\"" :> (pre <> deterministicUUID[i++] <> "\"")]]
+            u : (Except["\""] ..) ~~ "\"" :> (pre <> If[MemberQ[keep, u], u, deterministicUUID[i++]] <> "\"")]]
 
 exportDeterministicNB[spec_, nb_] := (
     Export[spec, nb, "NB"];
-    Export[spec, deterministicUUIDText @ Import[spec, "Text", CharacterEncoding -> "UTF-8"],
+    Export[spec,
+        deterministicUUIDText[Import[spec, "Text", CharacterEncoding -> "UTF-8"],
+            Cases[Cases[nb, Cell[_, "ReviewerComment" | "AuthorComment" | "Comment", ___], Infinity],
+                (ExpressionUUID -> u_String) :> u, Infinity]],
         "Text", CharacterEncoding -> "UTF-8"];
     spec)
 
@@ -6294,6 +6442,16 @@ writeImageIfChanged[path_String, img_] := Block[{existing},
    but the published page never shows their outputs - so the twin .md
    shouldn't either. *)
 $inputOnlyTwinSections = {"definition", "tests", "content"}
+
+(* a quote is one paragraph in the twin; a definition notebook comment keeps its lines (the
+   first is its "[!REVIEW] Name, time" header) and the "#| comment:" directive that carries
+   a reviewer's cell, so a twin rebuilds the comment as the source does *)
+quoteMd[b_Association] := If[commentQuoteQ[b],
+    StringJoin[
+        With[{blob = Lookup[Lookup[b, "Options", <||>], "comment", None]},
+            If[StringQ[blob], "<!-- #| comment: " <> blob <> " -->\n", ""]],
+        StringRiffle[("> " <> resolveWebRefs[#]) & /@ b["Lines"], "\n"]],
+    "> " <> resolveWebRefs[b["Text"]]]
 
 markdownWithImages[blocks_, meta_, target_String] := Block[{dir, base, imgDir, n = 0, currentSection = "", mdOf, codeMd},
     dir = DirectoryName[target]; base = FileBaseName[target];
@@ -6367,7 +6525,7 @@ markdownWithImages[blocks_, meta_, target_String] := Block[{dir, base, imgDir, n
         ],
         "Table", serializeTableMd[b],
         "Separator", "---",
-        "Quote", "> " <> resolveWebRefs[b["Text"]],
+        "Quote", quoteMd[b],
         "MathBlock", "$$ " <> b["Text"] <> " $$",
         "Image", "![" <> Lookup[b, "Alt", ""] <> "](" <> Lookup[b, "Path", ""] <> ")",
         "Code", codeMd[b],

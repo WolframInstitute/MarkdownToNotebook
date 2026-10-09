@@ -49,8 +49,12 @@ testBlocksFrom[file_String] := With[{
     Cases[Lookup[sectionsFrom[parsed["Blocks"]], "tests", {}], b_ /; codeBlockQ[b]]
 ]
 
+(* a test that names the messages it expects (VerificationTest's third argument) runs
+   unquieted, so those messages reach VerificationTest, which compares them *)
+expectsMessagesQ[code_String] := MatchQ[ToExpression[code, InputForm, Hold], Hold[VerificationTest[_, _, _List, ___]]]
+
 runTestBlock[b_] := Block[{result, name, ok},
-    result = Quiet @ ToExpression[b["Code"]];
+    result = If[expectsMessagesQ[b["Code"]], ToExpression[b["Code"]], Quiet @ ToExpression[b["Code"]]];
     name = If[MatchQ[result, _TestObject], result["TestID"], "(no TestID)"];
     ok = MatchQ[result, _TestObject] && result["Outcome"] === "Success";
     recordResult[name, ok];

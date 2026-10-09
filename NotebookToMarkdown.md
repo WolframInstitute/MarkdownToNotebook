@@ -583,3 +583,48 @@ VerificationTest[
 ]
 ```
 
+
+A Function definition notebook the repository's reviewers sent back walks to `Template: FunctionResourceReview`: the submission it belongs to becomes the `SubmissionReview:` mapping, the checked categories come back from their checkbox widget, each reviewer comment becomes a `[!REVIEW]` quote after a `#| comment:` directive carrying the signed cell, and the author's reply a plain `[!COMMENT]` quote, so the markdown rebuilds the same comments and submission:
+
+```wl
+VerificationTest[
+    Module[{cell, md, nb, md2, nb2, review},
+        cell = Cell["Is this clear?", "ReviewerComment", Editable -> False, Deletable -> False, TaggingRules -> {"Signature" -> "c2lnbmVk"},
+            CellFrameLabels -> {{None, Cell[BoxData[TemplateBox[{StyleBox[TemplateBox[{"\"WFR Team\""}, "ReviewerCommentLabelTemplate"],
+                ShowStringCharacters -> False, StripOnInput -> False], 4.000563015880279*^9}, "CommentCellLabelTemplate"]], Background -> None]}, {None, None}},
+            CellTags -> {"CommentCell", "ReviewerComment"}, CellID -> 7654321];
+        md = "---\nTemplate: FunctionResourceReview\nName: TinyFn\nDescription: d\nCategories: [Core Language & Structure]\nSubmissionReview:\n  SubmissionID: 42\n  OriginalName: TinyFn\n---\n\n## Definition\n\n```wl\nTinyFn[x_] := x\n```\n\n## Details\n\n- A note.\n\n<!-- #| comment: " <> BaseEncode[BinarySerialize[cell]] <> " -->\n> [!REVIEW] WFR Team\n> Is this clear?\n\n> [!COMMENT] Ada Lovelace, 2026-10-10 12:00 UTC\n> Reworded the note.\n";
+        nb = MarkdownToNotebook[md, "Evaluate" -> False];
+        md2 = NotebookToMarkdown[nb];
+        nb2 = MarkdownToNotebook[md2, "Evaluate" -> False];
+        review[n_] := Lookup[Association @ Normal @ FirstCase[n, Notebook[_, ___, TaggingRules -> t_, ___] :> t, {}, {0}], "SubmissionReviewData"];
+        {StringContainsQ[md2, "Template: FunctionResourceReview\n"],
+         StringContainsQ[md2, "SubmissionReview:\n  SubmissionID: 42\n  OriginalName: TinyFn\n"],
+         StringContainsQ[md2, "Categories: [Core Language & Structure]\n"],
+         StringContainsQ[md2, "> [!REVIEW] WFR Team, 2026-10-09 19:30 UTC\n> Is this clear?"],
+         StringContainsQ[md2, "Is this clear?\n\n> [!COMMENT] Ada Lovelace, 2026-10-10 12:00 UTC\n> Reworded the note."],
+         Count[nb2, cell, Infinity],
+         With[{replies = Cases[nb, Cell[_, "AuthorComment", ___], Infinity]},
+             Length[replies] === 1 && Cases[nb2, Cell[_, "AuthorComment", ___], Infinity] === replies],
+         review[nb2] === review[nb] === {"Review" -> True, "SubmissionID" -> "42", "OriginalName" -> "TinyFn"}}
+    ],
+    {True, True, True, True, True, 1, True, True},
+    TestID -> "a reviewed Function notebook walks to FunctionResourceReview with its submission, categories, signed comments and replies"
+]
+```
+
+In a Function resource an inline formula is the toolbar's Template Input of its code, so it walks back to that code in a code span - the TI and link wrappers dropped, the tokens spaced for reading - which rebuilds the same boxes; a lone variable stays `*f*`, and a verbatim token's InlineCode cell stays a code span:
+
+```wl
+VerificationTest[
+    Module[{md, md2},
+        md = "---\nTemplate: FunctionResource\nName: TinyFn\nDescription: d\n---\n\n## Definition\n\n```wl\nTinyFn[x_] := x\n```\n\n## Details\n\n- `TinyFn[f, crit]` and `; // TinyFn` give `Options[f] = \[Ellipsis]` and `True` to *f*, after `//`.\n";
+        md2 = NotebookToMarkdown[MarkdownToNotebook[md, "Evaluate" -> False]];
+        {StringCases[md2, "- `TinyFn" ~~ Except["\n"] ..],
+         Cases[MarkdownToNotebook[md2, "Evaluate" -> False], Cell[_, "Notes", ___], Infinity] ===
+            Cases[MarkdownToNotebook[md, "Evaluate" -> False], Cell[_, "Notes", ___], Infinity]}
+    ],
+    {{"- `TinyFn[f, crit]` and `; // TinyFn` give `Options[f] = \[Ellipsis]` and `True` to *f*, after `//`."}, True},
+    TestID -> "a Function resource's Template Input formulas walk back to code spans that rebuild them"
+]
+```

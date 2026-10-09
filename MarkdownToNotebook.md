@@ -33,8 +33,11 @@ the implementation inline:
 ## Details & Options
 
 - The *source* is a local file path, an `http(s)` URL, or a raw markdown string.
-- The layout is the document's own `Template` frontmatter key - `FunctionResource`, `Symbol`, `Guide`, `TechNote`, `Paclet`, `Example`, `NotebookTemplate`, or `Default` - so the source declares its own layout. The full documentation page-type roster is also covered: `Format`, `ServiceConnection`, `Device`, `Interpreter`, `Entity`, `Character`, `Message`, `Program`, `Workflow`, and `WorkflowGuide` pages each map `## sections` to their type's section styles (`ImportExportSection`, `ServiceSubsection`, `DeviceSubsection`, `InterpreterSection`, `EntitySection`, `ProgramSection`, workflow steps with their circled counters, ...), stamp the matching `Categorization` entity type and `ref/format/`-style URI kind, and ship in the paclet directory `$docTemplateDirectories` maps for them (`ReferencePages/Formats`, `.../Services`, ..., `Workflows`, `WorkflowGuides`).
+- The layout is the document's own `Template` frontmatter key - `FunctionResource`, `FunctionResourceReview`, `Symbol`, `Guide`, `TechNote`, `Paclet`, `Example`, `NotebookTemplate`, or `Default` - so the source declares its own layout. The full documentation page-type roster is also covered: `Format`, `ServiceConnection`, `Device`, `Interpreter`, `Entity`, `Character`, `Message`, `Program`, `Workflow`, and `WorkflowGuide` pages each map `## sections` to their type's section styles (`ImportExportSection`, `ServiceSubsection`, `DeviceSubsection`, `InterpreterSection`, `EntitySection`, `ProgramSection`, workflow steps with their circled counters, ...), stamp the matching `Categorization` entity type and `ref/format/`-style URI kind, and ship in the paclet directory `$docTemplateDirectories` maps for them (`ReferencePages/Formats`, `.../Services`, ..., `Workflows`, `WorkflowGuides`).
 - `FunctionResource` fills the official `FunctionResourceDefinition.nb` template (keeping its docked Deploy/Submit toolbar); `Symbol` and `Guide` fill the DocumentationTools authoring templates; the reference subtypes synthesize their authoring pages natively on the shipped `Reference.nb` stylesheet; `Default` maps headings and code to standard notebook styles.
+- In a `FunctionResource` notebook a code span is what the definition notebook toolbar's *Template Input* button makes of the same text - each lowercase identifier a template argument in italics, a documented symbol a link, the resource's own name plain, no whitespace tokens - and a `*variable*` in prose is that same italic formula, all set in the toolbar's Source Sans Pro: the formatting the Function Repository reviewers ask for. A span of markdown or YAML syntax, such as `#| eval: false`, keeps its literal form, and a double-backtick span is literal code.
+- `FunctionResourceReview` is the `FunctionResource` notebook as the Function Repository reviewers send it back: a `SubmissionReview:` frontmatter mapping (`SubmissionID`, `OriginalName`, ...) carries the submission under review, which the toolbar's *Submit Update* reads to update that submission. [NotebookToMarkdown]() writes this template from a reviewed notebook, so the reviewers' edits come back as markdown.
+- A blockquote whose first line opens with `[!REVIEW]` or `[!COMMENT]` is a definition notebook comment - a reviewer's `ReviewerComment` or the author's `AuthorComment` reply - with the rest of that line naming the commenter and the time, as in `> [!COMMENT] Name, 2026-10-10 12:00 UTC`. A reviewer comment read from a notebook keeps its whole cell in a `#| comment:` directive before the quote, so the signed comment returns unchanged, while an author's reply is plain text, edited in the markdown and rebuilt from it; the cells around a comment keep the CellIDs they have without it.
 - `NotebookTemplate` produces a Wolfram *template notebook* - what [CreateNotebook]()["Template"] opens and [GenerateDocument]() fills - with the template tagging and the authoring toolbar. Its code cells are never evaluated at conversion time. A slot is written as ordinary code, `TemplateSlot["name"]` or `TemplateSlot["name", default]` (an integer name is positional), inline in prose or inside a code cell, and `TemplateExpression[expr]` is evaluated when the document is generated; both become the framework's slot boxes. A `Slots:` frontmatter mapping - indented `name: default` lines of Wolfram Language - declares a default once for every occurrence of that slot (an inline default still wins), and with every slot defaulted the toolbar's *Generate* fills the template as converted. The cell option `#| behavior: ExcludeCell` (or the same `<!-- #| ... -->` directive before a paragraph or heading) drops that cell - on a heading, its whole group - from the generated document.
 - The *frontmatter* is a YAML-style `key: value` header fenced by `---` lines at the very top of the document - the [front matter](https://jekyllrb.com/docs/front-matter/) convention static-site generators use - carrying the resource metadata. Its keys mirror the chosen template's slots (`Name`, `Description`, `Keywords`, `Categories`, `ContributedBy`, `SeeAlso`, `Links`, and so on), so the author fills metadata, never cell styles.
 - The optional second argument selects the result: omitted (or `"Notebook"`) returns the [Notebook](), `"Association"` returns the parsed structure, a `.nb` file name writes the notebook, and a `.md` file name writes a *markdown twin* - the same document with every evaluated output rasterized to an image beside it.
@@ -1404,5 +1407,111 @@ VerificationTest[
             {st, Cases[b, StyleBox["\[Integral]", ___, FontSize -> f_, ___] :> f, {0, Infinity}]}, Infinity],
     {{"DisplayFormula", {1.4 Inherited}}, {"SolvedExampleDisplayFormula", {1.4 Inherited}}, {"ProofTheoremDisplayFormula", {1.4 Inherited}}},
     TestID -> "Chapter: solved-example and proof display formulas size big operators like any display formula (issue #109)"
+]
+```
+
+In a Function resource a code span is what the definition notebook toolbar's *Template Input* button makes of the same text - no whitespace tokens, each lowercase identifier a TI template argument, a documented symbol a link - and a `*variable*` in prose is that same TI InlineFormula; every inline formula, a link included, is set in the toolbar's Source Sans Pro (the formatting the Function Repository reviewers ask for):
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook["---\nTemplate: FunctionResource\nName: TinyFn\nDescription: d\n---\n\n## Definition\n\n```wl\nTinyFn[x_] := x\n```\n\n## Details\n\n- `TinyFn[f, crit]` and `; // TinyFn` use *f* like [Set]().\n", "Evaluate" -> False]},
+        {
+            ! FreeQ[nb, Cell[BoxData[RowBox[{"TinyFn", "[", RowBox[{StyleBox["f", "TI"], ",", StyleBox["crit", "TI"]}], "]"}]], "InlineFormula", FontFamily -> "Source Sans Pro"]],
+            ! FreeQ[nb, Cell[BoxData[RowBox[{";", "//", "TinyFn"}]], "InlineFormula", FontFamily -> "Source Sans Pro"]],
+            ! FreeQ[nb, Cell[BoxData[StyleBox["f", "TI"]], "InlineFormula", FontFamily -> "Source Sans Pro"]],
+            ! FreeQ[nb, Cell[BoxData[ButtonBox["Set", ___]], "InlineFormula", FontFamily -> "Source Sans Pro", ___]]
+        }],
+    {True, True, True, True},
+    TestID -> "a Function resource's code span is the toolbar's Template Input, a *variable* a TI InlineFormula, in Source Sans Pro"
+]
+```
+
+A span of markdown or YAML syntax in a Function resource is not Wolfram Language code, so it keeps the literal boxes any template gives it rather than Template Input's italics, and a path stays a literal `InlineCode` token; a postfix application written tight is code even though it holds a `/`:
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook["---\nTemplate: FunctionResource\nName: TinyFn\nDescription: d\n---\n\n## Definition\n\n```wl\nTinyFn[x_] := x\n```\n\n## Details\n\n- Write `#| eval: false` or `key: value`, and `;//TinyFn` or `docs/x.md`.\n", "Evaluate" -> False]},
+        {Cases[nb, Cell[BoxData[b_], "InlineFormula", ___] /; ! FreeQ[b, "#" | "key"] :> MemberQ[Flatten[b /. RowBox -> List], " "], Infinity],
+         ! FreeQ[nb, Cell[BoxData[RowBox[{";", "//", "TinyFn"}]], "InlineFormula", ___]],
+         ! FreeQ[nb, Cell["docs/x.md", "InlineCode", ___]]}],
+    {{True, True}, True, True},
+    TestID -> "markdown or YAML syntax in a Function resource's code span stays literal, a tight postfix is code"
+]
+```
+
+A `[!REVIEW]` quote after a `#| comment:` directive places the cell the directive carries exactly as it was - a reviewer's signature, label, CellID and wording included - where the quote stands, and the cells around it keep the CellIDs they have without it:
+
+```wl
+VerificationTest[
+    Module[{cell, md, with, without, idOf},
+        cell = Cell[TextData[{"Use ", Cell[BoxData[StyleBox["f", "TI"]], "InlineFormula", FontFamily -> "Source Sans Pro"], " here."}], "ReviewerComment",
+            Editable -> False, Deletable -> False, TaggingRules -> {"Signature" -> "c2lnbmVk"},
+            CellFrameLabels -> {{None, Cell[BoxData[TemplateBox[{StyleBox[TemplateBox[{"\"WFR Team\""}, "ReviewerCommentLabelTemplate"],
+                ShowStringCharacters -> False, StripOnInput -> False], 4.0005*^9}, "CommentCellLabelTemplate"]], Background -> None]}, {None, None}},
+            CellTags -> {"CommentCell", "ReviewerComment"}, CellID -> 1234567];
+        md[c_] := "---\nTemplate: FunctionResource\nName: TinyFn\nDescription: d\n---\n\n## Definition\n\n```wl\nTinyFn[x_] := x\n```\n\n## Details\n\n- A note.\n\n" <> c <> "- Another note.\n";
+        with = MarkdownToNotebook[md["<!-- #| comment: " <> BaseEncode[BinarySerialize[cell]] <> " -->\n> [!REVIEW] WFR Team, 2026-10-09 19:30 UTC\n> Use f here.\n\n"], "Evaluate" -> False];
+        without = MarkdownToNotebook[md[""], "Evaluate" -> False];
+        idOf[nb_] := FirstCase[nb, Cell[c_ /; ! FreeQ[c, "Another note."], "Notes", ___, CellID -> id_, ___] :> id, None, Infinity];
+        {Count[with, cell, Infinity],
+         MatchQ[Cases[with, {___, Cell[a_ /; ! FreeQ[a, "A note."], "Notes", ___], cell, Cell[b_ /; ! FreeQ[b, "Another note."], "Notes", ___], ___}, Infinity], {_}],
+         idOf[with] === idOf[without]}
+    ],
+    {1, True, True},
+    TestID -> "a [!REVIEW] quote places its directive's cell verbatim and shifts no CellID"
+]
+```
+
+A `[!COMMENT]` quote without a directive is the author's reply, an `AuthorComment` cell with the label and UTC time the toolbar's *Reply* button gives one; a `[!REVIEW]` quote is never made up from text, so without its directive it stays a plain quote (and `MarkdownToNotebook::revcomment` says so):
+
+```wl
+VerificationTest[
+    Module[{md, author, review},
+        md[q_] := "---\nTemplate: FunctionResource\nName: TinyFn\nDescription: d\n---\n\n## Definition\n\n```wl\nTinyFn[x_] := x\n```\n\n## Details\n\n- A note.\n\n" <> q <> "\n";
+        author = FirstCase[MarkdownToNotebook[md["> [!COMMENT] Ada Lovelace, 2026-10-10 12:00 UTC\n> Reworded the note."], "Evaluate" -> False],
+            Cell[t_, "AuthorComment", o___] :> {t, Lookup[{o}, CellTags], Cases[{o}, TemplateBox[{l_, w_}, "CommentCellLabelTemplate"] :> {l, w}, Infinity]}, None, Infinity];
+        review = MarkdownToNotebook[md["> [!REVIEW] WFR Team, 2026-10-09 19:30 UTC\n> Made up."], "Evaluate" -> False];
+        {author, Cases[review, Cell[_, "ReviewerComment", ___], Infinity],
+         Cases[review, Cell[TextData[{"Made up."}], "Text", ___, FontSlant -> "Italic", ___] :> "quote", Infinity]}
+    ],
+    {{TextData[{"Reworded the note."}], {"AuthorComment", "CommentCell"},
+      {{StyleBox["\"Ada Lovelace\"", ShowStringCharacters -> False, StripOnInput -> False],
+        N @ AbsoluteTime[DateObject[{2026, 10, 10, 12, 0, 0}, TimeZone -> 0], TimeZone -> 0]}}},
+     {}, {"quote"}},
+    {MarkdownToNotebook::revcomment},
+    TestID -> "a [!COMMENT] quote builds an AuthorComment; a [!REVIEW] quote needs its directive"
+]
+```
+
+The markdown twin keeps a comment as its source writes it - each quote line, the header first, and a reviewer comment's directive - so a document rebuilt from its twin has the same comments:
+
+```wl
+VerificationTest[
+    Module[{cell, md, twin = FileNameJoin[{$TemporaryDirectory, "mtn-comment-twin.md"}], nb1, nb2, comments},
+        cell = Cell["Is this clear?", "ReviewerComment", CellTags -> {"CommentCell", "ReviewerComment"}, CellID -> 2468];
+        md = "---\nTemplate: FunctionResource\nName: TinyFn\nDescription: d\n---\n\n## Definition\n\n```wl\nTinyFn[x_] := x\n```\n\n## Details\n\n- A note.\n\n<!-- #| comment: " <> BaseEncode[BinarySerialize[cell]] <> " -->\n> [!REVIEW] WFR Team, 2026-10-09 19:30 UTC\n> Is this clear?\n\n> [!COMMENT] Ada Lovelace, 2026-10-10 12:00 UTC\n> Yes.\n";
+        nb1 = MarkdownToNotebook[md, "Evaluate" -> False];
+        MarkdownToNotebook[md, twin, "Evaluate" -> False];
+        nb2 = MarkdownToNotebook[twin, "Evaluate" -> False];
+        DeleteFile[twin];
+        comments[nb_] := Cases[nb, Cell[_, "ReviewerComment" | "AuthorComment", ___], Infinity];
+        {Length[comments[nb1]], comments[nb2] === comments[nb1]}
+    ],
+    {2, True},
+    TestID -> "a comment survives the markdown twin"
+]
+```
+
+`Template: FunctionResourceReview` builds the Function notebook a reviewed submission came back as: its `SubmissionReview:` mapping becomes the `SubmissionReviewData` the toolbar's *Submit Update* reads to update that submission:
+
+```wl
+VerificationTest[
+    Lookup[
+        Association @ Normal @ FirstCase[
+            MarkdownToNotebook["---\nTemplate: FunctionResourceReview\nName: TinyFn\nDescription: d\nSubmissionReview:\n  SubmissionID: 42\n  OriginalName: TinyFn\n---\n\n## Definition\n\n```wl\nTinyFn[x_] := x\n```\n", "Evaluate" -> False],
+            Notebook[_, ___, TaggingRules -> t_, ___] :> t, {}, {0}],
+        "SubmissionReviewData"],
+    {"Review" -> True, "SubmissionID" -> "42", "OriginalName" -> "TinyFn"},
+    TestID -> "FunctionResourceReview writes the SubmissionReview mapping as SubmissionReviewData"
 ]
 ```
