@@ -89,7 +89,7 @@ MarkdownToNotebook::revcomment =
 MarkdownToNotebook::comdate =
     "The comment header \"`1`\" gives no time as \"Name, YYYY-MM-DD HH:MM UTC\"; the comment is dated at build time.";
 MarkdownToNotebook::section =
-    "`1`, under \"`2`\": `3` come out unevaluated, since an earlier section defines them and the evaluation starts afresh at each heading. Define them in that section or under an \"Initialization\" heading; a page written as one narrative, such as a tutorial, takes \"EvaluateSeparator\" -> None.";
+    "`1`, under \"`2`\": `3` have no value here, since only an earlier section defines them and the evaluation starts afresh at each heading. Define them in this section or under an \"Initialization\" heading; a page written as one narrative, such as a tutorial, takes \"EvaluateSeparator\" -> None.";
 
 mdSep = "\n(*--cell--*)\n"
 
@@ -1129,11 +1129,13 @@ resetState[state_] := If[
     (* pre-definition area: every bound symbol is kept, and the code chain
        restarts from the setup code so far *)
     (ClearSystemCache[]; <|state, "code" -> state["base"]|>),
-    Block[{toRemove = Complement[docContextSymbols[state["ctx"]], state["protected"]]},
+    Block[{toRemove = Complement[docContextSymbols[state["ctx"]], state["protected"]], defined},
+        (* the names that had a value, before the reset clears them: a name a section only
+           mentioned, a symbolic x, was never defined there *)
+        defined = Select[ToExpression[#, InputForm, HoldComplete] & /@ toRemove, ! undefinedSymbolQ[#] &];
         If[toRemove =!= {}, Quiet @ ClearAll @@ toRemove];
         ClearSystemCache[];
-        <|state, "code" -> state["base"],
-          "cleared" -> Union[state["cleared"], ToExpression[#, InputForm, HoldComplete] & /@ toRemove]|>
+        <|state, "code" -> state["base"], "cleared" -> Union[state["cleared"], defined]|>
     ]
 ]
 
@@ -1145,7 +1147,7 @@ evalCell[state_, b_] := Block[{code = state["code"] <> mdSep <> b["Code"], captu
        outputBoxes is applied per-value inside the capture (the cell's options
        e.g. "screenshot" / "tear" / "image" route through to each output). *)
     captured = captureCellRun[b["Code"], b["Options"]];
-    With[{stale = staleSymbols[b["Code"], state["cleared"], captured["outs"]]},
+    With[{stale = staleSymbols[b["Code"], state["cleared"]]},
         If[ stale =!= {}, captured = <|captured, "stale" -> <|"Heading" -> state["heading"], "Symbols" -> stale|>|>]
     ];
     <|state, "code" -> code,
@@ -1153,15 +1155,29 @@ evalCell[state_, b_] := Block[{code = state["code"] <> mdSep <> b["Code"], captu
       "out" -> Append[state["out"], Hash[code] -> captured]|>
 ]
 
-(* The names a cell uses that an earlier section defined and a reset cleared: still undefined after
-   the cell ran, and left unevaluated in its output. They come out without a message of their own,
+(* The names a cell reads that an earlier section gave a value and a reset cleared, and that are
+   still undefined after the cell ran. They evaluate to themselves without a message of their own,
    so the conversion reports them (MarkdownToNotebook::section). *)
-staleSymbols[_String, {}, _] := {}
-staleSymbols[code_String, cleared_List, outs_] := With[
-    {held = If[SyntaxQ[code], ToExpression[code, InputForm, Hold], Hold[]], tokens = Cases[outs, _String, Infinity]},
-    DeleteDuplicates @ Cases[held,
-        s_Symbol /; MemberQ[cleared, HoldComplete[s]] && undefinedSymbolQ[HoldComplete[s]] && MemberQ[tokens, SymbolName[Unevaluated[s]]] :>
-            SymbolName[Unevaluated[s]],
+staleSymbols[_String, {}] := {}
+staleSymbols[code_String, cleared_List] := With[
+    {held = If[SyntaxQ[code], ToExpression[code, InputForm, Hold], Hold[]]},
+    With[{bound = boundSymbols[held]},
+        DeleteDuplicates @ Cases[held,
+            s_Symbol /; MemberQ[cleared, HoldComplete[s]] && ! MemberQ[bound, HoldComplete[s]] && undefinedSymbolQ[HoldComplete[s]] :>
+                SymbolName[Unevaluated[s]],
+            {0, Infinity}, Heads -> True]
+    ]
+]
+
+(* the names a cell binds rather than reads: pattern names, the variables of a scoping construct or
+   a pure function, and iterator variables, {x, ...} after a function's first argument *)
+boundSymbols[held_] := DeleteDuplicates @ Join[
+    Cases[held, Verbatim[Pattern][s_Symbol, _] :> HoldComplete[s], {0, Infinity}, Heads -> True],
+    Cases[held, Verbatim[Function][s_Symbol, __] :> HoldComplete[s], {0, Infinity}, Heads -> True],
+    Flatten @ Cases[held, (Verbatim[Module] | Verbatim[Block] | Verbatim[With] | Verbatim[DynamicModule] | Verbatim[Function])[vars_List, __] :>
+        Cases[Unevaluated[vars], s_Symbol | Verbatim[Set][s_Symbol, _] | Verbatim[SetDelayed][s_Symbol, _] :> HoldComplete[s]],
+        {0, Infinity}, Heads -> True],
+    Flatten @ Cases[held, _[_, iterators__] :> Cases[Unevaluated[{iterators}], {s_Symbol, __} :> HoldComplete[s]],
         {0, Infinity}, Heads -> True]
 ]
 
