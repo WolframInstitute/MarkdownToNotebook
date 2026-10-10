@@ -111,31 +111,33 @@ For each planned page, read the matching sub-skill's `SKILL.md`, then write the
 frontmatter, the `[Symbol]()` / `` `code` `` link split, the
 one-cell-per-demonstration rule, and `<!-- => ... -->` expected-result hints.
 
-### 6. Wire up the build
-Add a `build.wls` that loads `MarkdownToNotebook` and converts each `docs/*.md`
-into the paclet's `Documentation/English/…` layout (keyed by the frontmatter
-`Template`). Load the converter from its public cloud deployment (it is not on
-the public Function Repository yet):
+### 6. Build and publish with PacletPage
+Never write a build script: PacletPage builds, packs and publishes every paclet
+(see the `wolfram-paclet` skill for its release script). Install it from its
+resource, in a fresh kernel for the newest release:
 ```wl
-mtn = ResourceFunction[ResourceObject[
-    "https://www.wolframcloud.com/obj/nikm/DeployedResources/Function/MarkdownToNotebook"]];
-PacletDirectoryLoad[pacletDir]; Needs["Publisher`PacletName`"];  (* so example cells resolve symbols *)
-mtn[srcMd, outNb];
+PacletInstall[ResourceObject["https://www.wolframcloud.com/obj/wolframinstitute/DeployedResources/Paclet/WolframInstitute/PacletPage"]];
+Needs["WolframInstitute`PacletPage`"]
 ```
-(If a local checkout of the repo is on disk, `Get["MarkdownToNotebook.wl"]`
-instead - it always reflects the latest fixes.) Model `build.wls` on an
-existing paclet's, e.g. TuringMachine's.
+`BuildPacletDocumentation[dir]` converts each `docs/**/*.md` into the paclet's
+`Documentation/English/…` layout, keyed by its frontmatter `Template`, and
+`ResourceDefinition.md` into `ResourceDefinition.nb`, with the paclet loaded so
+example cells resolve its symbols. `DeployPacletResource[dir]` packs a fresh
+archive, whose documentation build turns the authoring notebooks into finished
+pages, checks it holds every page and loads alone, and deploys the paclet
+resource; `PublishPacletPage[dir, name]` does all of it and publishes the
+documentation site with its feedback form.
 
-### 7. Build, then **DocumentationBuild**, then verify
-Run `wolframscript -f build.wls`. For **doc pages** (Symbol/Guide/TechNote/
-Overview), the `mtn` output is an *authoring* notebook - run
-`DocumentationBuild` on it before deploying/scraping, or the published page
-shows a double section rule between Details and Examples and folds examples
-under "Examples Initialization" (the authoring `ExamplesInitializationSection`
-is only collapsed into the Examples section at build time). A pipeline that
-deploys the raw authoring `.nb` will look wrong; add a `DocumentationBuild`
-stage before the scrape. Open a built page and confirm the Examples render as
-their own section.
+### 7. Verify
+`BuildPacletDocumentation[dir]` must give `"Failed" -> {}` and
+`"Unevaluated" -> <||>`: the second names the sections of a symbol page or the
+definition that read a name only an earlier section defined, since those start
+afresh at each heading and `---` (tutorials and Overview pages run in one
+context). `PublishPacletPage[dir, name, "DryRun" -> True]` builds and loads the
+archive and scrapes the resource without publishing; after a release, the
+result's `"Check"` says whether the site, every page and the feedback form are
+reachable. Open a built page and confirm the Examples render as their own
+section.
 
 ## Guardrails
 - **Backup before generate.** Step 3 is not optional if `.nb` docs exist.

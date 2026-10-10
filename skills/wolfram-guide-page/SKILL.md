@@ -129,9 +129,10 @@ mtn = ResourceFunction[ResourceObject["https://www.wolframcloud.com/obj/nikm/Dep
 mtn["GuideName.md", "Documentation/English/Guides/GuideName.nb"]
 ```
 
-Then build the paclet docs with `DocumentationBuild`. The guide is usually the
-paclet's `MainGuide` (set that relative path in the paclet's frontmatter; author the
-paclet with the `wolfram-paclet` skill).
+That converts one page, to preview it. The paclet's pages are built, packed and
+published together by PacletPage from `docs/Guides/GuideName.md` (see the
+`wolfram-paclet` skill). The guide is usually the paclet's `MainGuide` (set that
+relative path in the paclet's frontmatter).
 
 ## Check
 

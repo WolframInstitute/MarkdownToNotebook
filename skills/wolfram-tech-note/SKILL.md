@@ -77,9 +77,11 @@ mtn = ResourceFunction[ResourceObject["https://www.wolframcloud.com/obj/nikm/Dep
 mtn["TechNoteName.md", "Documentation/English/Tutorials/TechNoteName.nb"]
 ```
 
-Then build the paclet docs with `DocumentationBuild`, and list the tech note under
-the paclet's guide / related pages (author those with the `wolfram-guide-page` and
-`wolfram-paclet` skills).
+That converts one page, to preview it. The paclet's pages are built, packed and
+published together by PacletPage from `docs/Tutorials/TechNoteName.md` (see the
+`wolfram-paclet` skill). A tech note runs in one context, so its later sections use
+what earlier ones define. List the tech note under the paclet's guide / related
+pages (author those with the `wolfram-guide-page` and `wolfram-paclet` skills).
 
 ## Check
 

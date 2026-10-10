@@ -156,7 +156,11 @@ mtn = ResourceFunction[ResourceObject["https://www.wolframcloud.com/obj/nikm/Dep
 mtn["SymbolName.md", "Documentation/English/ReferencePages/Symbols/SymbolName.nb"]
 ```
 
-Then build the paclet docs with `DocumentationBuild`. DocumentationBuild drops (with
+That converts one page, to preview it. The paclet's pages are built, packed and
+published together by PacletPage from `docs/Symbols/SymbolName.md` (see the
+`wolfram-paclet` skill). A symbol page starts afresh at each heading and `---`, so
+each section and each example defines what it uses; the build reports one that
+reads a name only an earlier section defined. The documentation build drops (with
 a warning) a See Also link whose ref page is missing from the local index - new
 System symbols may warn locally yet resolve in a published environment.
 
