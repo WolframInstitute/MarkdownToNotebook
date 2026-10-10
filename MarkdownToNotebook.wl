@@ -2705,14 +2705,10 @@ exampleNotebookSlot[opts_, sections_] := Block[{def = slotDefault[opts], initGro
        own when no example section has content. *)
     keys = Select[$resourceExampleOrder, exampleContent[Lookup[sections, #, {}], "Text"] =!= {} &];
     groups = exampleSubsectionGroup[sections, #] & /@ keys;
-    Which[
-        groups =!= {},
-            Prepend[Rest[groups],
-                Replace[First[groups], Cell[CellGroupData[cells_, st_], o___] :>
-                    Cell[CellGroupData[Join[Flatten[{initGroup}], cells], st], o]]],
-        initGroup === Nothing, {},
-        True, Flatten[{initGroup}]
-    ]
+    (* the initialization group and the example groups are siblings inside the Examples
+       section, as the stock template has them: a group headed by another group is no group to
+       the front end, which spills its cells out of Examples, where the scrape never finds them *)
+    Join[Flatten[{initGroup}], groups]
 ]
 
 (* === slot dispatch === *)
@@ -3189,7 +3185,8 @@ templateBox[code_String] := Block[{boxes, prepped = mdToTemplateSubs[StringTrim[
        instead of letting ParseTextTemplate tokenise its / . ~ as operators
        (same guard as inputBoxes; see verbatimInlineQ). *)
     If[verbatimInlineQ[prepped], Return[prepped]];
-    Needs["DocumentationTools`"];
+    (* DocumentationTools calls the front end as it loads, so it loads with one *)
+    UsingFrontEnd[Needs["DocumentationTools`"]];
     boxes = Quiet @ UsingFrontEnd @ DocumentationTools`Private`ParseTextTemplate[prepped, $docName];
     (* fall back to a plain parse if the front-end template parse is unavailable *)
     spliceMathBoxes @ If[ FreeQ[boxes, $Failed] && (StringQ[boxes] || MatchQ[Head[boxes], RowBox | StyleBox | SubscriptBox | SuperscriptBox | FractionBox | SqrtBox]),
