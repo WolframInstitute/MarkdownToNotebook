@@ -7,3 +7,6 @@
 [submodule "examples/WolframParser"]
 	path = examples/Paclet/WolframParser
 	url = git@github.com:sw1sh/WolframParser.git
+[submodule "examples/Paclet/PacletPage"]
+	path = examples/Paclet/PacletPage
+	url = git@github.com:WolframInstitute/PacletPage.git
