@@ -88,6 +88,8 @@ MarkdownToNotebook::revcomment =
     "The reviewer comment \"`1`\" has no \"#| comment:\" directive holding its cell; a reviewer comment is never rebuilt from text, so it is kept as a quote.";
 MarkdownToNotebook::comdate =
     "The comment header \"`1`\" gives no time as \"Name, YYYY-MM-DD HH:MM UTC\"; the comment is dated at build time.";
+MarkdownToNotebook::section =
+    "`1`, under \"`2`\": `3` come out unevaluated, since an earlier section defines them and the evaluation starts afresh at each heading. Define them in that section or under an \"Initialization\" heading; a page written as one narrative, such as a tutorial, takes \"EvaluateSeparator\" -> None.";
 
 mdSep = "\n(*--cell--*)\n"
 
@@ -828,12 +830,22 @@ resetBoundaryQ[mode_, item_] := Switch[mode,
     _,           MatchQ[item["Type"], "Separator" | "Heading"]
 ]
 
-cumulativeHashes[mode_, items_List] := Block[{acc = "", hashes = {}},
+(* The key chain restarts at each reset from the code of the document's setup section, whose
+   bindings every later section keeps (see accumEval and resetState, which follow the same steps):
+   an example re-evaluates when the definitions it runs against change. *)
+cumulativeHashes[mode_, items_List] := Block[
+    {acc = "", base = "", setup = AnyTrue[items, $setupHeadingQ], defLevel = None, hashes = {}},
     Scan[
         item |-> (
-            If[resetBoundaryQ[mode, item], acc = ""];
-            If[executableQ[item],
-                acc = acc <> mdSep <> item["Code"]; AppendTo[hashes, Hash[acc]]
+            If[ setup && IntegerQ[defLevel] && item["Type"] === "Heading" && ! $setupHeadingQ[item] && item["Level"] <= defLevel,
+                setup = False
+            ];
+            If[ $setupHeadingQ[item], defLevel = item["Level"]];
+            If[ resetBoundaryQ[mode, item], acc = base];
+            If[ executableQ[item],
+                acc = acc <> mdSep <> item["Code"];
+                If[ setup, base = base <> mdSep <> item["Code"]];
+                AppendTo[hashes, Hash[acc]]
             ]
         ),
         items
@@ -1114,13 +1126,14 @@ docContextSymbols[ctx_String] := Join[
    paclets are left alone - only the per-doc context tree is wiped. *)
 resetState[state_] := If[
     state["protected"] === None,
-    (* pre-definition area: cumulative code chain still resets so cache
-       keys don't span the boundary, but we keep every bound symbol. *)
-    (ClearSystemCache[]; <|state, "code" -> ""|>),
+    (* pre-definition area: every bound symbol is kept, and the code chain
+       restarts from the setup code so far *)
+    (ClearSystemCache[]; <|state, "code" -> state["base"]|>),
     Block[{toRemove = Complement[docContextSymbols[state["ctx"]], state["protected"]]},
         If[toRemove =!= {}, Quiet @ ClearAll @@ toRemove];
         ClearSystemCache[];
-        <|state, "code" -> ""|>
+        <|state, "code" -> state["base"],
+          "cleared" -> Union[state["cleared"], ToExpression[#, InputForm, HoldComplete] & /@ toRemove]|>
     ]
 ]
 
@@ -1132,9 +1145,27 @@ evalCell[state_, b_] := Block[{code = state["code"] <> mdSep <> b["Code"], captu
        outputBoxes is applied per-value inside the capture (the cell's options
        e.g. "screenshot" / "tear" / "image" route through to each output). *)
     captured = captureCellRun[b["Code"], b["Options"]];
+    With[{stale = staleSymbols[b["Code"], state["cleared"], captured["outs"]]},
+        If[ stale =!= {}, captured = <|captured, "stale" -> <|"Heading" -> state["heading"], "Symbols" -> stale|>|>]
+    ];
     <|state, "code" -> code,
+      "base" -> If[state["protected"] === None, state["base"] <> mdSep <> b["Code"], state["base"]],
       "out" -> Append[state["out"], Hash[code] -> captured]|>
 ]
+
+(* The names a cell uses that an earlier section defined and a reset cleared: still undefined after
+   the cell ran, and left unevaluated in its output. They come out without a message of their own,
+   so the conversion reports them (MarkdownToNotebook::section). *)
+staleSymbols[_String, {}, _] := {}
+staleSymbols[code_String, cleared_List, outs_] := With[
+    {held = If[SyntaxQ[code], ToExpression[code, InputForm, Hold], Hold[]], tokens = Cases[outs, _String, Infinity]},
+    DeleteDuplicates @ Cases[held,
+        s_Symbol /; MemberQ[cleared, HoldComplete[s]] && undefinedSymbolQ[HoldComplete[s]] && MemberQ[tokens, SymbolName[Unevaluated[s]]] :>
+            SymbolName[Unevaluated[s]],
+        {0, Infinity}, Heads -> True]
+]
+
+undefinedSymbolQ[HoldComplete[s_Symbol]] := OwnValues[s] === {} && DownValues[s] === {} && UpValues[s] === {} && SubValues[s] === {}
 
 (* The protected baseline is the document's setup section - the one the rest of the
    document is written against: "## Definition" for a FunctionResource, "## Content"
@@ -1161,6 +1192,7 @@ captureProtectedQ[state_, b_] :=
    triggers a reset before its own evaluation. Capture the protected
    baseline before clearing if this boundary ends the setup section. *)
 accumEval[state0_, b_] := Block[{state = state0, s},
+    If[ b["Type"] === "Heading", state = <|state, "heading" -> b["Text"]|>];
     If[ captureProtectedQ[state, b],
         state = <|state, "protected" -> docContextSymbols[state["ctx"]]|>
     ];
@@ -1250,7 +1282,7 @@ installSelfAlias[ctx_String] := With[{realName = Context[MarkdownToNotebook] <> 
 evaluateAll[items_List, ctx_String, ctxPath_List, mode_] := Block[{$Context = ctx, $ContextPath = ctxPath},
     preloadContextPath[ctxPath];
     UsingFrontEnd[Fold[accumEval,
-        <|"code" -> "", "out" -> <||>, "ctx" -> ctx, "mode" -> mode,
+        <|"code" -> "", "base" -> "", "cleared" -> {}, "heading" -> "", "out" -> <||>, "ctx" -> ctx, "mode" -> mode,
           (* no setup section to protect means an empty baseline from the start,
              so the first delimiter already clears whatever the document bound *)
           "protected" -> If[AnyTrue[items, $setupHeadingQ], None, {}],
@@ -6782,7 +6814,7 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
         MapThread[
             Function[{h, name},
                 With[{entry = Lookup[outputs, h, Missing[]]},
-                    If[ AssociationQ[entry] && Lookup[entry, "msgs", {}] === {},
+                    If[ AssociationQ[entry] && Lookup[entry, "msgs", {}] === {} && ! KeyExistsQ[entry, "stale"],
                         exampleCacheSet[name, entry]
                     ]
                 ]
@@ -6791,6 +6823,12 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
         ]
     ];
 
+    (* the names a section uses from an earlier one, by heading; a reported cell is never cached,
+       so every conversion reports it until it is fixed *)
+    KeyValueMap[
+        Message[MarkdownToNotebook::section, cacheDocName, #1, DeleteDuplicates[Flatten[#2]]] &,
+        GroupBy[Cases[Values[outputs], KeyValuePattern["stale" -> stale_Association] :> stale], (#Heading &) -> (#Symbols &)]
+    ];
     blocks = annotateOutputs[blocks, hashes, outputs];
     sections = sectionsFrom[blocks];
     defCode = StringRiffle[#["Code"] & /@ sectionCells[sections, "definition"], "\n\n"];
