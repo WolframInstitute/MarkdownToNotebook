@@ -1169,9 +1169,13 @@ staleSymbols[code_String, cleared_List] := With[
     ]
 ]
 
-(* the names a cell binds rather than reads: pattern names, the variables of a scoping construct or
-   a pure function, and iterator variables, {x, ...} after a function's first argument *)
+(* the names a cell binds or only tests, rather than reads: pattern names, the variables of a
+   scoping construct or a pure function, iterator variables, {x, ...} after a function's first
+   argument, and the names it tests with ValueQ or clears *)
 boundSymbols[held_] := DeleteDuplicates @ Join[
+    Flatten @ Cases[held, (Verbatim[ValueQ] | Verbatim[Clear] | Verbatim[ClearAll] | Verbatim[Remove] | Verbatim[Unset])[arguments___] :>
+        Cases[Unevaluated[{arguments}], s_Symbol :> HoldComplete[s], {0, Infinity}, Heads -> True],
+        {0, Infinity}, Heads -> True],
     Cases[held, Verbatim[Pattern][s_Symbol, _] :> HoldComplete[s], {0, Infinity}, Heads -> True],
     Cases[held, Verbatim[Function][s_Symbol, __] :> HoldComplete[s], {0, Infinity}, Heads -> True],
     Flatten @ Cases[held, (Verbatim[Module] | Verbatim[Block] | Verbatim[With] | Verbatim[DynamicModule] | Verbatim[Function])[vars_List, __] :>
@@ -1193,6 +1197,9 @@ undefinedSymbolQ[HoldComplete[s_Symbol]] := OwnValues[s] === {} && DownValues[s]
    running. A document with no setup section starts from an empty baseline (see
    evaluateAll), so every delimiter clears everything it has defined. *)
 $setupSections = {"definition", "content", "initialization"}
+
+(* the templates whose documents are one narrative, evaluated in one context by default *)
+$narrativeTemplates = {"TechNote", "Overview", "ComputationalEssay"}
 $setupHeadingQ[b_Association] :=
     b["Type"] === "Heading" && MemberQ[$setupSections, ToLowerCase[StringTrim[b["Text"]]]]
 $setupHeadingQ[_] := False
@@ -6753,6 +6760,9 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
     $docContext = Lookup[meta, "Context", ""];
     blocks = resolveIncludes[parsed["Blocks"], src["Base"]];
     tmplName = Lookup[meta, "Template", "Default"];
+    (* a tutorial, an Overview page or a computational essay is one narrative, whose later sections
+       use what its earlier ones define: by default it runs in one context *)
+    evalSeparator = Replace[evalSeparator, Automatic :> If[MemberQ[$narrativeTemplates, tmplName], None, Automatic]];
     $docTemplate = tmplName;
     $docTypesetRules = docTypesetRules[meta];
     (* a template notebook's code is evaluated by GenerateDocument, never here *)
