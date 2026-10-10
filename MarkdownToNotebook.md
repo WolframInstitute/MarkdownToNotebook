@@ -278,7 +278,7 @@ MarkdownToNotebook["## Squares\n\n```wl\nRange[5]^2\n```", "Evaluate" -> False]
 
 Controls when the per-document evaluation context is reset while example cells are run in sequence. A reset clears every symbol the document has defined in its private `MTNB$…` context and `ClearSystemCache[]`s, and the cumulative-hash chain that the example cache is keyed by also restarts - so cache validity is local to one section instead of the whole notebook. The host session's `Global`` context is never touched.
 
-- `"EvaluateSeparator" -> Automatic` *(default)* - reset at every `---` thematic break and at every heading (at any level), so each (sub)section starts with a clean context. Two cells under the same heading share state; the next heading or `---` wipes it. What a `## Definition`, `## Content` or `## Initialization` section defines stays for every later section, and the example cache keys follow that section's code. A name that an earlier section gives a value and a later one reads has no value there; the conversion reports it with `MarkdownToNotebook::section`, naming the heading and the names, and keeps that cell out of the example cache. A name the later section binds, as a pattern, an iterator or a local variable, is not reported, nor is one the earlier section only mentioned.
+- `"EvaluateSeparator" -> Automatic` *(default)* - a tutorial (`TechNote`), an `Overview` page or a `ComputationalEssay` is one narrative whose later sections use what earlier ones define, so it runs in one context, as with `None`. Every other document resets at every `---` thematic break and at every heading (at any level), so each (sub)section starts with a clean context. Two cells under the same heading share state; the next heading or `---` wipes it. What a `## Definition`, `## Content` or `## Initialization` section defines stays for every later section, and the example cache keys follow that section's code. A name that an earlier section gives a value and a later one reads has no value there; the conversion reports it with `MarkdownToNotebook::section`, naming the heading and the names, and keeps that cell out of the example cache. A name the later section binds, as a pattern, an iterator or a local variable, or only tests with `ValueQ` or clears, is not reported, nor is one the earlier section only mentioned.
 - `"EvaluateSeparator" -> None` - never reset; the whole notebook shares one context and one cumulative-hash chain. This is the historical M2N behaviour and is useful when one section depends on a symbol defined further up.
 - `"EvaluateSeparator" -> All` - reset before *every* executable cell. Each cell runs in a fresh context and its cache key depends only on its own code (so two cells with identical text always cache-hit, but neither can see definitions from prior cells).
 
@@ -1596,5 +1596,31 @@ VerificationTest[
     {{"B", {"probeEnv"}}},
     {MarkdownToNotebook::section},
     TestID -> "a name is reported where a later section reads it, not where it is bound or was only mentioned"
+]
+```
+
+A name that a later section only tests with `ValueQ`, as a page showing the reset does, is not reported:
+
+```wl
+VerificationTest[
+    Cases[
+        EvaluationData[MarkdownToNotebook["## A\n\n```wl\nprobeV = 1\n```\n\n## B\n\n```wl\nValueQ[probeV]\n```"]]["MessagesExpressions"],
+        Hold[Message[MarkdownToNotebook::section, ___]]
+    ],
+    {},
+    {},
+    TestID -> "a name a later section only tests with ValueQ is not reported"
+]
+```
+
+A tutorial is one narrative, so by default it runs in one context and a later section reads what an earlier one defined:
+
+```wl
+VerificationTest[
+    With[{run = EvaluationData[MarkdownToNotebook["---\nTemplate: TechNote\nURI: Probe/tutorial/Narrative\n---\n\n## A\n\n```wl\nnarrativeProbe = 2\n```\n\n## B\n\n```wl\nnarrativeProbe + 1\n```"]]},
+        {Cases[run["Result"], Cell[BoxData[b_], "Output", ___] :> b, Infinity], Cases[run["MessagesExpressions"], Hold[Message[MarkdownToNotebook::section, ___]]]}
+    ],
+    {{"2", "3"}, {}},
+    TestID -> "a tutorial runs in one context by default, so a later section reads what an earlier one defined"
 ]
 ```
