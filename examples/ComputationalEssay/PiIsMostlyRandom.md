@@ -41,7 +41,7 @@ expect from a finite sample of a uniform distribution. A formal chi-square
 test against the uniform hypothesis quantifies the noise:
 
 ```wl
-PearsonChiSquareTest[digits]
+PearsonChiSquareTest[digits, DiscreteUniformDistribution[{0, 9}]]
 ```
 
 A p-value comfortably above 0.05 means the digits are *consistent* with a
