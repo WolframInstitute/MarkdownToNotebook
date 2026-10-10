@@ -278,7 +278,7 @@ MarkdownToNotebook["## Squares\n\n```wl\nRange[5]^2\n```", "Evaluate" -> False]
 
 Controls when the per-document evaluation context is reset while example cells are run in sequence. A reset clears every symbol the document has defined in its private `MTNB$…` context and `ClearSystemCache[]`s, and the cumulative-hash chain that the example cache is keyed by also restarts - so cache validity is local to one section instead of the whole notebook. The host session's `Global`` context is never touched.
 
-- `"EvaluateSeparator" -> Automatic` *(default)* - reset at every `---` thematic break and at every heading (at any level), so each (sub)section starts with a clean context. Two cells under the same heading share state; the next heading or `---` wipes it.
+- `"EvaluateSeparator" -> Automatic` *(default)* - reset at every `---` thematic break and at every heading (at any level), so each (sub)section starts with a clean context. Two cells under the same heading share state; the next heading or `---` wipes it. What a `## Definition`, `## Content` or `## Initialization` section defines stays for every later section, and the example cache keys follow that section's code. A name that an earlier section defines and a later one uses comes out unevaluated there; the conversion reports it with `MarkdownToNotebook::section`, naming the heading and the names, and keeps that cell out of the example cache.
 - `"EvaluateSeparator" -> None` - never reset; the whole notebook shares one context and one cumulative-hash chain. This is the historical M2N behaviour and is useful when one section depends on a symbol defined further up.
 - `"EvaluateSeparator" -> All` - reset before *every* executable cell. Each cell runs in a fresh context and its cache key depends only on its own code (so two cells with identical text always cache-hit, but neither can see definitions from prior cells).
 
@@ -1542,5 +1542,45 @@ VerificationTest[
         "SubmissionReviewData"],
     {"Review" -> True, "SubmissionID" -> "42", "OriginalName" -> "TinyFn"},
     TestID -> "FunctionResourceReview writes the SubmissionReview mapping as SubmissionReviewData"
+]
+```
+
+A name that an earlier section defines and a later section uses comes out unevaluated, so the conversion reports it:
+
+```wl
+VerificationTest[
+    Cases[
+        EvaluationData[MarkdownToNotebook["## A\n\n```wl\nsectionProbe = 1\n```\n\n## B\n\n```wl\nsectionProbe + 1\n```"]]["MessagesExpressions"],
+        Hold[Message[MarkdownToNotebook::section, _, heading_, names_]] :> {heading, names}
+    ],
+    {{"B", {"sectionProbe"}}},
+    {MarkdownToNotebook::section},
+    TestID -> "a section that uses a name an earlier section defined is reported, with its heading and names"
+]
+```
+
+What an Initialization section defines stays for every later section, unreported:
+
+```wl
+VerificationTest[
+    Head @ MarkdownToNotebook["## Initialization\n\n```wl\nsetupProbe = 1\n```\n\n## A\n\n```wl\nsetupProbe + 1\n```"],
+    Notebook,
+    {},
+    TestID -> "an Initialization section's names stay for later sections, unreported"
+]
+```
+
+An example evaluates afresh when the Initialization code it runs against changes:
+
+```wl
+VerificationTest[
+    With[{doc = "## Initialization\n\n```wl\nsetupKey = VALUE\n```\n\n## A\n\n```wl\nsetupKey + 1\n```"},
+        Map[
+            Cases[MarkdownToNotebook[StringReplace[doc, "VALUE" -> #]], Cell[BoxData[b_], "Output", ___] :> b, Infinity] &,
+            {"1", "2"}
+        ]
+    ],
+    {{"1", "2"}, {"2", "3"}},
+    TestID -> "an example re-evaluates when the Initialization code it runs against changes"
 ]
 ```
