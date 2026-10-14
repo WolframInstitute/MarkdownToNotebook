@@ -40,12 +40,8 @@ BarChart[Values[freqs], ChartLabels -> Keys[freqs],
 The deviation from 0.1 is small but not zero - that is just what we should expect from a finite sample of a uniform distribution. A formal chi-square test against the uniform hypothesis quantifies the noise:
 
 ```wl
-PearsonChiSquareTest[digits]
+PearsonChiSquareTest[digits, DiscreteUniformDistribution[{0, 9}]]
 ```
-
-> General::munfl: 
->    Exp[-34645.1] is too small to represent as a normalized machine number;
->      precision may be lost.
 
 ![output](images/PiIsMostlyRandom-out-3.png)
 
