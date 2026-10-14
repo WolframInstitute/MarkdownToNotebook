@@ -2744,6 +2744,9 @@ exampleContent[sectionBlocks_, textStyle_String] := Block[{counter = 0, chunks =
     Catenate[chunks]
 ]
 
+(* whether a Paclet page writes any example section *)
+pacletExamplesQ[sections_] := AnyTrue[$resourceExampleOrder, exampleContent[Lookup[sections, #, {}], "Text"] =!= {} &]
+
 (* Paclet "ExampleNotebook" slot: unlike the Function template's "Examples" slot,
    the example sub-sections are literal Subsection/Text/Input/Output cells (not a
    slot). Keep the template's ExampleInitialization group (the PacletDirectoryLoad
@@ -5697,6 +5700,11 @@ resourceNotebook[resourceType_String, data0_] := Block[{template, data = Append[
        Disclosures section has no such checkboxes, or for documents that
        omit the frontmatter key. *)
     template = applyPacletDisclosures[template, data["meta"]];
+    (* a Paclet page that writes no example section has no Examples section: the template's,
+       holding only the loading cells, would show on the resource page as an empty section *)
+    If[ resourceType === "Paclet" && ! pacletExamplesQ[data["sections"]],
+        template = DeleteCases[template, Cell[CellGroupData[{header_, ___}, _], ___] /; ! FreeQ[header, "TemplateGroupName" -> "ExampleNotebook"], Infinity]
+    ];
     (* the template seeds a blank standalone usage-input placeholder beside the
        Usage slot (for a second usage line); we fill all usage from the markdown,
        so drop any UsageInputs cell with no real content (matched by emptiness,

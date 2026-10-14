@@ -847,6 +847,19 @@ VerificationTest[
 ]
 ```
 
+A Paclet page that writes no example section has no Examples section at all, rather than one holding only the loading cells; one that writes examples keeps it:
+
+```wl
+VerificationTest[
+    {
+        FreeQ[MarkdownToNotebook["---\nTemplate: Paclet\nName: P\nPaclet: Pub/P\n---\n\n## Basic Description\n\nhello\n", "Evaluate" -> False], "TemplateGroupName" -> "ExampleNotebook"],
+        FreeQ[MarkdownToNotebook["---\nTemplate: Paclet\nName: P\nPaclet: Pub/P\n---\n\n## Basic Description\n\nhello\n\n## Basic Examples\n\nAdd:\n\n```wl\n1 + 1\n```\n", "Evaluate" -> False], "TemplateGroupName" -> "ExampleNotebook"]
+    },
+    {True, False},
+    TestID -> "Paclet: a page with no examples has no Examples section"
+]
+```
+
 A `TechNote` source builds with the modern `Tutorial` entity type (`DocumentationBuild` gives it the same TechNote page styling), and a Guide's `RelatedTutorials:` frontmatter fills the Tech Notes section's `GuideTutorial` placeholders - one link per entry:
 
 ```wl
