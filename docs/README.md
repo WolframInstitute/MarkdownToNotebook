@@ -90,6 +90,8 @@ docs/update-screenshots.wls` after changing the converter or the example docs.
 | `Categories` | `[list]`; checkbox grid | resources |
 | `SeeAlso` | `[list]` of related symbols -> linked | Symbol |
 | `RelatedGuides` | `[list]` of guides -> More About / links | doc pages |
+| `NewIn` / `ModifiedIn` / `ObsoleteIn` | versions, e.g. `1.0`, for the page's History cell (New in / Modified in / Obsolete in); without `NewIn` the template's `XX` placeholder stays | doc pages |
+| `Flag` | `future` / `excised` / `obsolete` / `temporary` / `preview` / `internal`: the page's documentation flag banner; the documentation build leaves a future, excised, internal or temporary page out | doc pages |
 | `Links` | `[list]` of URLs | Guide, resources |
 | `Sources` | `[list]` of citations | FunctionResource |
 | `ContributedBy` | author | resources |

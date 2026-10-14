@@ -4164,6 +4164,17 @@ parseCellContextValue[s_String] := Switch[StringTrim[s],
 ]
 parseCellContextValue[other_] := other
 
+(* the History cell's versions, from the NewIn, ModifiedIn and ObsoleteIn frontmatter keys, into
+   the HistoryData cells every page template carries, tagged New, Modified and Obsolete; a key not
+   given keeps the template's placeholder *)
+$historyKeys = <|"New" -> "NewIn", "Modified" -> "ModifiedIn", "Obsolete" -> "ObsoleteIn"|>
+
+fillHistory[cells_, meta_] := cells /. Cell[v_, "HistoryData", o___] :> Cell[
+    Replace[Lookup[meta, Lookup[$historyKeys, historyTag[{o}], ""], None], {s_String /; StringTrim[s] =!= "" :> StringTrim[s], _ -> v}],
+    "HistoryData", o]
+
+historyTag[opts_List] := Replace[Lookup[Cases[opts, _Rule | _RuleDelayed], CellTags, None], {{t_String, ___} :> t, t_String :> t, _ -> ""}]
+
 setDocMetadata[Notebook[cells_, o : OptionsPattern[]], meta_, type_String] := Block[{opts = Flatten[{o}], md, tr, cc},
     md = {
         "title" -> Lookup[meta, "Name", Lookup[meta, "Title", ""]],
@@ -4182,7 +4193,7 @@ setDocMetadata[Notebook[cells_, o : OptionsPattern[]], meta_, type_String] := Bl
         parseCellContextValue[meta["CellContext"]],
         Lookup[$docCellContextDefault, type, Automatic]
     ];
-    Notebook[cells, TaggingRules -> tr,
+    Notebook[fillHistory[cells, meta], TaggingRules -> tr,
         Sequence @@ If[cc === Automatic, {}, {CellContext -> cc}],
         Sequence @@ DeleteCases[opts, _[TaggingRules | CellContext, _]]
     ]

@@ -1637,3 +1637,39 @@ VerificationTest[
     TestID -> "a tutorial runs in one context by default, so a later section reads what an earlier one defined"
 ]
 ```
+
+A page's `NewIn`, `ModifiedIn` and `ObsoleteIn` fill its History cell; without `NewIn` the template's placeholder stays:
+
+```wl
+VerificationTest[
+    With[{history = Cases[#, Cell[v_, "HistoryData", o___] :> (Lookup[{o}, CellTags] -> v), Infinity] &},
+        {
+            history[MarkdownToNotebook["---\nTemplate: Symbol\nName: F\nPaclet: Pub/Name\nContext: Pub`Name`\nNewIn: 1.0\nModifiedIn: 1.2\n---\n\n## Usage\n\nF[x] gives x.", "Evaluate" -> False]],
+            history[MarkdownToNotebook["---\nTemplate: Guide\nName: Name\nPaclet: Pub/Name\nNewIn: 2.0\n---\n\n## Abstract\n\nA guide.", "Evaluate" -> False]],
+            history[MarkdownToNotebook["---\nTemplate: Symbol\nName: F\nPaclet: Pub/Name\nContext: Pub`Name`\n---\n\n## Usage\n\nF[x] gives x.", "Evaluate" -> False]]
+        }
+    ],
+    {
+        {"New" -> "1.0", "Modified" -> "1.2", "Obsolete" -> " "},
+        {"New" -> "2.0", "Modified" -> " ", "Obsolete" -> " "},
+        {"New" -> "XX", "Modified" -> " ", "Obsolete" -> " "}
+    },
+    TestID -> "NewIn, ModifiedIn and ObsoleteIn fill a page's History cell"
+]
+```
+
+NotebookToMarkdown writes a page's history and its documentation flag back as frontmatter, the flag also from the screen environment the palette's flag buttons set:
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook["---\nTemplate: Symbol\nName: F\nPaclet: Pub/Name\nContext: Pub`Name`\nNewIn: 1.0\n---\n\n## Usage\n\nF[x] gives x.", "Evaluate" -> False]},
+        {
+            StringContainsQ[NotebookToMarkdown[nb], "\nNewIn: 1.0\n"],
+            StringContainsQ[NotebookToMarkdown[nb], "ModifiedIn" | "Flag"],
+            StringContainsQ[NotebookToMarkdown[Append[nb, ScreenStyleEnvironment -> "FutureObject"]], "\nFlag: future\n---"]
+        }
+    ],
+    {True, False, True},
+    TestID -> "NotebookToMarkdown keeps a page's NewIn and its Future flag"
+]
+```

@@ -1668,7 +1668,38 @@ templateFrontmatter[nb_] := If[! notebookTemplateQ[nb], "",
                 "  " <> StringTrim[#1, "\""] <> ": " <> boxToCode[#2] <> "\n" &, $n2mSlotDefaults]],
         "---\n\n"]]
 
-frontmatter[nb_, name_] := Module[{cat, paclet, ctx, uri, kw, sa, rg, rt, res},
+(* the page's history and documentation flag join whichever frontmatter the page has *)
+frontmatter[nb_, name_] := withPageFields[pageFrontmatter[nb, name], historyFields[nb] <> flagField[nb]]
+
+withPageFields[fm_String, ""] := fm
+withPageFields[fm_String, fields_String] /; StringEndsQ[fm, "---\n\n"] := StringDrop[fm, -5] <> fields <> "---\n\n"
+withPageFields[fm_String, _] := fm
+
+(* the History cell's versions as the NewIn, ModifiedIn and ObsoleteIn keys, where they are
+   versions and not the template's XX or blank placeholders; a built page keeps them in its
+   metadata's "history" list *)
+$historyKeys = <|"New" -> "NewIn", "Modified" -> "ModifiedIn", "Obsolete" -> "ObsoleteIn"|>
+historyFields[nb_] := StringJoin @ KeyValueMap[fmField[#2, historyOf[nb, #1]] &, $historyKeys]
+historyOf[nb_, tag_String] := Replace[StringTrim @ FirstCase[nb,
+        Cell[v_, "HistoryData", o___] /; MemberQ[Flatten[{Lookup[Cases[{o}, _Rule | _RuleDelayed], CellTags, {}]}], tag] :> cellPlain[v],
+        builtHistoryOf[nb, tag], Infinity],
+    "XX" | "XXXX" -> ""]
+builtHistoryOf[nb_, tag_String] := With[
+    {history = Lookup[docMetaOf[nb], "history", {}], i = Lookup[<|"New" -> 1, "Modified" -> 2, "Obsolete" -> 3|>, tag]},
+    If[ListQ[history] && Length[history] >= i && StringQ[history[[i]]], history[[i]], ""]]
+
+(* the page's documentation flag as the Flag key: its flag banner cell, or the screen environment
+   the palette's flag buttons set, which the documentation build reads the same way and for which
+   it leaves the page out *)
+$flagNames = <|"FutureFlag" -> "future", "ExcisedFlag" -> "excised", "ObsoleteFlag" -> "obsolete",
+    "TemporaryFlag" -> "temporary", "PreviewFlag" -> "preview", "InternalFlag" -> "internal"|>
+$flagEnvironments = <|"FutureObject" -> "future", "ExcisedObject" -> "excised", "ObsoleteObject" -> "obsolete",
+    "TemporaryObject" -> "temporary", "InternalDocument" -> "internal"|>
+flagField[nb_] := fmField["Flag", Replace[
+    FirstCase[nb, Cell[_, style_String /; KeyExistsQ[$flagNames, style], ___] :> $flagNames[style], None, Infinity],
+    None :> Lookup[$flagEnvironments, FirstCase[Cases[nb, (ScreenStyleEnvironment -> e_String) :> e, {1}], _String, ""], ""]]]
+
+pageFrontmatter[nb_, name_] := Module[{cat, paclet, ctx, uri, kw, sa, rg, rt, res},
     res = templateFrontmatter[nb];
     If[res =!= "", Return[res]];
     res = guideFrontmatter[nb];
