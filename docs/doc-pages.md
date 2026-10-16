@@ -353,7 +353,7 @@ cloud resource so the build needs cloud access:
 
 ```wl
 mtn = ResourceFunction[ResourceObject[
-    "https://www.wolframcloud.com/obj/nikm/DeployedResources/Function/MarkdownToNotebook"]];
+    "https://www.wolframcloud.com/obj/wolframinstitute/DeployedResources/Function/MarkdownToNotebook"]];
 mtn["docs/Symbols/Foo.md", "Documentation/English/ReferencePages/Symbols/Foo.nb",
     "EvaluateSeparator" -> None]  (* or Automatic; see Conventions *)
 ```

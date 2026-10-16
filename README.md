@@ -22,7 +22,7 @@ The function is deployed publicly in the Wolfram Cloud, so you can use it withou
 installing anything:
 
 ```wl
-ResourceFunction["https://www.wolframcloud.com/obj/nikm/DeployedResources/Function/MarkdownToNotebook"]["doc.md"]
+ResourceFunction["https://www.wolframcloud.com/obj/wolframinstitute/DeployedResources/Function/MarkdownToNotebook"]["doc.md"]
 ```
 
 > **Note:** official publication to the [Wolfram Function Repository](https://resources.wolframcloud.com/FunctionRepository/)

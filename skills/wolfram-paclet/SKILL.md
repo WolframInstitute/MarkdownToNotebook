@@ -195,7 +195,7 @@ Exit[If[release["Check"] === None || TrueQ[release["Check"]["OK"]], 0, 1]]
 To preview the definition notebook alone, convert it with the published converter:
 
 ```wl
-mtn = ResourceFunction[ResourceObject["https://www.wolframcloud.com/obj/nikm/DeployedResources/Function/MarkdownToNotebook"]];
+mtn = ResourceFunction[ResourceObject["https://www.wolframcloud.com/obj/wolframinstitute/DeployedResources/Function/MarkdownToNotebook"]];
 mtn["ResourceDefinition.md", "ResourceDefinition.nb"]
 ```
 

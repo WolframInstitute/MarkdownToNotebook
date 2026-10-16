@@ -17,8 +17,8 @@
 
 fail[msg_] := (Print["ERROR: " <> msg]; Exit[1]);
 
-$m2nUrl = "https://www.wolframcloud.com/obj/nikm/DeployedResources/Function/MarkdownToNotebook";
-$n2mUrl = "https://www.wolframcloud.com/obj/nikm/DeployedResources/Function/NotebookToMarkdown";
+$m2nUrl = "https://www.wolframcloud.com/obj/wolframinstitute/DeployedResources/Function/MarkdownToNotebook";
+$n2mUrl = "https://www.wolframcloud.com/obj/wolframinstitute/DeployedResources/Function/NotebookToMarkdown";
 
 mdPath = Environment["MTN_MD_PATH"];
 outNb  = Environment["MTN_OUT_NB"];

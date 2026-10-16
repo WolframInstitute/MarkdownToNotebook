@@ -19,7 +19,7 @@ moment the notebook writes it.
 - A Wolfram kernel launcher on `PATH` named `wl` (or set `mtn.wlCommand`).
 - A desktop front end to open `.nb` files (macOS `open`).
 - The converters are the [deployed resource
-  functions](https://www.wolframcloud.com/obj/nikm/DeployedResources/Function/MarkdownToNotebook)
+  functions](https://www.wolframcloud.com/obj/wolframinstitute/DeployedResources/Function/MarkdownToNotebook)
   on the Wolfram Cloud — the same ones the build scripts use — so the button
   works on any `.md` with no local checkout. Redeploy them (build.wls) to pick
   up converter changes.
