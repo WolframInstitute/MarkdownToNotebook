@@ -797,6 +797,26 @@ VerificationTest[
 ]
 ```
 
+A `## Guides` entry's blurb goes in a `GuideText` cell after its `GuideTOCLink`: `DocumentationBuild` takes a `GuideTOCLink` for a link alone and reparses any text beside it as Wolfram Language input. NotebookToMarkdown reads the two back as one item:
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook["---\nTemplate: Guide\nName: Hub\nContext: Pub`Pkg`\nPaclet: Pub/Pkg\nURI: Pub/Pkg/guide/Hub\n---\n\n## Functions\n\n- `Foo` does foo\n\n## Guides\n\n- [Derivation](paclet:Pub/Pkg/guide/Derivation) turns a seed into master keys, child keys and addresses\n- [Encodings](paclet:Pub/Pkg/guide/Encodings)\n", "Evaluate" -> False]},
+        {
+            Cases[nb, Cell[c_, "GuideTOCLink", ___] :> MatchQ[c, TextData[{Cell[BoxData[_ButtonBox], "InlineFormula", ___]}]], Infinity],
+            Cases[nb, Cell[c_, "GuideText", ___] /; ! FreeQ[c, "turns a seed into master keys, child keys and addresses"] :> True, Infinity],
+            StringCases[NotebookToMarkdown[nb], "- [Derivation](" ~~ Shortest[___] ~~ "\n"]
+        }
+    ],
+    {
+        {True, True},
+        {True},
+        {"- [Derivation](paclet:Pub/Pkg/guide/Derivation) turns a seed into master keys, child keys and addresses\n"}
+    },
+    TestID -> "a ## Guides entry's blurb is a GuideText cell after its GuideTOCLink, one item again in markdown"
+]
+```
+
 Inside `## Functions`, a `---` separator becomes the palette's Delimiter - the thin `Cell["\t", "GuideDelimiter"]` rule that visually separates groups of related listings. Whether a listed symbol links to its paclet ref page or the **system** ref page (`paclet:ref/Sym`) is *inferred entirely from context* - no markup: a name that resolves to a `System`` built-in (and the paclet does not redefine) links to the system page with an italic label; a paclet symbol links to the paclet's own page. A bare ``` `TensorContract` ``` (a WL built-in) infers to `paclet:ref/TensorContract`, while `Foo` (not a built-in) stays on the paclet:
 
 ```wl

@@ -1100,6 +1100,16 @@ guideMathStr[s_String] := StringReplace[
     g : (_?guideMathLetterQ) .. :> "$" <> guideTeXAtom[g] <> "$"]
 guideItemPart[s_String] := guideMathStr[s]
 guideItemPart[other_] := inlineMd[other]
+(* a "## Guides" entry is a GuideTOCLink, the link alone, and its blurb, a GuideText cell after it
+   that does not open with a function: one list item again *)
+mergeGuideBlurbs[cells_List] := SequenceReplace[cells,
+    {Cell[link_, "GuideTOCLink", o___], Cell[blurb_, "GuideText", ___]} /; ! guideFunctionTextQ[blurb] :>
+        Cell[TextData[Join[guideTextItems[link], {" \[LongDash] "}, guideTextItems[blurb]]], "GuideTOCLink", o]]
+guideFunctionTextQ[c_] := MatchQ[c, TextData[{Cell[_, "InlineGuideFunction", ___], ___}] | TextData[Cell[_, "InlineGuideFunction", ___]]]
+guideTextItems[TextData[xs_List]] := xs
+guideTextItems[TextData[x_]] := {x}
+guideTextItems[x_] := {x}
+
 guideItemMd[TextData[xs_List]] := StringReplace[tidy @ StringJoin[guideItemPart /@ xs], " ," -> ","]
 guideItemMd[TextData[x_]] := guideItemMd[TextData[{x}]]
 guideItemMd[other_] := tidy @ inlineMd[other]
@@ -1855,7 +1865,7 @@ markdownOfNb[nb0 : Notebook[_List, ___], opts : OptionsPattern[NotebookToMarkdow
     cells = If[resourceDefNotebookQ[nb], prepResourceBody[First[nb], resourceTypeOf[nb]], First[nb]];
     (* the walker is grouping-agnostic, so doc pages run on the flat cell list; the
        screenshot pre-pass relies on it (Output follows its Input) *)
-    If[$docPageQ, cells = applyOutputScreenshots[flattenCellGroups[cells]]];
+    If[$docPageQ, cells = mergeGuideBlurbs[applyOutputScreenshots[flattenCellGroups[cells]]]];
     blocks = walkCells[cells];
     fm = frontmatter[nb, name];
     If[fm =!= "", blocks = mergeListRuns @ dropEmptySections[blocks]];

@@ -4497,23 +4497,27 @@ guideSubsectionHead[text_String] := With[{m = guideLinkLeading[text]},
 
 (* one "## Guides" index entry: a guide-link list item
    "- [Sub](paclet:.../guide/Sub) blurb" -> a GuideTOCLink cell carrying the
-   ButtonBox(Link) (+ optional blurb). GuideTOCLink is a scanned cell style, so
-   the edge registers; a non-guide-link item falls back to plain TOC text. *)
+   ButtonBox(Link) alone, then the blurb as a GuideText cell. GuideTOCLink is a
+   scanned cell style, so the edge registers; DocumentationBuild takes it for a
+   link and nothing else, and reparses any text beside the link as Wolfram
+   Language input, one line per piece ("master keys, child keys" becomes a
+   Sequence, "byte-list" a Minus). An item that is no guide link is a GuideText
+   line. *)
 guideIndexCell[item_String] := With[{m = guideLinkLeading[item]},
     If[m === {},
-        Cell[TextData @ inlineTextData[item], "GuideTOCLink"],
+        {Cell[TextData @ inlineTextData[item], "GuideText"]},
         With[{label = m[[1, 1]], uri = m[[1, 2]], desc = stripLeadingDash[m[[1, 3]]]},
-            Cell[TextData @ If[desc === "",
-                {Cell[BoxData[guideNavButtonBox[label, uri]], "InlineFormula"]},
-                Join[{Cell[BoxData[guideNavButtonBox[label, uri]], "InlineFormula"], " \[LongDash] "}, inlineTextData[desc]]
-            ], "GuideTOCLink"]
+            Join[
+                {Cell[TextData @ {Cell[BoxData[guideNavButtonBox[label, uri]], "InlineFormula"]}, "GuideTOCLink"]},
+                If[desc === "", {}, {Cell[TextData @ inlineTextData[desc], "GuideText"]}]
+            ]
         ]
     ]
 ]
 
 guideIndexCells[sections_, paclet_String] := If[paclet === "", {},
     Catenate @ Map[
-        b |-> If[b["Type"] === "List", guideIndexCell /@ b["Items"], {}],
+        b |-> If[b["Type"] === "List", Catenate[guideIndexCell /@ b["Items"]], {}],
         Lookup[sections, "guides", {}]
     ]
 ]
