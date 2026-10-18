@@ -956,6 +956,20 @@ VerificationTest[
 ]
 ```
 
+`Global`` in `ContextPath:` puts `Global`` on the examples' path, so the symbols they make there print unqualified, and adds no `Needs["Global`"]` to the `ExampleInitialization` cell, since `Global`` is no package and is on every reader's path already:
+
+```wl
+VerificationTest[
+    With[{ei = FirstCase[
+        MarkdownToNotebook["---\nTemplate: Symbol\nName: Foo\nContext: A`Pkg`\nContextPath: [Global`]\nPaclet: A/Pkg\nURI: A/Pkg/ref/Foo\n---\n\n## Usage\n\n`Foo[x]` does.\n\n## Basic Examples\n\n```wl\nFoo[1]\n```\n", "Evaluate" -> False],
+        Cell[BoxData[b_], "ExampleInitialization", ___] :> b, $Failed, Infinity]},
+        {! FreeQ[ei, "\"A`Pkg`\""], FreeQ[ei, "\"Global`\""]}
+    ],
+    {True, True},
+    TestID -> "ContextPath: Global` adds no Needs to the ExampleInitialization cell"
+]
+```
+
 A `Blank` immediately followed by a named-character head (`_\[FormalS]`, delivered by a fence as the literal ten-character escape) rebuilds as a single `Blank` leaf with that head - the front-end reparser otherwise splits it into `Times[Blank[], \[FormalS]]`, which matches nothing (issue #39):
 
 ```wl

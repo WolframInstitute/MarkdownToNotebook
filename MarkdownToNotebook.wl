@@ -3216,9 +3216,11 @@ docContextList[meta_] := DeleteDuplicates @ DeleteCases[
     Flatten @ {Lookup[meta, "Context", Nothing], Lookup[meta, "ContextPath", {}]},
     "" | "System`"]
 
-(* the ExampleInitialization cell body: one Needs[] per documented context *)
+(* the ExampleInitialization cell body: one Needs[] per documented context. Global`, which
+   a page lists so its examples' Global` symbols print unqualified, is on every reader's
+   $ContextPath already and is no package to load. *)
 exampleInitCode[meta_] := StringRiffle[
-    ("Needs[\"" <> # <> "\"]") & /@ docContextList[meta], "\n"]
+    ("Needs[\"" <> # <> "\"]") & /@ DeleteCases[docContextList[meta], "Global`"], "\n"]
 
 (* the font LaTeX math (LaTeXMathParse output) is restyled to. Holds the resolved
    "MathFont" option value (see applyMathFont):
