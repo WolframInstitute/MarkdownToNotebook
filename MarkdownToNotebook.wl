@@ -4976,36 +4976,11 @@ essayHeaderCells[meta_] := Block[{title, author, date, abstract, cells = {}},
     cells
 ]
 
-(* The official Computational Essay template - the same notebook
-   File > New > Computational Essay opens, or that
-   ResourceFunction["ComputationalEssayTemplate"][] returns - carries the
-   essay's custom stylesheet (CodeText, Abstract, Author, ExampleDelimiter,
-   the docked Notebook Analysis pod, etc.) and its TaggingRules. We use the
-   template as the *shell* for the essay: cache the empty template once per
-   session, then build our notebook with the template's StyleDefinitions
-   so the body cells render in the right styles when opened in the FE.
-
-   Pull any pending repository update first - the kernel routinely fires
-   ResourceObject::updavb ("an update is available") when the locally
-   cached resource is older than what's on the server, and that notice
-   bypasses Quiet (it is printed via the resource-system print path, not
-   the normal message system). ResourceUpdate refreshes the local cache so
-   the subsequent call finds a current resource and the message is silent.
-   Wrapped in Quiet/Check so a network failure here is benign - the older
-   cached template still works. *)
-$essayTemplate := $essayTemplate = Replace[
-    Quiet @ UsingFrontEnd @ With[{nbo = (
-        Quiet @ Check[ResourceUpdate["ComputationalEssayTemplate"], Null];
-        ResourceFunction["ComputationalEssayTemplate"][]
-    )},
-        With[{nb = NotebookGet[nbo]}, NotebookClose[nbo]; nb]
-    ],
-    Except[_Notebook] -> Notebook[{}, StyleDefinitions -> "Default.nb"]
-]
-
-essayNotebook[data_] := Block[{meta = data["meta"], counter = 0, header, body,
-    templateOpts = If[MatchQ[$essayTemplate, _Notebook], Rest[List @@ $essayTemplate],
-        {StyleDefinitions -> "Default.nb"}]},
+(* An essay is a finished notebook on Default.nb, which has every style it uses (Title,
+   Author, Abstract, CodeText, ItemNumbered, ...), in the converter's appearance. It carries
+   none of the official Computational Essay template's resource TaggingRules or its docked
+   authoring toolbar, so it can be deployed, published or submitted as it is. *)
+essayNotebook[data_] := Block[{meta = data["meta"], counter = 0, header, body},
     header = essayHeaderCells[meta];
     body = Catenate @ MapIndexed[
         Function[{block, ix},
@@ -5037,7 +5012,7 @@ essayNotebook[data_] := Block[{meta = data["meta"], counter = 0, header, body,
         ],
         data["blocks"]
     ];
-    Notebook[Join[header, body], Sequence @@ templateOpts]
+    Notebook[Join[header, body], StyleDefinitions -> "Default.nb", LightDark -> $lightDark]
 ]
 
 (* === reference-subtype page builders ===

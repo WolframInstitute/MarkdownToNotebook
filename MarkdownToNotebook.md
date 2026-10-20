@@ -970,6 +970,19 @@ VerificationTest[
 ]
 ```
 
+A computational essay is a finished notebook on `Default.nb`, which has every style it uses, in the converter's appearance: none of the official template's resource `TaggingRules`, and no docked authoring toolbar:
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook["---\nTemplate: ComputationalEssay\nName: An Essay\nAuthor: A. Writer\n---\n\n## A Section\n\nThe square of three:\n\n```wl\n3^2\n```\n", "Evaluate" -> False]},
+        {Lookup[Rest[List @@ nb], {StyleDefinitions, LightDark}], FreeQ[nb, TaggingRules | DockedCells | "ResourceType" | "ResourceCreateNotebook"],
+            Cases[nb, Cell[_, s : "Title" | "Author" | "Section" | "CodeText" | "Input", ___] :> s, Infinity]}
+    ],
+    {{"Default.nb", "Light"}, True, {"Title", "Author", "Section", "CodeText", "Input"}},
+    TestID -> "ComputationalEssay: a finished notebook on Default.nb, without the template's TaggingRules or toolbar"
+]
+```
+
 A `Blank` immediately followed by a named-character head (`_\[FormalS]`, delivered by a fence as the literal ten-character escape) rebuilds as a single `Blank` leaf with that head - the front-end reparser otherwise splits it into `Times[Blank[], \[FormalS]]`, which matches nothing (issue #39):
 
 ```wl

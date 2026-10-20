@@ -34,9 +34,11 @@ official guidelines refer to: evaluating it in a notebook opens an empty
 essay with the canonical stylesheet (the `CodeText`, `Abstract`, `Author`,
 `ExampleDelimiter` styles), the "Notebook Analysis" docked pod, and slot
 placeholders for Title / Author / Abstract / Sections. The
-`ComputationalEssay` template here uses *that same template's
-StyleDefinitions and TaggingRules* as its shell, so the produced `.nb`
-opens with the right styles applied to the cells the markdown defines.
+`ComputationalEssay` template here makes the finished notebook instead: it
+uses the `Default.nb` stylesheet, which has every style an essay uses
+(`Title`, `Author`, `Abstract`, `CodeText`, `ItemNumbered`, ...), and
+carries none of the template's resource TaggingRules or its docked
+authoring toolbar, so the `.nb` can be deployed or submitted as it is.
 
 ## Frontmatter
 
