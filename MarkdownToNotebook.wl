@@ -1442,6 +1442,12 @@ fillListCells[opts_, items_List] := Block[{def = slotDefault[opts], vals = Delet
     ]
 ]
 
+(* The label of a markdown link, "[...]", as CommonMark reads it: any text in which a
+   bracket is \-escaped or one of a balanced pair, so "[f[x]](url)" and "[Out\[n\]](url)"
+   are links. A regular expression, whose group 2 matches a pair to any depth by
+   recursion; group 1 is the label's text. *)
+$linkLabelRegex = "\\[((?:[^\\[\\]\\\\]|\\\\.|(\\[(?:[^\\[\\]\\\\]|\\\\.|(?2))*\\]))+)\\]";
+
 (* like fillListCells, but an item may be a markdown link [label](url), rendered
    as a labeled hyperlink (the resource Check asks for labeled links, not raw
    URLs); a plain string stays as text. The ButtonBox sits directly in TextData
@@ -1452,12 +1458,11 @@ fillListCells[opts_, items_List] := Block[{def = slotDefault[opts], vals = Delet
    paren-adjacent anchor - .../196_(number)#196_algorithm - stays whole (issue seen
    on save-back: the shortest match cut the link at the first ")"). *)
 linkItemContent[item_String] := Block[{
-    m = StringCases[StringTrim[item],
-        StartOfString ~~ "[" ~~ t : Shortest[Except["]"] ..] ~~ "](" ~~ u : __ ~~ ")" ~~ EndOfString :> {t, u}, 1]
+    m = StringCases[StringTrim[item], RegularExpression["^" <> $linkLabelRegex <> "\\((.+)\\)$"] :> {"$1", "$3"}, 1]
 },
     If[ m === {},
         item,
-        TextData[{ButtonBox[First @ First @ m, BaseStyle -> "Hyperlink", ButtonData -> {URL[Last @ First @ m], None}]}]
+        TextData[{ButtonBox[unescapeMarkdownPunctuation[First @ First @ m], BaseStyle -> "Hyperlink", ButtonData -> {URL[Last @ First @ m], None}]}]
     ]
 ]
 
@@ -3951,7 +3956,7 @@ inlineTextDataCore[text_String] := Module[{prep, stash},
            markdown semantics ("[X]" alone is literal bracketed text) and avoids
            surprising linkifying of expressions like "[`Import`]["doc.md"]" where
            the author wanted only inline code. *)
-        "[" ~~ t : Shortest[Except["]"] ..] ~~ "](" ~~ u : Shortest[Except[")"] ...] ~~ ")" :> stash[linkInline[t, u]]
+        RegularExpression[$linkLabelRegex <> "\\(([^)]*)\\)"] :> stash[linkInline["$1", "$3"]]
     }];
     Replace[
         (* underscore emphasis runs last, on the plain-text runs the main split leaves

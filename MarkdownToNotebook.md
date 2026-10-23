@@ -1208,6 +1208,17 @@ VerificationTest[
 ]
 ```
 
+A link's label may hold brackets, in balanced pairs or escaped with a backslash, as CommonMark reads it: a label such as Out[n] makes a hyperlink, not literal text:
+
+```wl
+VerificationTest[
+    Cases[MarkdownToNotebook["[f[x]](https://example.com) and [Out\\[n\\]](https://example.com/n), not [a] bracket", "Evaluate" -> False], ButtonBox[___], Infinity],
+    {ButtonBox["f[x]", BaseStyle -> "Hyperlink", ButtonData -> {URL["https://example.com"], None}],
+     ButtonBox["Out[n]", BaseStyle -> "Hyperlink", ButtonData -> {URL["https://example.com/n"], None}]},
+    TestID -> "a link's label holds balanced or escaped brackets"
+]
+```
+
 A `## Interactive Examples` section on a Symbol page fills the template's "Interactive Examples" `ExampleSection` - it is a standard extended-examples slot the Symbol template ships, so the authored content lands under that scaffold heading (issue #82, the same missing-key class as #4 / #12):
 
 ```wl
