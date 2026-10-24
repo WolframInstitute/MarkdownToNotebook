@@ -521,6 +521,17 @@ VerificationTest[
 ]
 ```
 
+An icon MarkdownToNotebook made walks back as its code behind the comment that makes it again, `(*Iconize["label"]*)`, the count of lines a string's name ends in left out:
+
+```wl
+VerificationTest[
+    NotebookToMarkdown[MarkdownToNotebook["## A\n\n```wl\nx = f[(*Iconize[\"Lean source\"]*)\"a\nb\n\", 2]\n```", "Evaluate" -> False]],
+    _String?(StringContainsQ[#, "x = f[(*Iconize[\"Lean source\"]*)\"a\\nb\\n\", 2]"] &),
+    SameTest -> MatchQ,
+    TestID -> "an icon MarkdownToNotebook made walks back to its Iconize marker"
+]
+```
+
 A formula typed with the front end's Insert > TeX keeps its author's TeX, and walks back as that TeX rather than as a dump of its template box (issue #103):
 
 ```wl

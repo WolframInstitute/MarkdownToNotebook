@@ -1814,7 +1814,13 @@ withScreenshotMark[block_, cells_List] := If[
    stays an integral. A sub-expression with no typeset form until it is evaluated (a
    DateObject built from a date list) is evaluated for the display when the value keeps
    its head. Typesetting is formatting and happens whether or not the document's
-   examples are evaluated. *)
+   examples are evaluated.
+   A comment (*Iconize*) or (*Iconize["label"]*) before a sub-expression shows it as an
+   icon, as the front end's Iconize does: an IconizedObject named by the label - for a
+   string, the label and its count of lines, "label, 120 lines", or that count alone -
+   that opens to the expression's text in a monospaced font. Its interpretation is the
+   expression as written, so the cell evaluates to the same code in a front end or a
+   kernel alone, a long string kept character for character. *)
 $docTypesetRules = {}
 typesetFormOf[s_String] := SelectFirst[$BoxForms, SymbolName[#] === StringTrim[s] &, None]
 typesetFormOf[_] := None
@@ -1847,12 +1853,18 @@ blockTypesetRules[block_] := With[{o = Lookup[Lookup[block, "Options", <||>], "t
         True, $docTypesetRules
     ]]
 typesetMarkerQ[code_String] := StringContainsQ[code, "(*" ~~ WhitespaceCharacter ... ~~
-    (Alternatives @@ (SymbolName /@ $BoxForms)) ~~ WhitespaceCharacter ... ~~ "*)"]
+    (((Alternatives @@ (SymbolName /@ $BoxForms)) ~~ WhitespaceCharacter ... ~~ "*)") | ("Iconize" ~~ WhitespaceCharacter ... ~~ ("*)" | "[")))]
 typesetMarkerQ[_] := False
 
 typesetWsQ[s_String] := StringMatchQ[s, WhitespaceCharacter ...]
 typesetWsQ[_] := False
-typesetMarkerForm[RowBox[{"(*", mid___, "*)"}]] := typesetFormOf[StringJoin @ Cases[{mid}, _String]]
+typesetMarkerForm[b : RowBox[{"(*", mid___, "*)"}]] := Replace[iconizeMarker[b], None :> typesetFormOf[StringJoin @ Cases[{mid}, _String]]]
+(* an Iconize marker, (*Iconize*) or (*Iconize["label"]*): {Iconize, the label or None} *)
+iconizeMarker[RowBox[{"(*", mid___, "*)"}]] := Replace[DeleteCases[{mid}, _?typesetWsQ], {
+    {"Iconize"} :> {Iconize, None},
+    {RowBox[{"Iconize", "[", label_String /; StringMatchQ[label, "\"" ~~ ___ ~~ "\""], "]"}]} :> {Iconize, StringTake[label, {2, -2}]},
+    _ :> None}]
+iconizeMarker[_] := None
 typesetMarkerForm[_] := None
 heldBoxExpr[b_] := With[{h = Quiet @ MakeExpression[b, StandardForm]}, If[MatchQ[h, HoldComplete[_]], h, $Failed]]
 
@@ -1871,7 +1883,28 @@ typesetDisplay[HoldComplete[e_], f_] := Module[{bx = typesetUnForm[ToBoxes[Uneva
         If[ Head[v] === Head[Unevaluated[e]], bx = typesetUnForm[ToBoxes[v, f], f]]
     ];
     FormBox[typesetNumberMarks[bx], f]]
+typesetBox[h : HoldComplete[e_], {Iconize, label_}] := iconizeBox[h, label]
 typesetBox[h : HoldComplete[e_], f_] := With[{d = typesetDisplay[h, f]}, InterpretationBox[d, e]]
+
+(* The icon the front end's Iconize makes, for the held expression and the marker's label: an
+   IconizedObject named by the label, and, for a string, its count of lines, that opens to the
+   expression's text in a monospaced font; its interpretation the expression as written. *)
+iconizeBox[h : HoldComplete[e_], label_] := With[{type = iconizeType[h], details = iconizeDetails[h],
+        name = StyleBox[ToString[iconizeName[h, label], InputForm], "IconizedCustomName", StripOnInput -> False]},
+    InterpretationBox[
+        DynamicModuleBox[{Typeset`open = False}, TemplateBox[{type, name, details, Dynamic[Typeset`open]}, "IconizedObject"]],
+        e, SelectWithContents -> True, Selectable -> False]]
+iconizeLines[s_String] := StringCount[s, "\n"] + If[s === "" || StringEndsQ[s, "\n"], 0, 1]
+iconizeName[HoldComplete[s_String], label_] := With[{n = iconizeLines[s]},
+    If[label === None, "", label <> ", "] <> ToString[n] <> If[n === 1, " line", " lines"]]
+iconizeName[HoldComplete[e_], label_] := If[label === None, iconizeType[HoldComplete[e]], label]
+iconizeType[HoldComplete[_String]] := "String"
+iconizeType[h_HoldComplete] := Replace[h, {HoldComplete[f_Symbol[___]] :> SymbolName[Unevaluated[f]], HoldComplete[_Symbol] -> "Symbol", _ -> "Expression"}]
+(* the text: a string's characters, any other expression's code, in a monospaced font *)
+iconizeDetails[HoldComplete[e_]] := GridBox[{{StyleBox[iconizeText[HoldComplete[e]], ShowStringCharacters -> False, FontFamily -> "Source Code Pro"]}},
+    GridBoxAlignment -> {"Columns" -> {{Left}}}, DefaultBaseStyle -> "Column", GridBoxItemSize -> {"Columns" -> {{Automatic}}, "Rows" -> {{Automatic}}}]
+iconizeText[HoldComplete[s_String]] := "\"" <> StringReplace[s, {"\\" -> "\\\\", "\"" -> "\\\""}] <> "\""
+iconizeText[HoldComplete[e_]] := "\"" <> StringReplace[ToString[Unevaluated[e], InputForm], {"\\" -> "\\\\", "\"" -> "\\\""}] <> "\""
 typesetSub[b_, f_] := With[{h = heldBoxExpr[b]}, If[h === $Failed, b, typesetBox[h, f]]]
 
 typesetOperand[RowBox[l_List], f_] /; MemberQ[l, ","] :=

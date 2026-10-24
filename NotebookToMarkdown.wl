@@ -190,11 +190,26 @@ boxToCode[FormBox[b_, ___]] := walkerMath[b]
 iconizedBoxQ[InterpretationBox[disp_, _, ___]] :=
     ! FreeQ[HoldComplete[disp], TemplateBox[_, "IconizedObject", ___]]
 iconizedBoxQ[_] := False
-iconizedCode[ib : InterpretationBox[_, _, ___]] := StringRiffle[
+iconizedCode[ib : InterpretationBox[_, _, ___]] := iconizedMarker[ib] <> StringRiffle[
     List @@ Map[
         Function[e, ToString[Unevaluated[e], InputForm], HoldAllComplete],
         Extract[ib, 2, HoldForm]],
     ", "]
+(* the comment MarkdownToNotebook reads back as the same icon, for an icon with a name of its own:
+   (*Iconize["label"]*), or (*Iconize*) for a string named by its count of lines alone; no comment
+   for an icon the front end named by its kind *)
+iconizedMarker[InterpretationBox[disp_, e_, ___]] := With[{name = FirstCase[HoldComplete[disp],
+        StyleBox[n_String /; StringMatchQ[n, "\"" ~~ ___ ~~ "\""], "IconizedCustomName", ___] :> StringTake[n, {2, -2}], None, Infinity]},
+    Which[
+        name === None, "",
+        StringQ[Unevaluated[e]], With[{lines = ToString[iconizedLines[e]] <> If[iconizedLines[e] === 1, " line", " lines"]},
+            Which[
+                name === lines, "(*Iconize*)",
+                StringEndsQ[name, ", " <> lines], "(*Iconize[" <> ToString[StringDrop[name, -(StringLength[lines] + 2)], InputForm] <> "]*)",
+                True, "(*Iconize[" <> ToString[name, InputForm] <> "]*)"]],
+        True, "(*Iconize[" <> ToString[name, InputForm] <> "]*)"]]
+SetAttributes[iconizedMarker, HoldAllComplete]
+iconizedLines[s_String] := StringCount[s, "\n"] + If[s === "" || StringEndsQ[s, "\n"], 0, 1]
 (* a typeset input sub-expression (MarkdownToNotebook's Typeset rules and inline
    marker): the display is a FormBox in a box form, the interpretation the code as
    written. It walks back as that code behind the comment naming its form, which

@@ -57,6 +57,7 @@ the implementation inline:
 - Evaluated example outputs are cached as a [PersistentSymbol]() per cell at the `"Local"` [PersistenceLocation](), keyed by a cumulative hash of the preceding cells, so re-runs reuse them across sessions.
 - Manage that cache the standard way: [PersistentObjects]()["MarkdownToNotebook/ExampleOutput/*", "Local"] lists it, [DeleteObject]() clears it, and [$PersistencePath]() / [PersistenceLocation]() relocate it.
 - An input cell shows its code as typed. To show a sub-expression typeset instead - a `Quantity` as its unit form, an integral in `TraditionalForm` - ask for it, in either of two ways. A `Typeset:` frontmatter mapping lists `pattern: form` lines (`_Quantity: StandardForm`), or holds one rule or a rule list as a scalar, and the outermost sub-expression of each input that a pattern matches is typeset. A comment naming a box form right before a sub-expression marks just that one: `f[(*TraditionalForm*)Integrate[x^2, x], 2]`. The comment is inert when the code runs as text, so the markdown stays runnable, and the typeset form is of the expression as written, never its value, so evaluating the notebook's input cell runs exactly the markdown's code. Typesetting is formatting: it applies whether or not the examples are evaluated.
+- A comment `(*Iconize["label"]*)` right before a sub-expression shows it as an icon, as the front end's Iconize does, while the cell still evaluates the code as written: a long string, such as a Lean source passed to `LeanImportString`, shows as one icon named `label, 120 lines` that opens to the string in a monospaced font, and a kernel alone evaluating the notebook gets the string character for character. `(*Iconize*)` names a string by its count of lines alone, and any other expression by its head.
 - The source lives on GitHub, which renders the markdown directly: [github.com/WolframInstitute/MarkdownToNotebook](https://github.com/WolframInstitute/MarkdownToNotebook).
 - Running the function on this document - [Get]() the `.wl`, then `MarkdownToNotebook["MarkdownToNotebook.md", "MarkdownToNotebook.nb"]` - reproduces this very definition notebook; that is the loop `build.wls` runs.
 
@@ -1428,6 +1429,22 @@ VerificationTest[
         InterpretationBox[FormBox[TemplateBox[_, t_String, ___], _], e_, ___] :> {t, HoldComplete[e]}, Infinity],
     {{"DateObject", HoldComplete[DateObject[{2026, 9, 30}]]}},
     TestID -> "typeset: a DateObject shows its date and holds its code (issue #90)"
+]
+```
+
+A comment `(*Iconize["label"]*)` before a sub-expression shows it as an icon, as the front end's Iconize does: for a string, named by the label and its count of lines, with the string kept as written in the icon's interpretation, so the input evaluates to the same code; `(*Iconize*)` names a string by its count of lines alone:
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook[
+        "## A\n\n```wl\nx = f[(*Iconize[\"Lean source\"]*)\"line one\nline \\[ForAll] two\n\", 2]\n```\n\n```wl\ns = (*Iconize*)\"a\nb\nc\"\n```",
+        "Evaluate" -> False]},
+        {Cases[nb, StyleBox[n_String, "IconizedCustomName", ___] :> n, Infinity],
+         Cases[nb, InterpretationBox[_, e_String, ___] :> e, Infinity],
+         ToExpression[First @ Cases[nb, Cell[BoxData[b_], "Input", ___] :> b, Infinity], StandardForm, HoldComplete]}],
+    {{"\"Lean source, 2 lines\"", "\"3 lines\""}, {"line one\nline \[ForAll] two\n", "a\nb\nc"},
+     HoldComplete[x = f["line one\nline \[ForAll] two\n", 2]]},
+    TestID -> "iconize: a marked string is an icon named by its lines, evaluating to the string as written"
 ]
 ```
 
