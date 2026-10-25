@@ -3125,13 +3125,13 @@ guideEntry[entry_String, paclet_String] := Module[{e = StringTrim[entry], m},
     ]
 ]
 
-(* a related-guide / related-tutorial link cell: a RefLinkPlain TemplateBox
-   wrapped in an InlineFormula BoxData cell inside TextData (issue #20).  The
-   BoxData wrapper is required: a bare TemplateBox directly in TextData breaks
-   Export[..., "NB"] (the SeeAlso path does the same via docLinkCell). *)
+(* a guide's Related Guides / Tech Notes entry: a ButtonBox(Link) in TextData,
+   the form DocumentationBuild gives a GuideMoreAbout title and reads its link
+   lists from. The build makes it a RefLinkPlain in the entry's own style, which
+   a deploy links to the page. *)
 guideLinkContent[name_String, paclet_String, kind_String] := With[{
     g = If[kind === "guide", guideEntry[name, paclet], {name, linkURI[name, paclet, kind]}]},
-    TextData[Cell[BoxData[refLinkPlainBox[First[g], "paclet:" <> Last[g]]], "InlineFormula"]]]
+    TextData[ButtonBox[First[g], BaseStyle -> "Link", ButtonData -> "paclet:" <> Last[g]]]]
 
 (* fill a style's XXXX placeholders with one cell per given content expression *)
 fillDocCells[nb_, style_String, contents_List] := Block[{vals = contents, first = True},
@@ -4515,7 +4515,9 @@ listingTailQ[s_String] := StringMatchQ[StringTrim[s],
    "RefLinkPlain" - what an inline [Name](paclet:.../guide/Name) reference
    renders as - is NOT a ButtonBox and never registers. So a hub guide that
    points to sub-guides must emit the scanned ButtonBox-in-kept-cell form, which
-   these helpers build. *)
+   these helpers build. The link sits in TextData: Export splits a label in
+   BoxData at its spaces (RowBox[{"Euclidean", " ", "Geometry"}]), and the build
+   carries those boxes into the page, where a hyphen reads as Minus. *)
 guideNavButtonBox[label_String, uri_String] := ButtonBox[label, BaseStyle -> "Link", ButtonData -> uri]
 
 (* parse a leading markdown link to a guide URI; returns {{label, uri, rest}} or {} *)
@@ -4527,28 +4529,37 @@ guideLinkLeading[text_String] := StringCases[StringTrim[text],
 (* a "## Functions" "### heading": a whole-heading guide link
    "### [Sub](paclet:.../guide/Sub)" becomes a ButtonBox(Link)
    GuideFunctionsSubsection that DocumentationBuild reads as a parent->child
-   edge; a plain heading (or one with trailing prose) stays plain text. *)
+   edge and makes an OrangeLink; a plain heading (or one with trailing prose)
+   stays plain text. *)
 guideSubsectionHead[text_String] := With[{m = guideLinkLeading[text]},
     If[m === {} || m[[1, 3]] =!= "",
         Cell[TextData @ inlineTextData[text], "GuideFunctionsSubsection"],
-        Cell[BoxData[guideNavButtonBox[m[[1, 1]], m[[1, 2]]]], "GuideFunctionsSubsection"]
+        Cell[TextData[guideNavButtonBox[m[[1, 1]], m[[1, 2]]]], "GuideFunctionsSubsection"]
     ]
 ]
 
+(* a heading with nothing under it but delimiters, such as a sub-guide's link
+   alone, carries the IncludedEmptySection tag, which DocumentationBuild's
+   RemoveEmptyCellGroups spares: Export writes a group of one cell as that cell,
+   and the build drops an untagged GuideFunctionsSubsection that heads no group,
+   its link with it *)
+emptySectionTag[head_Cell, {Cell[_, "GuideDelimiter", ___] ...}] := Append[head, CellTags -> "IncludedEmptySection"]
+emptySectionTag[head_Cell, _] := head
+
 (* one "## Guides" index entry: a guide-link list item
    "- [Sub](paclet:.../guide/Sub) blurb" -> a GuideTOCLink cell carrying the
-   ButtonBox(Link) alone, then the blurb as a GuideText cell. GuideTOCLink is a
-   scanned cell style, so the edge registers; DocumentationBuild takes it for a
-   link and nothing else, and reparses any text beside the link as Wolfram
-   Language input, one line per piece ("master keys, child keys" becomes a
-   Sequence, "byte-list" a Minus). An item that is no guide link is a GuideText
-   line. *)
+   ButtonBox(Link) alone in its TextData, then the blurb as a GuideText cell.
+   GuideTOCLink is a scanned cell style, so the edge registers; DocumentationBuild
+   takes it for a link and nothing else, makes it a RefLinkPlain ending in its
+   chevron, and reparses any text beside the link as Wolfram Language input, one
+   line per piece ("master keys, child keys" becomes a Sequence, "byte-list" a
+   Minus). An item that is no guide link is a GuideText line. *)
 guideIndexCell[item_String] := With[{m = guideLinkLeading[item]},
     If[m === {},
         {Cell[TextData @ inlineTextData[item], "GuideText"]},
         With[{label = m[[1, 1]], uri = m[[1, 2]], desc = stripLeadingDash[m[[1, 3]]]},
             Join[
-                {Cell[TextData @ {Cell[BoxData[guideNavButtonBox[label, uri]], "InlineFormula"]}, "GuideTOCLink"]},
+                {Cell[TextData[guideNavButtonBox[label, uri]], "GuideTOCLink"]},
                 If[desc === "", {}, {Cell[TextData @ inlineTextData[desc], "GuideText"]}]
             ]
         ]
@@ -4571,7 +4582,8 @@ guideIndexCells[sections_, paclet_String] := If[paclet === "", {},
    GuideFunctionsSubsection cell sitting among sibling GuideText cells renders
    in the desktop FE but is SILENTLY DROPPED by DocumentationBuild - the built
    guide loses the subsection dividers entirely. Wrapping each subsection in its
-   own group is what makes the build keep them.
+   own group is what makes the build keep them; a heading with nothing under it
+   is kept by its tag (emptySectionTag).
 
    A bare Functions section with no "###" groups still produces one flat run of
    GuideText cells directly under the Functions section, same as before. *)
@@ -4580,7 +4592,7 @@ guideFunctionCells[sections_, paclet_String] := Block[{out = {}, cur = {}, head 
     If[ paclet === "", Return[{}] ];
     flush[] := If[head === None,
         out = Join[out, cur],
-        AppendTo[out, Cell[CellGroupData[Prepend[cur, guideSubsectionHead[head]], Open]]]
+        AppendTo[out, Cell[CellGroupData[Prepend[cur, emptySectionTag[guideSubsectionHead[head], cur]], Open]]]
     ];
     Do[
         Which[

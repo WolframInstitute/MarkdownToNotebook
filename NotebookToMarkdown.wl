@@ -812,8 +812,9 @@ $knownBlockStyles = {
    content) but force-emitted under "Comment"/"Inline". *)
 $templateStyles = {"UsageInputs", "InlineCode", "RelatedSymbol", "TableText"};
 (* M2N-managed markers never emitted as #| tags: "DefaultContent" is the scraper
-   marker; "TextAnnotation" rides the dedicated "#| annotation:" directive. *)
-$internalTags = {"DefaultContent", "TextAnnotation", "MTNScreenshot", "MTNUnfilled"};
+   marker; "TextAnnotation" rides the dedicated "#| annotation:" directive;
+   "IncludedEmptySection" keeps a guide heading with nothing under it. *)
+$internalTags = {"DefaultContent", "TextAnnotation", "MTNScreenshot", "MTNUnfilled", "IncludedEmptySection"};
 allCellTags[opts_List] := Flatten[Cases[opts, (CellTags -> t_) :> Flatten[{t}]]]
 
 (* structural template markers - a cell carrying any of these is part of the doc
@@ -1078,9 +1079,12 @@ guideChipMd[TemplateBox[{lbl_, _String, ___}, _, ___]] :=
 (* "InlineGuideFunction" is the palette's chip style; a built / shipped guide
    carries the same {label, uri} TemplateBox under "InlineFunctionSans". *)
 guideItemPart[Cell[BoxData[tb_TemplateBox], "InlineGuideFunction" | "InlineFunctionSans", ___]] := guideChipMd[tb]
-(* a navigation ButtonBox (a "## Guides" index entry) -> a markdown link *)
-guideItemPart[Cell[BoxData[ButtonBox[l_String, ___, ButtonData -> u_String, ___]], "InlineFormula", ___]] :=
-    "[" <> l <> "](" <> u <> ")"
+(* a navigation ButtonBox (a "## Guides" index entry) -> a markdown link: the
+   link alone in the entry's TextData, or in an InlineFormula cell *)
+guideItemPart[ButtonBox[l_, ___, ButtonData -> u_String, ___]] /; StringMatchQ[u, "paclet:" ~~ ___ ~~ "guide/" ~~ ___] :=
+    "[" <> linkLabelText[l] <> "](" <> u <> ")"
+guideItemPart[Cell[BoxData[ButtonBox[l_, ___, ButtonData -> u_String, ___]], "InlineFormula", ___]] :=
+    "[" <> linkLabelText[l] <> "](" <> u <> ")"
 guideItemPart[s_String] /; StringTrim[s] === "\[LongDash]" := " "
 (* A guide description embeds inline math as front-end linear syntax INSIDE the
    string: the base glyph is ordinary text, immediately followed by a script box
@@ -1136,16 +1140,20 @@ blockFor["GuideAbstract", c_] := With[{b = tidy @ inlineMd[c]},
     If[TrueQ[$abstractHeadingDone], b,
         $abstractHeadingDone = True; "## Abstract\n\n" <> b]]
 blockFor["GuideFunctionsSection", _] := "## Functions"
+(* a link label as text: its strings, and the boxes a front end makes of a label
+   in BoxData, split at its spaces (RowBox[{"Euclidean", " ", "Geometry"}]), read
+   as the code they spell *)
+linkLabelText[lbl_] := cellPlain[lbl /. r_RowBox :> boxToCode[r]]
 (* the OrangeLink label with the template's decorative trailing chevron trimmed *)
-orangeLinkLabel[lbl_] := StringTrim @ StringReplace[cellPlain[lbl],
+orangeLinkLabel[lbl_] := StringTrim @ StringReplace[linkLabelText[lbl],
     WhitespaceCharacter ... ~~ "\[RightGuillemet]" ~~ EndOfString -> ""]
 blockFor["GuideFunctionsSubsection", c_] := Which[
     (* the "Guides" divider heads the sub-guide index *)
     cellPlain[c] === "Guides", "## Guides",
     (* a whole-heading guide link: "### [Sub](paclet:.../guide/Sub)" *)
-    MatchQ[c, BoxData[ButtonBox[_String, ___, ButtonData -> _String, ___]]],
-        Replace[c, BoxData[ButtonBox[l_String, ___, ButtonData -> u_String, ___]] :>
-            "### [" <> l <> "](" <> u <> ")"],
+    MatchQ[c, (TextData | BoxData)[ButtonBox[_, ___, ButtonData -> _String, ___]]],
+        Replace[c, _[ButtonBox[l_, ___, ButtonData -> u_String, ___]] :>
+            "### [" <> linkLabelText[l] <> "](" <> u <> ")"],
     (* a hub guide heads each sub-guide block with an OrangeLink chip - a
        {label, uri} TemplateBox. It walks back to the same whole-heading link
        form, which the forward path rebuilds as the registering ButtonBox. *)
@@ -1772,12 +1780,15 @@ pageFrontmatter[nb_, name_] := Module[{cat, paclet, ctx, uri, kw, sa, rg, rt, re
    and is NOT heading-only, so dropEmptySections never mistakes it for an empty
    section. A heading is empty only if the next block is a heading of the same
    or higher level (a sibling / parent section), or end of document; a deeper
-   following subsection is content. *)
+   following subsection is content. A heading that is a link is an entry by
+   itself, such as a guide's "### [Sub](paclet:.../guide/Sub)" with nothing
+   under it, and is kept. *)
 headingQ[s_String] := StringMatchQ[s, ("#" ..) ~~ " " ~~ Except["\n"] ...]
+linkHeadingQ[s_String] := StringMatchQ[s, ("#" ..) ~~ " [" ~~ Except["\n"] ... ~~ "](" ~~ Except["\n" | ")"] ... ~~ ")"]
 headingLevel[s_String] := StringLength @ First @ StringCases[s, StartOfString ~~ h : ("#" ..) :> h]
 dropEmptySections[blocks_List] := Module[{i, out = {}},
     Do[
-        If[ headingQ[blocks[[i]]] &&
+        If[ headingQ[blocks[[i]]] && ! linkHeadingQ[blocks[[i]]] &&
             (i == Length[blocks] ||
                 (headingQ[blocks[[i + 1]]] && headingLevel[blocks[[i + 1]]] <= headingLevel[blocks[[i]]])),
             Null,

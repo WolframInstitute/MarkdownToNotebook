@@ -790,7 +790,7 @@ A hub guide builds the documentation hierarchy (the collapsible sidebar tree) by
 ```wl
 VerificationTest[
     With[{nb = MarkdownToNotebook["---\nTemplate: Guide\nName: Hub\nContext: Pub`Pkg`\nPaclet: Pub/Pkg\nURI: Pub/Pkg/guide/Hub\n---\n\n## Functions\n\n### [Algebra](paclet:Pub/Pkg/guide/Algebra)\n- `Foo` does foo\n\n## Guides\n\n- [NumberTheory](paclet:Pub/Pkg/guide/NumberTheory) primes\n"]},
-        {Cases[nb, Cell[BoxData[ButtonBox[_, ___, ButtonData -> u_, ___]], "GuideFunctionsSubsection", ___] :> u, Infinity],
+        {Cases[nb, Cell[TextData[ButtonBox[_, ___, ButtonData -> u_, ___]], "GuideFunctionsSubsection", ___] :> u, Infinity],
          Cases[nb, Cell[c_, "GuideTOCLink", ___] :> First[Cases[c, (ButtonData -> u_) :> u, Infinity], None], Infinity]}
     ],
     {{"paclet:Pub/Pkg/guide/Algebra"}, {"paclet:Pub/Pkg/guide/NumberTheory"}},
@@ -804,7 +804,7 @@ A `## Guides` entry's blurb goes in a `GuideText` cell after its `GuideTOCLink`:
 VerificationTest[
     With[{nb = MarkdownToNotebook["---\nTemplate: Guide\nName: Hub\nContext: Pub`Pkg`\nPaclet: Pub/Pkg\nURI: Pub/Pkg/guide/Hub\n---\n\n## Functions\n\n- `Foo` does foo\n\n## Guides\n\n- [Derivation](paclet:Pub/Pkg/guide/Derivation) turns a seed into master keys, child keys and addresses\n- [Encodings](paclet:Pub/Pkg/guide/Encodings)\n", "Evaluate" -> False]},
         {
-            Cases[nb, Cell[c_, "GuideTOCLink", ___] :> MatchQ[c, TextData[{Cell[BoxData[_ButtonBox], "InlineFormula", ___]}]], Infinity],
+            Cases[nb, Cell[c_, "GuideTOCLink", ___] :> MatchQ[c, TextData[_ButtonBox]], Infinity],
             Cases[nb, Cell[c_, "GuideText", ___] /; ! FreeQ[c, "turns a seed into master keys, child keys and addresses"] :> True, Infinity],
             StringCases[NotebookToMarkdown[nb], "- [Derivation](" ~~ Shortest[___] ~~ "\n"]
         }
@@ -815,6 +815,65 @@ VerificationTest[
         {"- [Derivation](paclet:Pub/Pkg/guide/Derivation) turns a seed into master keys, child keys and addresses\n"}
     },
     TestID -> "a ## Guides entry's blurb is a GuideText cell after its GuideTOCLink, one item again in markdown"
+]
+```
+
+A sub-guide link's label is text in the cell's `TextData`: `Export` splits a label in `BoxData` at its spaces, and the build carries those boxes into the page as Wolfram Language, a hyphen a `Minus`. A saved hub guide keeps its labels whole, and NotebookToMarkdown reads them back as the links:
+
+```wl
+VerificationTest[
+    With[{file = FileNameJoin[{$TemporaryDirectory, CreateUUID["guide-"] <> ".nb"}]},
+        Export[file, MarkdownToNotebook["---\nTemplate: Guide\nName: Hub\nContext: Pub`Pkg`\nPaclet: Pub/Pkg\nURI: Pub/Pkg/guide/Hub\n---\n\n## Functions\n\n### [K-Theory Basics](paclet:Pub/Pkg/guide/KTheoryBasics)\n- `Foo` does foo\n\n## Guides\n\n- [Prime Sieves](paclet:Pub/Pkg/guide/PrimeSieves) primes\n", "Evaluate" -> False], "NB"];
+        With[{nb = Get[file]},
+            DeleteFile[file];
+            {
+                Cases[nb, Cell[_[ButtonBox[l_, ___]], "GuideFunctionsSubsection" | "GuideTOCLink", ___] :> l, Infinity],
+                StringCases[NotebookToMarkdown[nb], ("### [K" | "- [Prime") ~~ Shortest[___] ~~ ")"]
+            }
+        ]
+    ],
+    {
+        {"K-Theory Basics", "Prime Sieves"},
+        {"### [K-Theory Basics](paclet:Pub/Pkg/guide/KTheoryBasics)", "- [Prime Sieves](paclet:Pub/Pkg/guide/PrimeSieves)"}
+    },
+    TestID -> "a sub-guide link's label stays text through a save and reads back as the link"
+]
+```
+
+A heading with nothing under it, such as a sub-guide's link alone, carries the `IncludedEmptySection` tag, by which `DocumentationBuild` keeps an empty section; a heading with listings carries none. NotebookToMarkdown keeps a heading that is a link, with listings under it or none:
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook["---\nTemplate: Guide\nName: Hub\nContext: Pub`Pkg`\nPaclet: Pub/Pkg\nURI: Pub/Pkg/guide/Hub\n---\n\n## Functions\n\n### [Algebra](paclet:Pub/Pkg/guide/Algebra)\n- `Foo` does foo\n\n### [Conics](paclet:Pub/Pkg/guide/Conics)\n\n### [Topology](paclet:Pub/Pkg/guide/Topology)\n- `Bar` does bar\n", "Evaluate" -> False]},
+        {
+            Cases[nb, Cell[_[ButtonBox[l_String, ___]], "GuideFunctionsSubsection", o___] :> {l, Lookup[{o}, CellTags, None]}, Infinity],
+            StringCases[NotebookToMarkdown[nb], StartOfLine ~~ "### " ~~ Except["\n"] ..]
+        }
+    ],
+    {
+        {{"Algebra", None}, {"Conics", "IncludedEmptySection"}, {"Topology", None}},
+        {"### [Algebra](paclet:Pub/Pkg/guide/Algebra)", "### [Conics](paclet:Pub/Pkg/guide/Conics)", "### [Topology](paclet:Pub/Pkg/guide/Topology)"}
+    },
+    TestID -> "a guide heading with nothing under it carries the IncludedEmptySection tag and reads back"
+]
+```
+
+A guide's Related Guides and Tech Notes entries are `ButtonBox` links in `TextData`, the form `DocumentationBuild` reads its link lists from and gives a bare `GuideMoreAbout` title. NotebookToMarkdown reads them back as the front matter's lists:
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook["---\nTemplate: Guide\nName: Hub\nContext: Pub`Pkg`\nPaclet: Pub/Pkg\nURI: Pub/Pkg/guide/Hub\nRelatedGuides: [PrimeSieves]\nRelatedTutorials: [Primer]\n---\n\n## Functions\n\n- `Foo` does foo\n", "Evaluate" -> False]},
+        {
+            Cases[nb, Cell[c_, s : "GuideMoreAbout" | "GuideTutorial", ___] :> {s, c}, Infinity],
+            StringCases[NotebookToMarkdown[nb], ("RelatedGuides" | "RelatedTutorials") ~~ ": " ~~ Shortest[___] ~~ "\n"]
+        }
+    ],
+    {
+        {{"GuideTutorial", TextData[ButtonBox["Primer", BaseStyle -> "Link", ButtonData -> "paclet:Pub/Pkg/tutorial/Primer"]]},
+         {"GuideMoreAbout", TextData[ButtonBox["Prime Sieves", BaseStyle -> "Link", ButtonData -> "paclet:Pub/Pkg/guide/PrimeSieves"]]}},
+        {"RelatedGuides: [PrimeSieves]\n", "RelatedTutorials: [Primer]\n"}
+    },
+    TestID -> "a guide's Related Guides and Tech Notes entries are Link ButtonBoxes in TextData"
 ]
 ```
 

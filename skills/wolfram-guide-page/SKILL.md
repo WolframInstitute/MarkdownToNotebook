@@ -103,6 +103,8 @@ emits the registering form for these two authoring patterns - use either or both
    ```
 
    The whole heading must be the link (no trailing prose), or it stays plain text.
+   A linked heading may stand alone, with nothing under it: the sub-guide's link
+   is then the whole entry, and the built guide keeps it.
 
 2. **Dedicated `## Guides` index** - a curated list of sub-guides, separate from
    the function listing; each item becomes a `GuideTOCLink`:
