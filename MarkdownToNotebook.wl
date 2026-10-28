@@ -5759,9 +5759,14 @@ resourceNotebook[resourceType_String, data0_] := Block[{template, data = Append[
     template = template /. Cell[CellGroupData[{hdr : Cell[_, "Section", ___, CellTags -> {___, "Definition", ___}, ___], body___}, Open], go___] :>
         Cell[CellGroupData[{hdr, body}, Closed], go];
     (* pin the deployed notebook to light mode so the cloud page never renders
-       dark (LightDark -> "Light" forces light regardless of the viewer theme). *)
+       dark (LightDark -> "Light" forces light regardless of the viewer theme). A
+       Paclet page's loading cells, the initialization cells of its Examples section,
+       run by themselves at a reader's first evaluation, with no prompt, so the
+       examples run with the paclet loaded. *)
     Replace[template, Notebook[cells_, o___] :>
-        Notebook[cells, LightDark -> "Light", Sequence @@ FilterRules[{o}, Except[LightDark]]]]
+        Notebook[cells, LightDark -> "Light",
+            Sequence @@ If[resourceType === "Paclet", {InitializationCellEvaluation -> True, InitializationCellWarning -> False}, {}],
+            Sequence @@ FilterRules[{o}, Except[LightDark | InitializationCellEvaluation | InitializationCellWarning]]]]
 ]
 
 (* === Template: Chapter (Wolfram Book Tools) ===

@@ -940,6 +940,18 @@ VerificationTest[
 ]
 ```
 
+A Paclet page's loading cells, the initialization cells of its Examples section that load the paclet, run by themselves at a reader's first evaluation, with no prompt, so the examples a reader runs in the definition notebook run with the paclet loaded:
+
+```wl
+VerificationTest[
+    Lookup[
+        Options[MarkdownToNotebook["---\nTemplate: Paclet\nName: P\nPaclet: Pub/P\nContext: Pub`P`\n---\n\n## Basic Description\n\nhello\n\n## Basic Examples\n\nAdd:\n\n```wl\n1 + 1\n```\n", "Evaluate" -> False]],
+        {InitializationCellEvaluation, InitializationCellWarning}],
+    {True, False},
+    TestID -> "Paclet: the loading cells run at a reader's first evaluation, with no prompt"
+]
+```
+
 A `TechNote` source builds with the modern `Tutorial` entity type (`DocumentationBuild` gives it the same TechNote page styling), and a Guide's `RelatedTutorials:` frontmatter fills the Tech Notes section's `GuideTutorial` placeholders - one link per entry:
 
 ```wl
