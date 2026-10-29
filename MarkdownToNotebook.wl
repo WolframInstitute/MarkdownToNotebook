@@ -1301,36 +1301,17 @@ installSelfAlias[ctx_String] := With[{realName = Context[MarkdownToNotebook] <> 
 ]
 
 (* a front end is active for the whole pass so an example may open the notebook it
-   produces (NotebookPut) and have its thumbnail captured (see outputBoxes). Once the
-   outputs are made, the Global` symbols the document gave definitions to are cleared
-   (globalsClearedAfter), so the next document evaluated in the kernel sees none of them. *)
-evaluateAll[items_List, ctx_String, ctxPath_List, mode_] := globalsClearedAfter[globalState[],
-    Block[{$Context = ctx, $ContextPath = ctxPath},
-        preloadContextPath[ctxPath];
-        UsingFrontEnd[Fold[accumEval,
-            <|"code" -> "", "base" -> "", "cleared" -> {}, "heading" -> "", "out" -> <||>, "ctx" -> ctx, "mode" -> mode,
-              (* no setup section to protect means an empty baseline from the start,
-                 so the first delimiter already clears whatever the document bound *)
-              "protected" -> If[AnyTrue[items, $setupHeadingQ], None, {}],
-              "defLevel" -> None|>,
-            items]]["out"]
-    ]
+   produces (NotebookPut) and have its thumbnail captured (see outputBoxes). *)
+evaluateAll[items_List, ctx_String, ctxPath_List, mode_] := Block[{$Context = ctx, $ContextPath = ctxPath},
+    preloadContextPath[ctxPath];
+    UsingFrontEnd[Fold[accumEval,
+        <|"code" -> "", "base" -> "", "cleared" -> {}, "heading" -> "", "out" -> <||>, "ctx" -> ctx, "mode" -> mode,
+          (* no setup section to protect means an empty baseline from the start,
+             so the first delimiter already clears whatever the document bound *)
+          "protected" -> If[AnyTrue[items, $setupHeadingQ], None, {}],
+          "defLevel" -> None|>,
+        items]]["out"]
 ]
-
-(* A document's examples evaluate in a context of their own, but one whose ContextPath lists
-   Global` reads and assigns a name there whenever the symbol exists, and every later document
-   evaluated in the same kernel would see its value: a build converts many pages in one kernel.
-   So the Global` symbols that had no definition before the document and have one after it,
-   made by it or given values by it, are cleared; those the session defined before keep their
-   definitions. *)
-globalState[] := With[{names = Names["Global`*"]}, {names, Select[names, ! globalDefinedQ[#] &]}]
-
-globalsClearedAfter[{names_List, bare_List}, result_] := (
-    Replace[Select[Union[Complement[Names["Global`*"], names], bare], globalDefinedQ], assigned : {__} :> ClearAll @@ assigned];
-    result
-)
-
-globalDefinedQ[name_String] := AnyTrue[{OwnValues, DownValues, UpValues, SubValues}, #[name] =!= {} &]
 
 (* attach each executable block's output (by cumulative hash) so builders read
    block["OutputBoxes"] / block["Messages"] directly instead of recomputing hashes.

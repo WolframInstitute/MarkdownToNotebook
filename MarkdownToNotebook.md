@@ -1784,21 +1784,6 @@ VerificationTest[
 ]
 ```
 
-A document that puts `Global`` on its `ContextPath` reads and assigns a name there when the symbol exists; once its outputs are made, the `Global`` symbols it gave definitions to are cleared, so the next document converted in the kernel sees none of its values:
-
-```wl
-VerificationTest[
-    Symbol["Global`leakProbe"];
-    {
-        Cases[MarkdownToNotebook["---\nContextPath: [Global`]\n---\n\n## A\n\n```wl\nleakProbe = 5\n```", "UseCache" -> False], Cell[BoxData[b_], "Output", ___] :> b, Infinity],
-        OwnValues["Global`leakProbe"],
-        Cases[MarkdownToNotebook["---\nContextPath: [Global`]\n---\n\n## B\n\n```wl\nleakProbe + 1\n```", "UseCache" -> False], Cell[BoxData[b_], "Output", ___] :> b, Infinity]
-    },
-    {{"5"}, {}, {RowBox[{"1", "+", "leakProbe"}]}},
-    TestID -> "a Global` name one document assigns is cleared before the next, so no value leaks between pages"
-]
-```
-
 A page's `NewIn`, `ModifiedIn` and `ObsoleteIn` fill its History cell; without `NewIn` the template's placeholder stays:
 
 ```wl
