@@ -1028,6 +1028,35 @@ VerificationTest[
 ]
 ```
 
+The `ExampleInitialization` cell is one line, which `DocumentationBuild` reads as one expression and makes each example load: a cell of two lines it cannot read, and it drops the load with it:
+
+```wl
+VerificationTest[
+    MakeExpression[
+        FirstCase[
+            MarkdownToNotebook["---\nTemplate: Symbol\nName: Foo\nContext: A`Pkg`\nContextPath: [B`Extra`, C`More`]\nPaclet: A/Pkg\nURI: A/Pkg/ref/Foo\n---\n\n## Usage\n\n`Foo[x]` does.\n\n## Basic Examples\n\n```wl\nFoo[1]\n```\n", "Evaluate" -> False],
+            Cell[b_BoxData, "ExampleInitialization", ___] :> b, $Failed, Infinity],
+        StandardForm
+    ],
+    HoldComplete[Needs["A`Pkg`"]; Needs["B`Extra`"]; Needs["C`More`"]],
+    TestID -> "ContextPath: the ExampleInitialization cell is one line, which DocumentationBuild reads as one expression"
+]
+```
+
+A tutorial whose front matter names a `Context:` loads it as `DocumentationBuild` loads a reference page's, which it does for no tutorial: a `Needs` input before its first example, and a `CellProlog` on every input that loads the context, so whichever example a reader evaluates first finds it loaded:
+
+```wl
+VerificationTest[
+    With[{inputs = Cases[
+        MarkdownToNotebook["---\nTemplate: TechNote\nURI: P/Q/tutorial/T\nContext: P`Q`\nPaclet: P/Q\n---\n\n## A\n\n```wl\n1 + 1\n```\n\n```wl\n2 + 2\n```\n", "Evaluate" -> False],
+        Cell[BoxData[b_], "Input", ___, CellProlog :> p_, ___] :> {b, HoldComplete[p]}, Infinity]},
+        {Length[inputs], ! FreeQ[First[inputs][[1]], "Needs"], Union[inputs[[All, 2]]]}
+    ],
+    {3, True, {HoldComplete[Scan[Needs, {"P`Q`"}]]}},
+    TestID -> "a tutorial with a Context loads it: a Needs input before its first example, and a CellProlog on every input"
+]
+```
+
 `Global`` in `ContextPath:` puts `Global`` on the examples' path, so the symbols they make there print unqualified, and adds no `Needs["Global`"]` to the `ExampleInitialization` cell, since `Global`` is no package and is on every reader's path already:
 
 ```wl

@@ -3254,11 +3254,28 @@ docContextList[meta_] := DeleteDuplicates @ DeleteCases[
     Flatten @ {Lookup[meta, "Context", Nothing], Lookup[meta, "ContextPath", {}]},
     "" | "System`"]
 
-(* the ExampleInitialization cell body: one Needs[] per documented context. Global`, which
-   a page lists so its examples' Global` symbols print unqualified, is on every reader's
-   $ContextPath already and is no package to load. *)
-exampleInitCode[meta_] := StringRiffle[
-    ("Needs[\"" <> # <> "\"]") & /@ DeleteCases[docContextList[meta], "Global`"], "\n"]
+(* the ExampleInitialization cell body: one Needs[] per documented context, on one line,
+   since DocumentationBuild reads the cell as one expression and drops a cell of two lines.
+   Global`, which a page lists so its examples' Global` symbols print unqualified, is on every
+   reader's $ContextPath already and is no package to load. *)
+exampleInitCode[meta_] := StringRiffle[("Needs[\"" <> # <> "\"]") & /@ loadedContexts[meta], "; "]
+
+(* the contexts a reader's examples load *)
+loadedContexts[meta_] := DeleteCases[docContextList[meta], "Global`"]
+
+(* A tutorial loads its contexts as DocumentationBuild loads a reference page's, which it does
+   for no tutorial: a visible Needs input before the first example, and a CellProlog on every
+   input that loads them, so an example a reader evaluates first finds them loaded. *)
+tutorialLoads[body_List, meta_] := With[{contexts = loadedContexts[meta]},
+    If[ contexts === {} || FreeQ[body, Cell[_, "Input", ___]],
+        body,
+        Insert[
+            body /. Cell[b_, "Input", o___] :> Cell[b, "Input", o, CellProlog :> Scan[Needs, contexts]],
+            Cell[BoxData[inputBoxes[exampleInitCode[meta]]], "Input", CellProlog :> Scan[Needs, contexts]],
+            FirstPosition[body, Cell[_, "Input", ___]]
+        ]
+    ]
+]
 
 (* the font LaTeX math (LaTeXMathParse output) is restyled to. Holds the resolved
    "MathFont" option value (see applyMathFont):
@@ -4692,7 +4709,7 @@ tutorialNotebook[data_] := Block[{meta = data["meta"], nb, title, body, paclet, 
     nb = docTemplate["TechNoteBaseTemplateExt.nb"];
     title = Lookup[meta, "Title", Lookup[meta, "Name", ""]];
     nb = fillDocString[nb, "Title", title];
-    body = tutorialBody[data["blocks"]];
+    body = tutorialLoads[tutorialBody[data["blocks"]], meta];
     (* rebuild the Title group: title cell + our body + the two link-section groups *)
     nb = nb /. Cell[CellGroupData[{tc : Cell[_, "Title", ___], ___,
             tma : Cell[CellGroupData[{Cell[_, "TutorialMoreAboutSection", ___], ___}, _], ___],
