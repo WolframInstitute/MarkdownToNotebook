@@ -88,6 +88,8 @@ MarkdownToNotebook::revcomment =
     "The reviewer comment \"`1`\" has no \"#| comment:\" directive holding its cell; a reviewer comment is never rebuilt from text, so it is kept as a quote.";
 MarkdownToNotebook::comdate =
     "The comment header \"`1`\" gives no time as \"Name, YYYY-MM-DD HH:MM UTC\"; the comment is dated at build time.";
+MarkdownToNotebook::evaluator =
+    "\"Evaluator\" -> `1` is no evaluator, an Association with an \"Evaluate\" function; the cells are evaluated here.";
 MarkdownToNotebook::section =
     "`1`, under \"`2`\": `3` have no value here, since only an earlier section defines them and the evaluation starts afresh at each heading. Define them in this section or under an \"Initialization\" heading; a page written as one narrative, such as a tutorial, takes \"EvaluateSeparator\" -> None.";
 
@@ -1104,6 +1106,12 @@ captureCellRun[code_String, opts_Association : <||>] := Block[{stmts, outs, cell
     <|"outs" -> outs, "msgs" -> msgs, "prints" -> prints, "cells" -> cellsExtra|>
 ]
 
+(* the evaluator's function of the key applied to the arguments, where there is an evaluator with
+   one *)
+evaluatorCall[state_Association, key_String, args___] := With[{evaluator = Lookup[state, "evaluator", Automatic]},
+    If[AssociationQ[evaluator] && KeyExistsQ[evaluator, key], evaluator[key][args]]
+]
+
 (* Snapshot every symbol currently bound in the document context tree -
    "ctx`*" matches symbols in ctx; "ctx`**`*" matches symbols in every
    sub-context underneath ctx (a single "ctx`**" only matches the
@@ -1135,6 +1143,7 @@ resetState[state_] := If[
         defined = Select[ToExpression[#, InputForm, HoldComplete] & /@ toRemove, ! undefinedSymbolQ[#] &];
         If[toRemove =!= {}, Quiet @ ClearAll @@ toRemove];
         ClearSystemCache[];
+        evaluatorCall[state, "Reset"];
         <|state, "code" -> state["base"], "cleared" -> Union[state["cleared"], defined]|>
     ]
 ]
@@ -1146,7 +1155,7 @@ evalCell[state_, b_] := Block[{code = state["code"] <> mdSep <> b["Code"], captu
        how a notebook cell with multiple expressions renders multiple Out[n]s.
        outputBoxes is applied per-value inside the capture (the cell's options
        e.g. "screenshot" / "tear" / "image" route through to each output). *)
-    captured = captureCellRun[b["Code"], b["Options"]];
+    captured = If[AssociationQ[state["evaluator"]], state["evaluator"]["Evaluate"][b["Code"], b["Options"]], captureCellRun[b["Code"], b["Options"]]];
     With[{stale = staleSymbols[b["Code"], state["cleared"]]},
         If[ stale =!= {}, captured = <|captured, "stale" -> <|"Heading" -> state["heading"], "Symbols" -> stale|>|>]
     ];
@@ -1217,7 +1226,8 @@ captureProtectedQ[state_, b_] :=
 accumEval[state0_, b_] := Block[{state = state0, s},
     If[ b["Type"] === "Heading", state = <|state, "heading" -> b["Text"]|>];
     If[ captureProtectedQ[state, b],
-        state = <|state, "protected" -> docContextSymbols[state["ctx"]]|>
+        state = <|state, "protected" -> docContextSymbols[state["ctx"]]|>;
+        evaluatorCall[state, "Baseline"]
     ];
     If[ $setupHeadingQ[b], state = <|state, "defLevel" -> b["Level"]|>];
     s = If[resetBoundaryQ[state["mode"], b], resetState[state], state];
@@ -1301,11 +1311,15 @@ installSelfAlias[ctx_String] := With[{realName = Context[MarkdownToNotebook] <> 
 ]
 
 (* a front end is active for the whole pass so an example may open the notebook it
-   produces (NotebookPut) and have its thumbnail captured (see outputBoxes). *)
-evaluateAll[items_List, ctx_String, ctxPath_List, mode_] := Block[{$Context = ctx, $ContextPath = ctxPath},
+   produces (NotebookPut) and have its thumbnail captured (see outputBoxes). An evaluator, as
+   "Evaluator" gives one, evaluates the cells in place of captureCellRun, on a kernel of its own:
+   its "Start" is given the page's context path before the first cell, its "Baseline" is called
+   where the setup's bindings are kept, and its "Reset" at each reset after them. *)
+evaluateAll[items_List, ctx_String, ctxPath_List, mode_, evaluator_ : Automatic] := Block[{$Context = ctx, $ContextPath = ctxPath},
     preloadContextPath[ctxPath];
+    evaluatorCall[<|"evaluator" -> evaluator|>, "Start", ctxPath];
     UsingFrontEnd[Fold[accumEval,
-        <|"code" -> "", "base" -> "", "cleared" -> {}, "heading" -> "", "out" -> <||>, "ctx" -> ctx, "mode" -> mode,
+        <|"code" -> "", "base" -> "", "cleared" -> {}, "heading" -> "", "out" -> <||>, "ctx" -> ctx, "mode" -> mode, "evaluator" -> evaluator,
           (* no setup section to protect means an empty baseline from the start,
              so the first delimiter already clears whatever the document bound *)
           "protected" -> If[AnyTrue[items, $setupHeadingQ], None, {}],
@@ -6726,6 +6740,12 @@ sanitiseDocNameForCache[_] := "unnamed"
    hashB36 suffix preserves the content-addressing - changing a cell's code
    yields a new hash and a fresh entry; the previous stale entry orphans
    under the same NNN prefix and is easy to spot when grepping. *)
+(* the part of an example's cache name an evaluator adds: none for this kernel's, else its
+   "Identity", so that each kernel's outputs are kept apart, or the evaluator itself, which keeps
+   none from one conversion to the next *)
+evaluatorTag[Automatic] := ""
+evaluatorTag[evaluator_Association] := "@" <> IntegerString[Hash[Lookup[evaluator, "Identity", evaluator]], 36]
+
 exampleCacheName[docName_String, cellIdx_Integer, h_Integer] :=
     "MarkdownToNotebook/ExampleOutput/" <>
         sanitiseDocNameForCache[docName] <>
@@ -6786,7 +6806,7 @@ withMarkdownSource[Notebook[cells_, o : OptionsPattern[]], src_String, tmpl_Stri
 ]
 withMarkdownSource[other_, _, _] := other
 
-Options[MarkdownToNotebook] = {"Evaluate" -> True, "PreserveSource" -> False, "EvaluateSeparator" -> Automatic, "MathFont" -> None, "LightDark" -> Automatic, "UseCache" -> True}
+Options[MarkdownToNotebook] = {"Evaluate" -> True, "PreserveSource" -> False, "EvaluateSeparator" -> Automatic, "Evaluator" -> Automatic, "MathFont" -> None, "LightDark" -> Automatic, "UseCache" -> True}
 
 (* spec is an *optional* second argument (default Automatic). Do not split this
    into a separate 1-argument form that forwards to the 3-argument one: an empty
@@ -6806,6 +6826,11 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
     useCache = TrueQ[OptionValue["UseCache"]],
     preserveSource = TrueQ[OptionValue["PreserveSource"]],
     evalSeparator = OptionValue["EvaluateSeparator"],
+    evaluator = Replace[OptionValue["Evaluator"], {
+        e_Association /; KeyExistsQ[e, "Evaluate"] :> e,
+        Automatic -> Automatic,
+        other_ :> (Message[MarkdownToNotebook::evaluator, other]; Automatic)
+    }],
     (* "LightDark" -> "Dark" | "Light" pins the appearance the evaluated
        outputs (and the markdown twin's rasterizations) are rendered in;
        Automatic keeps the ambient $lightDark (the load-time default is
@@ -6863,7 +6888,7 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
        cellIndex is 1-based in evaluation order; the hash preserves
        content-addressing.  See exampleCacheName for the layout. *)
     cacheDocName = If[$docName === "", src["Name"], $docName];
-    cacheNames = MapIndexed[exampleCacheName[cacheDocName, First[#2], #1] &, hashes];
+    cacheNames = MapIndexed[exampleCacheName[cacheDocName <> evaluatorTag[evaluator], First[#2], #1] &, hashes];
     ctx = "MTNB$" <> IntegerString[Hash[text], 36] <> "`";
     (* let example cells resolve the documented paclet's symbols unqualified.
        NOT Context[MarkdownToNotebook]: that exposes every internal helper
@@ -6901,7 +6926,7 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
     outputs = Which[
         ! evalExamples || $convertDepth > 2, <||>,
         allHit, cached,
-        True, evaluateAll[orderedCode, ctx, ctxPath, evalSeparator]
+        True, evaluateAll[orderedCode, ctx, ctxPath, evalSeparator, evaluator]
     ];
     (* Only persist CLEAN outputs - skip entries whose evaluation emitted kernel
        messages (Get::noopen, Needs::nocont, Failure[...], runtime errors, ...).
