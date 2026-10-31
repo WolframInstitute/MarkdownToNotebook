@@ -49,7 +49,7 @@ the implementation inline:
 | `"PreserveSource"` | `False` | with `True`, stamps the original markdown source into the produced notebook's `TaggingRules` (under the `"MarkdownToNotebook"` key, as `<\|"Source" -> ..., "Template" -> ...\|>`) so the `.nb` is self-contained: rendered view + the source it came from in one file, useful for tooling that wants the source side-loaded. The default is `False` so the notebook is a strictly-rendered artifact and any post-conversion edit to the cells shows up faithfully when [NotebookToMarkdown]() walks it back to markdown - the right semantics for diffing the edited `.nb` against the `.md` it was built from. [NotebookToMarkdown]() does NOT read this stash by design |
 | `"LightDark"` | `Automatic` | the appearance the evaluated outputs (and the markdown twin's rasterized images) are rendered in: `"Light"` or `"Dark"`. `Automatic` keeps the ambient `$lightDark` setting (default light) |
 | `"EvaluateSeparator"` | `Automatic` | where the per-document evaluation context is reset while the example cells run in sequence - see the section below. The host session's `Global`` context is never touched |
-| `"Evaluator"` | `Automatic` | the evaluator of the example cells. `Automatic` evaluates them in this kernel; an [Association]() evaluates them elsewhere, on a kernel the caller runs: its `"Evaluate"` function, given a cell's code and options, gives `<\|"outs" -> {boxes, ...}, "msgs" -> {text, ...}, "prints" -> {cell, ...}, "cells" -> {cell, ...}\|>`, the outputs of the cell's statements as boxes, in the order the statements made them. Its optional `"Start"` is given the page's context path before the first cell, `"Baseline"` is called where the setup's bindings are kept, and `"Reset"` at each reset after them. Its `"Identity"` names the kernel in the cache of example outputs, so that each kernel's outputs are kept apart |
+| `"Evaluator"` | `Automatic` | the evaluator of the example cells. `Automatic` evaluates them in this kernel; an [Association]() evaluates them elsewhere, on a kernel the caller runs: its `"Evaluate"` function, given a cell's code and options, gives `<\|"outs" -> {boxes, ...}, "msgs" -> {text, ...}, "prints" -> {cell, ...}, "cells" -> {cell, ...}\|>`, the outputs of the cell's statements as boxes, in the order the statements made them. Its optional `"Start"` is given the page's context path before the first cell, to load there the packages this kernel would load for the page, which this kernel then leaves unloaded; `"Baseline"` is called where the setup's bindings are kept, and `"Reset"` at each reset after them. Its `"Identity"` names the kernel in the cache of example outputs, so that each kernel's outputs are kept apart |
 | `"MathFont"` | `None` | the font family LaTeX math is typeset in. `None` (like `""` and `Automatic`) keeps the front end's native math font, which is deterministic across machines; a family name such as `"Latin Modern Math"` forces the Computer-Modern look |
 | `"UseCache"` | `True` | reuse cached example outputs from the persistent store described below. `False` re-evaluates every example cell in the document, ignoring what is stored |
 
@@ -1850,20 +1850,25 @@ VerificationTest[
 ]
 ```
 
-An evaluator of the caller's evaluates the example cells in place of this kernel, its start, baseline and resets called where the converter's own are:
+An evaluator of the caller's evaluates the example cells in place of this kernel, its start, baseline and resets called where the converter's own are, and the page's package is loaded there, not here:
 
 ```wl
 VerificationTest[
-    Module[{calls = {}, nb},
-        nb = MarkdownToNotebook["---\nTemplate: Symbol\nName: F\nContext: Probe`\n---\n\n## Usage\n\nF[x] is F.\n\n## Basic Examples\n\n```wl\n1 + 1\n```\n\n## Scope\n\n```wl\nx\n```",
-            "UseCache" -> False,
-            "Evaluator" -> <|
-                "Evaluate" -> Function[{code, opts}, AppendTo[calls, code]; <|"outs" -> {ToBoxes["elsewhere: " <> code]}, "msgs" -> {}, "prints" -> {}, "cells" -> {}|>],
-                "Start" -> Function[path, AppendTo[calls, "Start"]], "Reset" -> Function[AppendTo[calls, "Reset"]], "Identity" -> "a test's kernel"
-            |>];
-        {Cases[nb, Cell[BoxData[b_], "Output", ___] :> b, Infinity], calls}
+    Module[{calls = {}, dir = CreateDirectory[], nb, loadedHere},
+        Export[FileNameJoin[{dir, "EvaluatorProbe.wl"}], "BeginPackage[\"EvaluatorProbe`\"]; EvaluatorProbe`$loadedHere = True; EndPackage[];", "Text"];
+        nb = Block[{$Path = Prepend[$Path, dir]},
+            MarkdownToNotebook["---\nTemplate: Symbol\nName: F\nContext: EvaluatorProbe`\n---\n\n## Usage\n\nF[x] is F.\n\n## Basic Examples\n\n```wl\n1 + 1\n```\n\n## Scope\n\n```wl\nx\n```",
+                "UseCache" -> False,
+                "Evaluator" -> <|
+                    "Evaluate" -> Function[{code, opts}, AppendTo[calls, code]; <|"outs" -> {ToBoxes["elsewhere: " <> code]}, "msgs" -> {}, "prints" -> {}, "cells" -> {}|>],
+                    "Start" -> Function[path, AppendTo[calls, {"Start", path}]], "Reset" -> Function[AppendTo[calls, "Reset"]], "Identity" -> "a test's kernel"
+                |>]
+        ];
+        loadedHere = TrueQ[EvaluatorProbe`$loadedHere];
+        DeleteDirectory[dir, DeleteContents -> True];
+        {Cases[nb, Cell[BoxData[b_], "Output", ___] :> b, Infinity], calls, loadedHere}
     ],
-    {{"\"elsewhere: 1 + 1\"", "\"elsewhere: x\""}, {"Start", "Reset", "Reset", "1 + 1", "Reset", "x"}},
+    {{"\"elsewhere: 1 + 1\"", "\"elsewhere: x\""}, {{"Start", {"EvaluatorProbe`", "System`"}}, "Reset", "Reset", "1 + 1", "Reset", "x"}, False},
     TestID -> "an evaluator of the caller's evaluates the cells, its start, baseline and resets called where the converter's are"
 ]
 ```

@@ -1313,11 +1313,11 @@ installSelfAlias[ctx_String] := With[{realName = Context[MarkdownToNotebook] <> 
 (* a front end is active for the whole pass so an example may open the notebook it
    produces (NotebookPut) and have its thumbnail captured (see outputBoxes). An evaluator, as
    "Evaluator" gives one, evaluates the cells in place of captureCellRun, on a kernel of its own:
-   its "Start" is given the page's context path before the first cell, its "Baseline" is called
-   where the setup's bindings are kept, and its "Reset" at each reset after them. *)
+   its "Start" is given the page's context path before the first cell, to load there what this
+   kernel would load here, its "Baseline" is called where the setup's bindings are kept, and its
+   "Reset" at each reset after them. *)
 evaluateAll[items_List, ctx_String, ctxPath_List, mode_, evaluator_ : Automatic] := Block[{$Context = ctx, $ContextPath = ctxPath},
-    preloadContextPath[ctxPath];
-    evaluatorCall[<|"evaluator" -> evaluator|>, "Start", ctxPath];
+    If[ evaluator === Automatic, preloadContextPath[ctxPath], evaluatorCall[<|"evaluator" -> evaluator|>, "Start", ctxPath]];
     UsingFrontEnd[Fold[accumEval,
         <|"code" -> "", "base" -> "", "cleared" -> {}, "heading" -> "", "out" -> <||>, "ctx" -> ctx, "mode" -> mode, "evaluator" -> evaluator,
           (* no setup section to protect means an empty baseline from the start,
