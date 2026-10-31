@@ -2965,9 +2965,17 @@ fillSlot[name_, opts_, data_] := Block[{meta = data["meta"]},
    and replace placeholder cells, then seed the build metadata. DocsBuild later
    adds the AnchorBar / FooterCell. *)
 
-$docResourceDir := FileNameJoin[{$InstallationDirectory, "AddOns", "Applications", "DocumentationTools", "FrontEnd", "TextResources"}]
+(* the directory of a DocumentationTools authoring template: in the first DocumentationTools paclet
+   that has it, as PacletFind orders them, the one a kernel loads, so that an update of the paclet
+   and a kernel that keeps the paclet outside its installation directory find it too; else the
+   installation directory's *)
+docResourceDir[file_String] := SelectFirst[
+    Map[FileNameJoin[{#["Location"], "FrontEnd", "TextResources"}] &, PacletFind["DocumentationTools"]],
+    FileExistsQ[FileNameJoin[{#, file}]] &,
+    FileNameJoin[{$InstallationDirectory, "AddOns", "Applications", "DocumentationTools", "FrontEnd", "TextResources"}]
+]
 
-docTemplate[file_String] := Get[FileNameJoin[{$docResourceDir, file}]]
+docTemplate[file_String] := Get[FileNameJoin[{docResourceDir[file], file}]]
 
 (* Doc-page placeholder cells (ObjectName / GuideTitle / GuideAbstract / Title)
    hold prose that can carry the same inline markup other prose does -
