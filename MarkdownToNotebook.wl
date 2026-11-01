@@ -3322,9 +3322,18 @@ templateBox[code_String] := Block[{boxes, prepped = mdToTemplateSubs[StringTrim[
        instead of letting ParseTextTemplate tokenise its / . ~ as operators
        (same guard as inputBoxes; see verbatimInlineQ). *)
     If[verbatimInlineQ[prepped], Return[prepped]];
-    (* DocumentationTools calls the front end as it loads, so it loads with one *)
+    (* DocumentationTools calls the front end as it loads, so it loads with one. Loaded with a
+       front end, it takes the paclet last chosen in the Documentation Tools palette, which the
+       front end's preferences keep, and ParseTextTemplate then links that paclet's symbols as
+       Link buttons, loading the paclet to list them; loaded first without one, it links none of
+       them. The template is parsed as the package does with no paclet chosen, so a page is the
+       same whatever the palette chose and whichever code loaded the package first. *)
     UsingFrontEnd[Needs["DocumentationTools`"]];
-    boxes = Quiet @ UsingFrontEnd @ DocumentationTools`Private`ParseTextTemplate[prepped, $docName];
+    boxes = Quiet @ UsingFrontEnd @ Block[
+        {DocumentationTools`$ApplicationName, DocumentationTools`$LinkBase, DocumentationTools`$ApplicationSymbolsWithUsage,
+            DocumentationTools`$IncludedApplicationSymbols, DocumentationTools`$ExcludedApplicationSymbols},
+        DocumentationTools`Private`ParseTextTemplate[prepped, $docName]
+    ];
     (* fall back to a plain parse if the front-end template parse is unavailable *)
     spliceMathBoxes @ If[ FreeQ[boxes, $Failed] && (StringQ[boxes] || MatchQ[Head[boxes], RowBox | StyleBox | SubscriptBox | SuperscriptBox | FractionBox | SqrtBox]),
         boxes,

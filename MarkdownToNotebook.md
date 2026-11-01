@@ -488,6 +488,23 @@ VerificationTest[
 ]
 ```
 
+A paclet chosen in the Documentation Tools palette changes no link on a page: with DocumentationTools set to the page's paclet, whose symbol has a usage message, a `<code>[Symbol]()</code>` reference in the details still carries the converter's paclet link, not the palette's `Link` button:
+
+```wl
+VerificationTest[
+    Module[{nb},
+        UsingFrontEnd[Needs["DocumentationTools`"]];
+        PaletteTest`Pkg`Bar::usage = "Bar[x] is a symbol of the test paclet.";
+        nb = Block[{DocumentationTools`$ApplicationName = "PaletteTest/Pkg", DocumentationTools`$LinkBase = "PaletteTest/Pkg"},
+            MarkdownToNotebook["---\nTemplate: Symbol\nName: Foo\nContext: PaletteTest`Pkg`\nPaclet: PaletteTest/Pkg\nURI: PaletteTest/Pkg/ref/Foo\n---\n\n## Usage\n\n<code>[Foo]()[*x*]</code> does.\n\n## Details\n\n- <code>[Bar]()[*x*]</code> gives True.\n", "Evaluate" -> False]
+        ];
+        {! FreeQ[nb, TemplateBox[{Cell[TextData["Bar"]], "paclet:PaletteTest/Pkg/ref/Bar", ___}, "PackageLink", ___]], FreeQ[nb, ButtonBox["Bar", ___]]}
+    ],
+    {True, True},
+    TestID -> "a paclet chosen in the Documentation Tools palette changes no symbol link"
+]
+```
+
 Math in a usage signature is read argument by argument: a braced list `$\{a_1, b\}$` becomes the literal braces and commas around template arguments, as `{$a_1$, $b$}` would, and math with an operator (`$n \geq 1$`) is typeset, so no `$` is left in the usage line:
 
 ```wl
