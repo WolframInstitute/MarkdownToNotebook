@@ -3115,12 +3115,23 @@ splitCamelCase[s_String] := StringReplace[s, {
     RegularExpression["(?<=[a-z0-9])(?=[A-Z])"] -> " ",
     RegularExpression["(?<=[A-Z])(?=[A-Z][a-z])"] -> " "}]
 (* the frontmatter of <name>.md with Template: Guide in this document's source
-   directory, its parent, or a sibling directory (docs/Guides beside docs/Symbols) *)
+   directory, its parent, or a sibling directory (docs/Guides beside docs/Symbols),
+   or anywhere under the Guides directory of the nearest directory above that has one,
+   where a paclet keeps its guides by area (docs/en/Guides/NumberTheory) *)
 pacletGuideMeta[name_String] := If[ ! StringQ[$docSourceDir], Missing[],
     SelectFirst[
         Map[First @ extractFrontmatter[Quiet @ Import[#, "Text", CharacterEncoding -> "UTF-8"]] &,
-            FileNames[name <> ".md", ParentDirectory[$docSourceDir], 2]],
+            Join[FileNames[name <> ".md", ParentDirectory[$docSourceDir], 2], guideTreeFiles[name, guidesDirectory[$docSourceDir]]]],
         AssociationQ[#] && Lookup[#, "Template", ""] === "Guide" &, Missing[]]]
+
+guideTreeFiles[name_String, guides_String] := FileNames[name <> ".md", guides, Infinity]
+guideTreeFiles[_, None] := {}
+
+(* the Guides directory of the nearest directory at or above dir that has one, looking a few
+   levels up, as far as a documentation tree goes *)
+guidesDirectory[dir_String] := SelectFirst[
+    FileNameJoin[{#, "Guides"}] & /@ NestList[ParentDirectory, dir, 6],
+    DirectoryQ, None]
 systemGuideNotebook[name_String] := systemGuideNotebook[name] =
     With[{p = Quiet @ Documentation`ResolveLink["paclet:guide/" <> name]}, If[StringQ[p] && FileExistsQ[p], p, Missing[]]]
 systemGuideQ[name_String] := StringMatchQ[name, (LetterCharacter | DigitCharacter) ..] &&

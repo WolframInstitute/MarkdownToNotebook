@@ -515,6 +515,24 @@ VerificationTest[
 ]
 ```
 
+A paclet that keeps its guides by area (`docs/en/Guides/NumberTheory/AnalyticNumberTheory.md`) has a Related Guides entry linked to its own guide, even when Wolfram has a guide of the same name:
+
+```wl
+VerificationTest[
+    Module[{dir = CreateDirectory[], page, nb},
+        CreateDirectory[FileNameJoin[{dir, "docs", "Guides", "Area"}], CreateIntermediateDirectories -> True];
+        CreateDirectory[FileNameJoin[{dir, "docs", "Symbols", "Area", "Sub"}], CreateIntermediateDirectories -> True];
+        Export[FileNameJoin[{dir, "docs", "Guides", "Area", "NumberTheory.md"}], "---\nTemplate: Guide\nTitle: Our Number Theory\n---\n\n# Our Number Theory\n", "Text"];
+        page = FileNameJoin[{dir, "docs", "Symbols", "Area", "Sub", "Foo.md"}];
+        Export[page, "---\nTemplate: Symbol\nName: Foo\nContext: GuideTest`Pkg`\nPaclet: GuideTest/Pkg\nRelatedGuides: [NumberTheory]\n---\n\n## Usage\n\n<code>[Foo]()[*x*]</code> does.\n", "Text"];
+        nb = MarkdownToNotebook[page, "Evaluate" -> False];
+        DeleteDirectory[dir, DeleteContents -> True];
+        {! FreeQ[nb, "paclet:GuideTest/Pkg/guide/NumberTheory"], FreeQ[nb, "paclet:guide/NumberTheory"]}
+    ],
+    {True, True},
+    TestID -> "a paclet's own guide, kept by area, is linked over a Wolfram guide of the same name"
+]
+```
 
 Math in a usage signature is read argument by argument: a braced list `$\{a_1, b\}$` becomes the literal braces and commas around template arguments, as `{$a_1$, $b$}` would, and math with an operator (`$n \geq 1$`) is typeset, so no `$` is left in the usage line:
 
