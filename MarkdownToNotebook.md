@@ -505,6 +505,17 @@ VerificationTest[
 ]
 ```
 
+The example cache's keys and a notebook's cell ids, uuids and evaluation context are made with a hash every kernel computes alike, the SHA-256 of an expression's WXF bytes with its packed arrays unpacked; these values are the same on Wolfram 15.0, 15.1 and the v2 kernel:
+
+```wl
+VerificationTest[
+    {stableHash[{"MTNCellID", 1, 2}], stableHash[Range[3]], stableHash["# Title\n\nText."]},
+    {3263278669987522215, 8985405546288167875, 301303839820969977},
+    TestID -> "the converter's hash is the same on every kernel"
+]
+```
+
+
 Math in a usage signature is read argument by argument: a braced list `$\{a_1, b\}$` becomes the literal braces and commas around template arguments, as `{$a_1$, $b$}` would, and math with an operator (`$n \geq 1$`) is typeset, so no `$` is left in the usage line:
 
 ```wl

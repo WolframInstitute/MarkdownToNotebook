@@ -832,6 +832,12 @@ resetBoundaryQ[mode_, item_] := Switch[mode,
     _,           MatchQ[item["Type"], "Separator" | "Heading"]
 ]
 
+(* A hash every kernel computes alike, for the example cache's keys and the notebook's cell ids,
+   uuids and evaluation context: the SHA-256 of an expression's WXF serialization, its packed
+   arrays unpacked, as one kernel may pack a list another does not, cut to the 63 bits the ids and
+   names made from it expect. Hash of an expression itself differs between kernels. *)
+stableHash[expr_] := Mod[Hash[BinarySerialize[expr /. array_List?Developer`PackedArrayQ :> Developer`FromPackedArray[array]], "SHA256"], 2^63]
+
 (* The key chain restarts at each reset from the code of the document's setup section, whose
    bindings every later section keeps (see accumEval and resetState, which follow the same steps):
    an example re-evaluates when the definitions it runs against change. *)
@@ -847,7 +853,7 @@ cumulativeHashes[mode_, items_List] := Block[
             If[ executableQ[item],
                 acc = acc <> mdSep <> item["Code"];
                 If[ setup, base = base <> mdSep <> item["Code"]];
-                AppendTo[hashes, Hash[acc]]
+                AppendTo[hashes, stableHash[acc]]
             ]
         ),
         items
@@ -1161,7 +1167,7 @@ evalCell[state_, b_] := Block[{code = state["code"] <> mdSep <> b["Code"], captu
     ];
     <|state, "code" -> code,
       "base" -> If[state["protected"] === None, state["base"] <> mdSep <> b["Code"], state["base"]],
-      "out" -> Append[state["out"], Hash[code] -> captured]|>
+      "out" -> Append[state["out"], stableHash[code] -> captured]|>
 ]
 
 (* The names a cell reads that an earlier section gave a value and a reset cleared, and that are
@@ -1490,7 +1496,7 @@ linkItemContent[item_String] := Block[{
 fillLinkCells[opts_, items_List] := Block[{def = slotDefault[opts], vals = DeleteCases[items, ""]},
     If[ def === {} || vals === {},
         def,
-        Map[Append[cleanCell @ ReplacePart[First[def], 1 -> linkItemContent[#]], CellID -> Mod[Hash[#], 2^31 - 1] + 1] &, vals]
+        Map[Append[cleanCell @ ReplacePart[First[def], 1 -> linkItemContent[#]], CellID -> Mod[stableHash[#], 2^31 - 1] + 1] &, vals]
     ]
 ]
 
@@ -6521,7 +6527,7 @@ stampCellID[Cell[CellGroupData[inner_List, gopts___], copts___], idx_] :=
     Cell[CellGroupData[MapThread[stampCellID[#1, Join[idx, #2]] &, {inner, structuralPositions[inner]}], gopts], copts]
 stampCellID[Cell[content_, style_String, opts___], idx_] :=
     If[FreeQ[{opts}, CellID],
-        Cell[content, style, opts, CellID -> Mod[Hash[Prepend[idx, "MTNCellID"]], 2^31 - 1] + 1],
+        Cell[content, style, opts, CellID -> Mod[stableHash[Prepend[idx, "MTNCellID"]], 2^31 - 1] + 1],
         Cell[content, style, opts]]
 stampCellID[other_, _] := other
 
@@ -6547,7 +6553,7 @@ withDeterministicIDs[other_] := other
    This preserves Export's canonical .nb header / options / stylesheet exactly -
    only the id strings change. *)
 deterministicUUID[n_Integer] := StringInsert[
-    IntegerString[Hash[{"MTNuuidHi", n}], 16, 16] <> IntegerString[Hash[{"MTNuuidLo", n}], 16, 16],
+    IntegerString[stableHash[{"MTNuuidHi", n}], 16, 16] <> IntegerString[stableHash[{"MTNuuidLo", n}], 16, 16],
     "-", {9, 13, 17, 21}]
 
 (* The ids in keep stay as they are: a comment cell placed from its "#| comment:" directive
@@ -6761,7 +6767,7 @@ sanitiseDocNameForCache[_] := "unnamed"
    "Identity", so that each kernel's outputs are kept apart, or the evaluator itself, which keeps
    none from one conversion to the next *)
 evaluatorTag[Automatic] := ""
-evaluatorTag[evaluator_Association] := "@" <> IntegerString[Hash[Lookup[evaluator, "Identity", evaluator]], 36]
+evaluatorTag[evaluator_Association] := "@" <> IntegerString[stableHash[Lookup[evaluator, "Identity", evaluator]], 36]
 
 exampleCacheName[docName_String, cellIdx_Integer, h_Integer] :=
     "MarkdownToNotebook/ExampleOutput/" <>
@@ -6906,7 +6912,7 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
        content-addressing.  See exampleCacheName for the layout. *)
     cacheDocName = If[$docName === "", src["Name"], $docName];
     cacheNames = MapIndexed[exampleCacheName[cacheDocName <> evaluatorTag[evaluator], First[#2], #1] &, hashes];
-    ctx = "MTNB$" <> IntegerString[Hash[text], 36] <> "`";
+    ctx = "MTNB$" <> IntegerString[stableHash[text], 36] <> "`";
     (* let example cells resolve the documented paclet's symbols unqualified.
        NOT Context[MarkdownToNotebook]: that exposes every internal helper
        and Block local as a public symbol the example code can collide with
