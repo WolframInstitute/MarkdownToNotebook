@@ -835,8 +835,9 @@ resetBoundaryQ[mode_, item_] := Switch[mode,
 (* A hash every kernel computes alike, for the example cache's keys and the notebook's cell ids,
    uuids and evaluation context: the SHA-256 of an expression's WXF serialization, its packed
    arrays unpacked, as one kernel may pack a list another does not, cut to the 63 bits the ids and
-   names made from it expect. Hash of an expression itself differs between kernels. *)
-stableHash[expr_] := Mod[Hash[BinarySerialize[expr /. array_List?Developer`PackedArrayQ :> Developer`FromPackedArray[array]], "SHA256"], 2^63]
+   names made from it expect. Hash of an expression itself differs between kernels. A list is
+   tested as it stands, unevaluated, so code held in it, such as a button's action, never runs. *)
+stableHash[expr_] := Mod[Hash[BinarySerialize[expr /. array_List /; Developer`PackedArrayQ[Unevaluated[array]] :> Developer`FromPackedArray[array]], "SHA256"], 2^63]
 
 (* The key chain restarts at each reset from the code of the document's setup section, whose
    bindings every later section keeps (see accumEval and resetState, which follow the same steps):
