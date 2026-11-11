@@ -842,8 +842,8 @@ stableHash[expr_] := Mod[Hash[BinarySerialize[expr /. array_List /; Developer`Pa
 (* The key chain restarts at each reset from the code of the document's setup section, whose
    bindings every later section keeps (see accumEval and resetState, which follow the same steps):
    an example re-evaluates when the definitions it runs against change. *)
-cumulativeHashes[mode_, items_List] := Block[
-    {acc = "", base = "", setup = AnyTrue[items, $setupHeadingQ], defLevel = None, hashes = {}},
+cumulativeHashes[mode_, items_List, salt_String : ""] := Block[
+    {acc = salt, base = salt, setup = AnyTrue[items, $setupHeadingQ], defLevel = None, hashes = {}},
     Scan[
         item |-> (
             If[ setup && IntegerQ[defLevel] && item["Type"] === "Heading" && ! $setupHeadingQ[item] && item["Level"] <= defLevel,
@@ -852,8 +852,8 @@ cumulativeHashes[mode_, items_List] := Block[
             If[ $setupHeadingQ[item], defLevel = item["Level"]];
             If[ resetBoundaryQ[mode, item], acc = base];
             If[ executableQ[item],
-                acc = acc <> mdSep <> item["Code"];
-                If[ setup, base = base <> mdSep <> item["Code"]];
+                acc = acc <> mdSep <> item["Code"] <> cellSalt[item];
+                If[ setup, base = base <> mdSep <> item["Code"] <> cellSalt[item]];
                 AppendTo[hashes, stableHash[acc]]
             ]
         ),
@@ -921,8 +921,31 @@ outputBoxes[res_, opts_] := Which[
             ToBoxes @ capRaster[img]],
     TrueQ[Lookup[opts, "screenshot", False]] && MatchQ[res, _Notebook],
         ToBoxes @ capRaster @ Quiet @ Rasterize[resultNotebook[res], ImageResolution -> 144],
-    True, ToBoxes[res]
+    True, With[{form = typesetOutputForm[res, opts]}, If[form === None, ToBoxes[res], typesetOutputBoxes[res, form]]]
 ]
+
+(* An output shown in a form its value asks for by rule: the document's "TypesetOutput:" front
+   matter, a pattern: form mapping or a rule, or a cell's "#| typeset-output:" rule, tried first,
+   with None turning the document's off. The first rule whose pattern the value matches gives the
+   form, and the output is the value's boxes in it, as the front end's Out[n]//TraditionalForm=
+   cell holds them. The input stays the code as written. *)
+$docTypesetOutputRules = {}
+typesetOutputRules[opts_] := With[{o = Lookup[Replace[opts, Except[_Association] -> <||>], "typeset-output", Missing[]]},
+    Which[
+        MissingQ[o], $docTypesetOutputRules,
+        o === False || (StringQ[o] && StringTrim[o] === "None"), {},
+        StringQ[o], Join[typesetSpecRules[o], $docTypesetOutputRules],
+        True, $docTypesetOutputRules
+    ]]
+typesetOutputForm[res_, opts_] := FirstCase[typesetOutputRules[opts], {p_, form_} /; MatchQ[Unevaluated[res], p] :> form, None]
+typesetOutputBoxes[res_, StandardForm] := ToBoxes[res, StandardForm]
+typesetOutputBoxes[res_, form_] := Replace[ToBoxes[res, form], b : Except[FormBox[_, form]] :> FormBox[b, form]]
+(* what these rules add to the keys of the examples' cached results, which hold the boxes: nothing
+   where there is no rule *)
+$exampleSalt = ""
+outputSalt[meta_] := With[{t = Lookup[meta, "TypesetOutput", None]}, If[t === None, "", "\nTypesetOutput: " <> ToString[t, InputForm]]]
+cellSalt[b_] := With[{o = Lookup[Replace[Lookup[b, "Options", <||>], Except[_Association] -> <||>], "typeset-output", Missing[]]},
+    If[MissingQ[o], "", "\n#| typeset-output: " <> ToString[o, InputForm]]]
 
 (* === message capture (box level) ===
    captureCellRun installs an Internal`HandlerBlock["Message"] handler rather than
@@ -1155,7 +1178,7 @@ resetState[state_] := If[
     ]
 ]
 
-evalCell[state_, b_] := Block[{code = state["code"] <> mdSep <> b["Code"], captured},
+evalCell[state_, b_] := Block[{code = state["code"] <> mdSep <> b["Code"] <> cellSalt[b], captured},
     (* captureCellRun parses b["Code"] into top-level statements via
        ToExpression[..., Hold] so every statement runs in document order
        and each non-`;`-suppressed value contributes its own Output - matching
@@ -1167,7 +1190,7 @@ evalCell[state_, b_] := Block[{code = state["code"] <> mdSep <> b["Code"], captu
         If[ stale =!= {}, captured = <|captured, "stale" -> <|"Heading" -> state["heading"], "Symbols" -> stale|>|>]
     ];
     <|state, "code" -> code,
-      "base" -> If[state["protected"] === None, state["base"] <> mdSep <> b["Code"], state["base"]],
+      "base" -> If[state["protected"] === None, state["base"] <> mdSep <> b["Code"] <> cellSalt[b], state["base"]],
       "out" -> Append[state["out"], stableHash[code] -> captured]|>
 ]
 
@@ -1326,7 +1349,7 @@ installSelfAlias[ctx_String] := With[{realName = Context[MarkdownToNotebook] <> 
 evaluateAll[items_List, ctx_String, ctxPath_List, mode_, evaluator_ : Automatic] := Block[{$Context = ctx, $ContextPath = ctxPath},
     If[ evaluator === Automatic, preloadContextPath[ctxPath], evaluatorCall[<|"evaluator" -> evaluator|>, "Start", ctxPath]];
     UsingFrontEnd[Fold[accumEval,
-        <|"code" -> "", "base" -> "", "cleared" -> {}, "heading" -> "", "out" -> <||>, "ctx" -> ctx, "mode" -> mode, "evaluator" -> evaluator,
+        <|"code" -> $exampleSalt, "base" -> $exampleSalt, "cleared" -> {}, "heading" -> "", "out" -> <||>, "ctx" -> ctx, "mode" -> mode, "evaluator" -> evaluator,
           (* no setup section to protect means an empty baseline from the start,
              so the first delimiter already clears whatever the document bound *)
           "protected" -> If[AnyTrue[items, $setupHeadingQ], None, {}],
@@ -1660,7 +1683,8 @@ exampleIO[code_String, outBoxes_, n_Integer, outOpts_List : {}, msgs_List : {}, 
         outsList, {outBoxes}];
     allOuts = DeleteCases[allOuts, _?MissingQ | Null];
     outputCells = MapIndexed[
-        With[{label = If[hideInput, Nothing, CellLabel -> "Out[" <> ToString[n] <> If[Length[allOuts] > 1, "@" <> ToString[First[#2]], ""] <> "]= "]},
+        With[{label = If[hideInput, Nothing, CellLabel -> "Out[" <> ToString[n] <> If[Length[allOuts] > 1, "@" <> ToString[First[#2]], ""] <> "]" <>
+                Replace[#1, {FormBox[_, form_Symbol] /; form =!= StandardForm :> "//" <> SymbolName[form] <> "= ", _ -> "= "}]]},
             Cell[BoxData[#1], "Output", label, Sequence @@ outOpts]] &,
         allOuts];
     Which[
@@ -1857,7 +1881,8 @@ typesetSpecRules[s_String] := With[{h = Quiet @ ToExpression[s, InputForm, HoldC
     If[MatchQ[h, _HoldComplete], typesetRulesOf[h], {}]]
 typesetSpecRules[_] := {}
 
-docTypesetRules[meta_] := With[{t = Lookup[meta, "Typeset", None]},
+docTypesetRules[meta_] := docTypesetRules[meta, "Typeset"]
+docTypesetRules[meta_, key_String] := With[{t = Lookup[meta, key, None]},
     Which[
         AssociationQ[t], Catenate @ KeyValueMap[
             Function[{p, f}, With[{form = typesetFormOf[f], pat = Quiet @ ToExpression[p, InputForm, HoldPattern]},
@@ -6919,7 +6944,7 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
        conversion (an example cell that converts another document) otherwise leaves
        the inner document's Name / Paclet / Context / Template / math font in place,
        and the outer notebook is then built under the inner document's identity. *)
-    $docName, $docPaclet, $docContext, $docTemplate, $mathFontFamily, $docTypesetRules, $docSourceDir,
+    $docName, $docPaclet, $docContext, $docTemplate, $mathFontFamily, $docTypesetRules, $docTypesetOutputRules, $exampleSalt, $docSourceDir,
     src, text, parsed, meta, blocks, sections, tmplName, defCode, ctx, ctxPath,
     orderedCode, hashes, cacheDocName, cacheNames, cached, allHit, outputs, data, filled
 },
@@ -6940,6 +6965,8 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
     evalSeparator = Replace[evalSeparator, Automatic :> If[MemberQ[$narrativeTemplates, tmplName], None, Automatic]];
     $docTemplate = tmplName;
     $docTypesetRules = docTypesetRules[meta];
+    $docTypesetOutputRules = docTypesetRules[meta, "TypesetOutput"];
+    $exampleSalt = outputSalt[meta];
     (* a template notebook's code is evaluated by GenerateDocument, never here *)
     If[tmplName === "NotebookTemplate", evalExamples = False];
     (* None (default) / "" / Automatic keep the front end's native math font -
@@ -6959,7 +6986,7 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
        cached alongside the top-level cells. *)
     orderedCode = Cases[blocks,
         b_ /; (executableQ[b] || MatchQ[b["Type"], "Separator" | "Heading"]), Infinity];
-    hashes = cumulativeHashes[evalSeparator, orderedCode];
+    hashes = cumulativeHashes[evalSeparator, orderedCode, $exampleSalt];
     (* build a per-cell PersistentObject name keyed by (DocName, cellIndex, hash).
        The doc name comes from the frontmatter Name when present (e.g.
        "Wolfram/MyPaclet") and falls back to the source's file basename;

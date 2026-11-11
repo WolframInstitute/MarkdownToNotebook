@@ -58,6 +58,7 @@ the implementation inline:
 - Evaluated example outputs are cached as a [PersistentSymbol]() per cell at the `"Local"` [PersistenceLocation](), keyed by a cumulative hash of the preceding cells, so re-runs reuse them across sessions.
 - Manage that cache the standard way: [PersistentObjects]()["MarkdownToNotebook/ExampleOutput/*", "Local"] lists it, [DeleteObject]() clears it, and [$PersistencePath]() / [PersistenceLocation]() relocate it.
 - An input cell shows its code as typed. To show a sub-expression typeset instead - a `Quantity` as its unit form, an integral in `TraditionalForm` - ask for it, in either of two ways. A `Typeset:` frontmatter mapping lists `pattern: form` lines (`_Quantity: StandardForm`), or holds one rule or a rule list as a scalar, and the outermost sub-expression of each input that a pattern matches is typeset. A comment naming a box form right before a sub-expression marks just that one: `f[(*TraditionalForm*)Integrate[x^2, x], 2]`. The comment is inert when the code runs as text, so the markdown stays runnable, and the typeset form is of the expression as written, never its value, so evaluating the notebook's input cell runs exactly the markdown's code. Typesetting is formatting: it applies whether or not the examples are evaluated.
+- An output can be shown in a form its value asks for, with the input left as code. A `TypesetOutput:` frontmatter mapping lists `pattern: form` lines, or gives one rule or a list of rules as `Typeset:` does, and an output whose value matches a pattern is shown in that form, in a cell labelled as the front end labels it, `Out[n]//TraditionalForm=`. A cell's `#| typeset-output:` rule is tried before the document's, and `#| typeset-output: None` turns the document's off for that cell. The rules are part of the keys of the cached results, so a change to them evaluates the examples again.
 - A comment `(*Iconize["label"]*)` right before a sub-expression shows it as an icon, as the front end's Iconize does, while the cell still evaluates the code as written: a long string, such as a Lean source passed to `LeanImportString`, shows as one icon named `label, 120 lines` that opens to the string in a monospaced font, and a kernel alone evaluating the notebook gets the string character for character. `(*Iconize*)` names a string by its count of lines alone, and any other expression by its head.
 - The source lives on GitHub, which renders the markdown directly: [github.com/WolframInstitute/MarkdownToNotebook](https://github.com/WolframInstitute/MarkdownToNotebook).
 - Running the function on this document - [Get]() the `.wl`, then `MarkdownToNotebook["MarkdownToNotebook.md", "MarkdownToNotebook.nb"]` - reproduces this very definition notebook; that is the loop `build.wls` runs.
@@ -1580,6 +1581,24 @@ VerificationTest[
     {{{TraditionalForm, HoldComplete[Integrate[x^2, x]]}}, {},
      {{TraditionalForm, HoldComplete[Integrate[x, x]]}, {TraditionalForm, HoldComplete[Integrate[y, y]]}}},
     TestID -> "typeset: a rule matches an expression written over several lines, and a line between statements never joins them"
+]
+```
+
+An output rule shows a matching value's output in the form, labelled as the front end labels it, and leaves the input as code; a cell's `None` turns the document's rule off, and the rules change the keys of the cached results:
+
+```wl
+VerificationTest[
+    With[{cells = Function[md, Cases[MarkdownToNotebook[md, "UseCache" -> False],
+            Cell[BoxData[b_], s : "Input" | "Output", o___] :> {s, Lookup[{o}, CellLabel, None], MatchQ[b, FormBox[_, TraditionalForm]]}, Infinity]],
+          body = "## A\n\n```wl\nIntegrate[f[x], x]\n```\n\n```wl\n#| typeset-output: None\nIntegrate[g[x], x]\n```\n",
+          items = {<|"Type" -> "Code", "Lang" -> "wl", "Options" -> <||>, "Code" -> "1"|>}},
+        {cells["---\nTypesetOutput:\n  _Integrate: TraditionalForm\n---\n\n" <> body],
+         cumulativeHashes[Automatic, items] === cumulativeHashes[Automatic, items, ""],
+         cumulativeHashes[Automatic, items] === cumulativeHashes[Automatic, items, outputSalt[<|"TypesetOutput" -> "_Integrate -> TraditionalForm"|>]],
+         outputSalt[<||>]}],
+    {{{"Input", "In[1]:= ", False}, {"Output", "Out[1]//TraditionalForm= ", True}, {"Input", "In[2]:= ", False}, {"Output", "Out[2]= ", False}},
+     True, False, ""},
+    TestID -> "typeset-output: a matching value's output is shown in the form and its input stays code; None turns it off; the rules are in the cache keys"
 ]
 ```
 
