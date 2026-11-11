@@ -1887,7 +1887,50 @@ iconizeMarker[RowBox[{"(*", mid___, "*)"}]] := Replace[DeleteCases[{mid}, _?type
     _ :> None}]
 iconizeMarker[_] := None
 typesetMarkerForm[_] := None
-heldBoxExpr[b_] := With[{h = Quiet @ MakeExpression[b, StandardForm]}, If[MatchQ[h, HoldComplete[_]], h, $Failed]]
+(* the boxes' expression, held, or $Failed. An expression written over several lines has newline,
+   tab and space tokens between its brackets, which MakeExpression turns into an ErrorBox; between
+   a bracket pair they are layout only, and the boxes are parsed without them. Outside brackets a
+   line ends a statement when what it separates parses alone: such boxes are several statements,
+   which MakeExpression would read as one product, and are $Failed, so that each statement is
+   tried by itself. *)
+heldBoxExpr[b_] := If[ typesetStatementsQ[b], $Failed,
+    With[{h = Quiet @ MakeExpression[typesetLayoutless[b], StandardForm]}, If[MatchQ[h, HoldComplete[_]], h, $Failed]]]
+typesetStatementsQ[RowBox[l_List]] := Module[{depth = 0, parts = {{}}},
+    Scan[
+        Function[x, Which[
+            MemberQ[$typesetOpeners, x], depth++; AppendTo[parts[[-1]], x],
+            MemberQ[$typesetClosers, x], depth = Max[depth - 1, 0]; AppendTo[parts[[-1]], x],
+            depth === 0 && typesetBreakQ[x], AppendTo[parts, {}],
+            True, AppendTo[parts[[-1]], x]
+        ]],
+        l
+    ];
+    parts = Select[DeleteCases[parts, _?typesetWsQ, {2}], # =!= {} &];
+    Length[parts] > 1 && AllTrue[parts, MatchQ[Quiet @ MakeExpression[typesetLayoutless[Replace[#, {{x_} :> x, xs_ :> RowBox[xs]}]], StandardForm], HoldComplete[_]] &]
+]
+typesetStatementsQ[_] := False
+$typesetOpeners = {"[", "{", "(", "[[", "\[LeftDoubleBracket]", "<|", "\[LeftAssociation]"};
+$typesetClosers = {"]", "}", ")", "]]", "\[RightDoubleBracket]", "|>", "\[RightAssociation]"};
+typesetBreakQ[s_String] := StringMatchQ[s, WhitespaceCharacter ..] && StringContainsQ[s, "\n" | "\t" | "\r"]
+typesetBreakQ[_] := False
+(* the boxes with no whitespace token between a bracket pair: an element between an opener and
+   its closer at this level is inside one *)
+typesetLayoutless[RowBox[l_List]] := Module[{depth = 0},
+    RowBox @ Map[
+        Function[x, Which[
+            MemberQ[$typesetOpeners, x], depth++; x,
+            MemberQ[$typesetClosers, x], depth = Max[depth - 1, 0]; x,
+            depth > 0, If[typesetWsQ[x], Nothing, typesetInside[x]],
+            True, typesetLayoutless[x]
+        ]],
+        l
+    ]
+]
+typesetLayoutless[b_] := b
+(* the boxes inside a bracket pair, where no whitespace token means anything: boxes side by side
+   are a product with or without a space between them *)
+typesetInside[RowBox[l_List]] := RowBox[typesetInside /@ DeleteCases[l, _?typesetWsQ]]
+typesetInside[b_] := b
 
 typesetUnForm[FormBox[x_, f_], f_] := x
 typesetUnForm[x_, _] := x

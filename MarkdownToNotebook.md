@@ -1568,6 +1568,21 @@ VerificationTest[
 ]
 ```
 
+A rule matches an expression written over several lines, whose line breaks and spaces between its brackets are layout; a line between two statements still separates them, and each statement is matched by itself:
+
+```wl
+VerificationTest[
+    With[{typeset = Function[md, Cases[MarkdownToNotebook[md, "Evaluate" -> False],
+            InterpretationBox[FormBox[_, f_], e_, ___] :> {f, HoldComplete[e]}, Infinity]]},
+        {typeset["---\nTypeset:\n  _Integrate: TraditionalForm\n---\n\n## A\n\n```wl\nIntegrate[\n\tx^2,\n\tx\n][[1]]\n```"],
+         typeset["---\nTypeset:\n  _Times: TraditionalForm\n---\n\n## A\n\n```wl\na\nb\n```"],
+         typeset["---\nTypeset:\n  _Integrate: TraditionalForm\n---\n\n## A\n\n```wl\nIntegrate[x, x]\nIntegrate[\n y, y]\n```"]}],
+    {{{TraditionalForm, HoldComplete[Integrate[x^2, x]]}}, {},
+     {{TraditionalForm, HoldComplete[Integrate[x, x]]}, {TraditionalForm, HoldComplete[Integrate[y, y]]}}},
+    TestID -> "typeset: a rule matches an expression written over several lines, and a line between statements never joins them"
+]
+```
+
 A sub-expression with no typeset form until it is evaluated - a `DateObject` built from a date list - is evaluated for its display, while the interpretation stays the code as written (issue #90):
 
 ```wl
