@@ -688,7 +688,19 @@ resolveBlock[b_Association, base_String] := Which[
     True, b
 ]
 
-resolveIncludes[blocks_List, base_String] := Map[resolveBlock[#, base] &, blocks]
+resolveIncludes[blocks_List, base_String] := mermaidCells[Map[resolveBlock[#, base] &, blocks]]
+
+(* A ```mermaid block is a diagram: it becomes an input cell that gives its text to Wolfram/Parser's
+   MermaidDiagram, which reads and draws it here, evaluated and cached as any example is, with the
+   input hidden, so that the page shows the diagram alone and the group's bracket opens to the
+   call. A block's own "#| collapse" or "#| eval" option stands. The function is named in the
+   cell's text alone, so the converter holds no symbol of the parser's. *)
+mermaidCells[blocks_] := blocks /. b_Association /; Lookup[b, "Type", None] === "Code" && Lookup[b, "Lang", None] === "mermaid" :>
+    Join[b, <|
+        "Lang" -> "wl",
+        "Code" -> "Wolfram`Parser`Languages`Mermaid`MermaidDiagram[" <> ToString[StringTrim[Lookup[b, "Code", ""]], InputForm] <> "]",
+        "Options" -> Join[<|"collapse" -> "input"|>, Replace[Lookup[b, "Options", <||>], Except[_Association] -> <||>]]
+    |>]
 
 (* === sections === *)
 
