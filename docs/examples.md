@@ -17,8 +17,8 @@ A reference page (or Examples section of a resource) is a sequence of
 
 1. **One short prose caption** - a complete sentence ending with `:`,
    written as the markdown paragraph *immediately* before the `wl` cell.
-   The converter promotes it to the `ExampleText` / `CodeText` cell the
-   docs style expects.
+   In a page's example sections it is the `ExampleText` cell the docs
+   style expects.
 2. **One `wl` cell** that evaluates to the result the caption is about.
 3. *(Optional)* a `<!-- => expected -->` HTML comment right after the
    cell, documenting the expected output (stripped from the published
@@ -172,9 +172,8 @@ example, and so does *not* take a `wl` cell.
 ## What the submission Check looks for
 
 - `ExampleTextLastCharacter` - the caption preceding a `wl` cell must
-  end in `:`. The converter promotes a `:`-terminated one-line paragraph
-  to `ExampleText` / `CodeText` automatically; multi-line paragraphs and
-  prose that does not end in `:` stay as ordinary `Text`.
+  end in `:`. In an example section every paragraph is `ExampleText`;
+  in an essay or a chapter every paragraph is `Text`, whatever it ends in.
 - `FoundUnformattedCode` - a bare WL symbol in prose without `[Symbol]()`
   or backticks. Wrap stray symbol names.
 - `LargeCellBounds` / `CellHeight` - the rasterised output of a cell

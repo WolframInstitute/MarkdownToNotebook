@@ -5197,14 +5197,9 @@ essayNotebook[data_] := Block[{meta = data["meta"], counter = 0, header, body},
                 Switch[type,
                     "Heading", {Cell[headingText[block["Text"]], Lookup[$headingStyleMap, block["Level"], "Subsubsection"]]},
                     "Prose", text = block["Text"];
-                        (* a one-line prose paragraph that ends in ":" right before a
-                           code cell is the essay's code-caption style ("CodeText");
-                           ordinary multi-line / non-colon paragraphs stay "Text". *)
-                        captionStyle = StringEndsQ[StringTrim[text], ":"] &&
-                            ! StringContainsQ[text, "\n"] &&
-                            ix[[1]] < Length[data["blocks"]] &&
-                            Lookup[data["blocks"][[ix[[1]] + 1]], "Type", ""] === "Code";
-                        {Cell[TextData @ inlineTextData[text], If[captionStyle, "CodeText", "Text"]]},
+                        (* every prose paragraph is a "Text" cell, whatever its length or its
+                           last character *)
+                        {Cell[TextData @ inlineTextData[text], "Text"]},
                     "List", listItemCells[block, "Item"],
                     "Table", {tableCell[block]},
                     "Quote", quoteBlockCells[block],
@@ -6042,13 +6037,8 @@ $bookListStyle[1] = "Item"
 $bookListStyle[2] = "Subitem"
 $bookListStyle[_] = "Subsubitem"
 
-bookProseCell[block_, nextBlockType_String] := Block[{text = block["Text"]},
-    If[StringEndsQ[StringTrim[text], ":"] &&
-        ! StringContainsQ[text, "\n"] && nextBlockType === "Code",
-        Cell[TextData @ inlineTextData[text], "CodeText"],
-        Cell[TextData @ inlineTextData[text], "Text"]
-    ]
-]
+(* every prose paragraph is a "Text" cell, whatever follows it *)
+bookProseCell[block_, nextBlockType_String] := Cell[TextData @ inlineTextData[block["Text"]], "Text"]
 
 (* free-form (subsection-level) cell from a block. `next` is the type of the
    following block (used to decide CodeText vs Text for caption-like prose). *)

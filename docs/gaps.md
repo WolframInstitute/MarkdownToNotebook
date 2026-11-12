@@ -92,7 +92,7 @@ own buttons on top of the resource-system shell.
 
 | Status | Gap | Palette/toolbar | Markdown form |
 |---|---|---|---|
-| ✓ Done | Title / Author / Date / Abstract / sections / `CodeText` captions | the official `ComputationalEssayTemplate[]` button | frontmatter + `## …` sections + one-line `:`-terminated paragraph before each `wl` block |
+| ✓ Done | Title / Author / Date / Abstract / sections | the official `ComputationalEssayTemplate[]` button | frontmatter + `## …` sections |
 | ⚠ Lossy | Notebook Analysis docked pod (the always-on "Notebook Analysis" panel an essay opens with) | injected by the template's StyleDefinitions | the converter inherits the same StyleDefinitions, so the panel is there when the `.nb` is opened in the FE; no md control over it |
 | ✗ N/A | No Submit toolbar | (essays have none) | direct `CloudDeploy[NotebookGet[essay], Permissions -> "Public"]` (what `examples/build.wls` does) |
 

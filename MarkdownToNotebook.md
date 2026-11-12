@@ -750,7 +750,7 @@ A sized delimiter (`$\big(x\big)$`) scales with the surrounding text via `FontSi
 ```wl
 VerificationTest[
     With[{nb = MarkdownToNotebook["A $\\big(x\\big)$ group.", "Evaluate" -> False]},
-        FreeQ[nb, Magnification -> _] && ! FreeQ[nb, StyleBox["(", FontSize -> _]]
+        FreeQ[nb, Magnification -> _] && ! FreeQ[nb, StyleBox["(", FontSize -> _, ___]]
     ],
     True,
     TestID -> "inline math: \\big( sizes with FontSize -> Inherited, not Magnification"
@@ -1127,9 +1127,9 @@ A computational essay is a finished notebook on `Default.nb`, which has every st
 VerificationTest[
     With[{nb = MarkdownToNotebook["---\nTemplate: ComputationalEssay\nName: An Essay\nAuthor: A. Writer\n---\n\n## A Section\n\nThe square of three:\n\n```wl\n3^2\n```\n", "Evaluate" -> False]},
         {Lookup[Rest[List @@ nb], {StyleDefinitions, LightDark}], FreeQ[nb, TaggingRules | DockedCells | "ResourceType" | "ResourceCreateNotebook"],
-            Cases[nb, Cell[_, s : "Title" | "Author" | "Section" | "CodeText" | "Input", ___] :> s, Infinity]}
+            Cases[nb, Cell[_, s : "Title" | "Author" | "Section" | "Text" | "CodeText" | "Input", ___] :> s, Infinity]}
     ],
-    {{"Default.nb", "Light"}, True, {"Title", "Author", "Section", "CodeText", "Input"}},
+    {{"Default.nb", "Light"}, True, {"Title", "Author", "Section", "Text", "Input"}},
     TestID -> "ComputationalEssay: a finished notebook on Default.nb, without the template's TaggingRules or toolbar"
 ]
 ```
@@ -1293,6 +1293,19 @@ VerificationTest[
          ! FreeQ[MarkdownToNotebook["$\\|\\Delta\\rho\\|_1$", "Evaluate" -> False], SubscriptBox[_GridBox, "1"]]}],
     {{2, 2, 4, 2, 2, 4, 2, 1, 1}, {0, 0, 0}, True},
     TestID -> "one-line \\|..\\| norm promoted: scalar, factor, product, scripts, fraction; relations and a lone bar left alone (issue #112)"
+]
+```
+
+Every prose paragraph is a `Text` cell: a one-line paragraph ending in a colon before code is no caption under any template (issue #116):
+
+```wl
+VerificationTest[
+    Table[
+        Cases[MarkdownToNotebook["---\nTemplate: " <> template <> "\nName: E\n---\n\n## A Section\n\nThe square of three:\n\n```wl\n3^2\n```\n", "Evaluate" -> False],
+            Cell[_, s : "Text" | "CodeText", ___] :> s, Infinity],
+        {template, {"ComputationalEssay", "Chapter", "Default"}}],
+    {{"Text"}, {"Text"}, {"Text"}},
+    TestID -> "prose: a colon-ending line before code is Text under every template, never a CodeText caption (issue #116)"
 ]
 ```
 

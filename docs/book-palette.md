@@ -197,7 +197,7 @@ in a chapter notebook. Grouped by purpose; rare/internal styles
 |---|---|---|---|
 | `Text` / `TextFirst` | plain paragraph | `TextFirst` applies to the first paragraph after a heading (extra top margin); auto by position | todo |
 | `SmallText` | smaller side-note | `> note` blockquote (or `#\| size: small`) | todo |
-| `CodeText` | one-line code caption before an `Input` cell | a prose line directly before a ` ```wl ` block (same convention as `MathCaption` in tech notes) | todo |
+| `CodeText` | one-line code caption before an `Input` cell | none: every prose paragraph is `Text` | n/a |
 | `CodeCaption` | numbered code caption | numbered list item before ` ```wl ` (with `#\| numbered: true`) | todo |
 | `Input` / `Output` | code + evaluated output | ` ```wl ` fenced block (evaluated; output cached) | todo |
 | `InputOnly` | input shown but skipped at print | `#\| eval: false` (`Output` cell is suppressed) | todo |

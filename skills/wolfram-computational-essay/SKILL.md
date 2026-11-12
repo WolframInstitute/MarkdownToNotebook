@@ -9,11 +9,10 @@ A **Computational Essay** (Stephen Wolfram, 2017) is an intellectual story told
 in three interleaved voices: ordinary prose for context and motivation, short
 Wolfram Language inputs that *advance* the story, and the explicit outputs
 those inputs produce. Each code block is intentionally narrated by a
-one-sentence caption (the "CodeText" style) that says what the next input
+one-sentence caption that says what the next input
 does. `MarkdownToNotebook` builds the produced notebook with the `Default.nb`
-stylesheet, fills the title / byline / abstract from the frontmatter, and
-promotes any one-line prose ending with `:` (right before a code block) to a
-`CodeText` cell - the essay's canonical caption style. Use the
+stylesheet and fills the title / byline / abstract from the frontmatter.
+Every prose paragraph is a `Text` cell. Use the
 `ComputationalEssay` template.
 
 Model new documents on the worked example -
@@ -80,10 +79,8 @@ needs. The conventional shape:
 - A closing section that summarises what was found and what was *not* shown.
 - A `## References` section with one numbered reference per item.
 
-A one-line prose paragraph ending with `:` *directly before* a code block is
-automatically promoted to `CodeText` (the dim grey caption style that sits
-flush against its `Input` cell). Multi-line paragraphs and prose that does not
-end in `:` stay as ordinary `Text`. This means you can write the essay as
+A prose paragraph is a `Text` cell whatever its length and whatever it ends
+in, the caption before a code block included. This means you can write the essay as
 plain markdown and let the converter pick the right style:
 
 ```
@@ -96,8 +93,7 @@ Take[First @ RealDigits[Pi, 10, 10000], 20]
 ```
 ```
 
-The first paragraph stays `Text`; the second (`A glance ...:`) becomes
-`CodeText`.
+Both paragraphs are `Text` cells.
 
 ## Code-cell options
 

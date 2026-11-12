@@ -71,7 +71,7 @@ notebooks — re-running `build.wls` would overwrite any in-notebook edits.
 |---|---|
 | `Section` (chapter heading with `CounterBox + SectionBar` + `CounterAssignments`) | `# Title` + frontmatter `ChapterNumber: N` |
 | `Subsection` / `Subsubsection` / `Subsubsubsection` | `## ` / `### ` / `#### ` |
-| `Text` / `CodeText` / `Item` / `ItemNumbered` | prose / colon-suffix prose before code / `- ` / `1. ` |
+| `Text` / `Item` / `ItemNumbered` | prose / `- ` / `1. ` |
 | `Input` / `Output` (evaluated, cached) | ` ```wl ` fence |
 | `DisplayFormula` | `$$ math $$` |
 | `SolvedExample` + `SolvedExampleNote` + `SolvedExampleInput` + `SolvedExampleOutput` + `SolvedExampleEndCap` | `::: solved-example` fenced div |

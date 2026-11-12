@@ -84,7 +84,7 @@ where `n` is `1`/`2`/`3`/`4` for Function/Guide/TechNote/Overview.
 | Subsection | `StyleInsert["Subsection"]` | `Subsection` cell | `### Heading` | done |
 | Text | `StyleInsert["Text"]` | `Text` cell | prose paragraph | done |
 | Example Group | a NotebookWrite of `Cell["XXXX", "MathCaption"]` + `Cell[BoxData[…], "Input"]` + `Cell[…, "Output"]` group | grouped Example | a fenced `wl` block under a leading prose caption | done |
-| Example Caption | `StyleInsert["MathCaption"]` | `MathCaption` cell | one-line prose right before an `wl` block (becomes `MathCaption` / `CodeText`) | done |
+| Example Caption | `StyleInsert["MathCaption"]` | `MathCaption` cell | prose right before an `wl` block (a `Text` cell; no caption style is chosen by punctuation) | done |
 
 ## Insert (Overview tab)
 
