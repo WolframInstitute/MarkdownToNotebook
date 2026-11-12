@@ -875,6 +875,50 @@ cumulativeHashes[mode_, items_List, salt_String : ""] := Block[
     hashes
 ]
 
+(* Each executable cell's section, as the keys above see them: 0 for a cell of the setup section,
+   whose bindings every later section keeps, else the count of resets before it. The cells of one
+   section share their state, and a section starts from the setup's alone. *)
+exampleSections[mode_, items_List] := Block[
+    {setup = AnyTrue[items, $setupHeadingQ], defLevel = None, section = 1, sections = {}},
+    Scan[
+        item |-> (
+            If[ setup && IntegerQ[defLevel] && item["Type"] === "Heading" && ! $setupHeadingQ[item] && item["Level"] <= defLevel,
+                setup = False
+            ];
+            If[ $setupHeadingQ[item], defLevel = item["Level"]];
+            If[ resetBoundaryQ[mode, item], section++];
+            If[ executableQ[item], AppendTo[sections, If[setup, 0, section]]]
+        ),
+        items
+    ];
+    sections
+]
+
+(* Whether a section's code may change what a later section evaluates to, beyond the bindings a
+   reset clears: it loads or installs code, sets options, attributes or a system variable, defines
+   something for a symbol with a context or an upvalue, draws random numbers, which moves the
+   generator, or writes files, kernels or the cloud. Read from the text, and wide on purpose: a
+   section called impure is only evaluated where it could have been reused. *)
+$impureNames = RegularExpression["(?<![A-Za-z0-9$`])(Needs|Get|SetOptions|Unprotect|Protect|SetAttributes|ClearAttributes|SetSystemOptions|SeedRandom|BlockRandom|Random[A-Za-z]*|Put|PutAppend|Export|Save|DumpSave|CreateFile|CreateDirectory|DeleteFile|DeleteDirectory|CopyFile|CopyDirectory|RenameFile|SetDirectory|ResetDirectory|PacletDirectoryLoad|PacletInstall|PacletUninstall|LaunchKernels|CloseKernels|DistributeDefinitions|ParallelNeeds|ParallelEvaluate|CloudDeploy|CloudPut|CloudConnect|CloudExport|PersistentSymbol|PersistentValue|LocalSymbol|Once|Remove|ClearSystemCache|Install|LibraryFunctionLoad|ResourceFunction|ResourceObject|ExternalEvaluate|StartExternalSession|RunProcess|StartProcess|Run)(?![A-Za-z0-9$])"]
+impureCodeQ[code_String] := StringContainsQ[code, $impureNames] ||
+    StringContainsQ[code, "<<" | "^=" | "^:=" | "/:"] ||
+    StringContainsQ[code, RegularExpression["\\$[A-Za-z][A-Za-z0-9]*\\s*(=(?!=)|\\+=|-=|\\*=|/=|:=)"]] ||
+    StringContainsQ[code, RegularExpression["`[A-Za-z$][A-Za-z0-9$]*\\s*(\\[[^\\n]*\\])?\\s*(:=|=(?!=))"]]
+
+(* The cells to take from the cache where some are missing, by "PartialEvaluation". The setup
+   section and every section up to the last one with a missing result are evaluated, since a later
+   section may depend on what an earlier one did; the sections after it are taken from the cache.
+   With True, a section before it whose results are all cached is taken from the cache too, unless
+   its code is impure. A missing result in the setup section evaluates everything. *)
+cachedSections[partial_, sections_List, missing_List, codes_List] := Module[{last, bySection},
+    If[ partial === False || MemberQ[Pick[sections, missing], 0], Return[{}, Module]];
+    last = Max[Pick[sections, missing]];
+    bySection = GroupBy[Transpose[{sections, missing, codes}], First];
+    Select[DeleteCases[Keys[bySection], 0],
+        Function[s, s > last || (partial === True && NoneTrue[bySection[s], #[[2]] &] && NoneTrue[bySection[s], impureCodeQ[#[[3]]] &])]]
+]
+$cachedCells = <||>
+
 (* the light/dark mode example renderings are pinned to. Default light (the
    deployed notebook is light); the markdown-out twin sets it to "Dark". Guard the
    initialization with ValueQ so re-loading this file (the Definition cell inlines
@@ -1198,6 +1242,13 @@ resetState[state_] := If[
     ]
 ]
 
+evalCell[state_, b_] /; KeyExistsQ[$cachedCells, stableHash[state["code"] <> mdSep <> b["Code"] <> cellSalt[b]]] :=
+    (* a cell whose section is taken from the cache: its result as kept, and the code chain moved on *)
+    With[{code = state["code"] <> mdSep <> b["Code"] <> cellSalt[b]},
+        <|state, "code" -> code,
+          "base" -> If[state["protected"] === None, state["base"] <> mdSep <> b["Code"] <> cellSalt[b], state["base"]],
+          "out" -> Append[state["out"], stableHash[code] -> $cachedCells[stableHash[code]]]|>
+    ]
 evalCell[state_, b_] := Block[{code = state["code"] <> mdSep <> b["Code"] <> cellSalt[b], captured},
     (* captureCellRun parses b["Code"] into top-level statements via
        ToExpression[..., Hold] so every statement runs in document order
@@ -6924,7 +6975,7 @@ withMarkdownSource[Notebook[cells_, o : OptionsPattern[]], src_String, tmpl_Stri
 ]
 withMarkdownSource[other_, _, _] := other
 
-Options[MarkdownToNotebook] = {"Evaluate" -> True, "PreserveSource" -> False, "EvaluateSeparator" -> Automatic, "Evaluator" -> Automatic, "MathFont" -> None, "LightDark" -> Automatic, "UseCache" -> True}
+Options[MarkdownToNotebook] = {"Evaluate" -> True, "PreserveSource" -> False, "EvaluateSeparator" -> Automatic, "Evaluator" -> Automatic, "MathFont" -> None, "LightDark" -> Automatic, "UseCache" -> True, "PartialEvaluation" -> Automatic}
 
 (* spec is an *optional* second argument (default Automatic). Do not split this
    into a separate 1-argument form that forwards to the 3-argument one: an empty
@@ -7050,7 +7101,14 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
     outputs = Which[
         ! evalExamples || $convertDepth > 2, <||>,
         allHit, cached,
-        True, evaluateAll[orderedCode, ctx, ctxPath, evalSeparator, evaluator]
+        (* some results are missing: the sections that need no evaluation keep theirs *)
+        True, With[{sections = exampleSections[evalSeparator, orderedCode], missing = MissingQ /@ Lookup[cached, hashes, Missing[]]},
+            With[{kept = If[useCache, cachedSections[OptionValue["PartialEvaluation"], sections, missing, #["Code"] & /@ Select[orderedCode, executableQ]], {}]},
+                Block[{$cachedCells = KeyTake[cached, Pick[hashes, MemberQ[kept, #] & /@ sections]]},
+                    evaluateAll[orderedCode, ctx, ctxPath, evalSeparator, evaluator]
+                ]
+            ]
+        ]
     ];
     (* Only persist CLEAN outputs - skip entries whose evaluation emitted kernel
        messages (Get::noopen, Needs::nocont, Failure[...], runtime errors, ...).

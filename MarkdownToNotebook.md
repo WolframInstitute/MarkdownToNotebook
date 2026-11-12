@@ -56,6 +56,7 @@ the implementation inline:
 - A `Flag` frontmatter key flags the whole document and a code cell's `#| flag:` option flags that cell, with one of the documentation build's flags - `Future`, `Excised`, `Obsolete`, `Temporary`, `Preview`, or `Internal` - the front end's Futurize / Excise toolbar buttons, written as the build's banner cell.
 - LaTeX math is typeset by the [Wolfram/Parser](https://resources.wolframcloud.com/PacletRepository/resources/Wolfram/Parser/) paclet. If it is not already installed, the first call that needs it installs it from the Paclet Repository, which requires network access; install it yourself beforehand to avoid that. When it cannot be reached the function issues `MarkdownToNotebook::noparser` once per session and falls back to `ImportString[..., "TeX"]`, which handles plain math but mis-decodes non-ASCII characters.
 - Evaluated example outputs are cached as a [PersistentSymbol]() per cell at the `"Local"` [PersistenceLocation](), keyed by a cumulative hash of the preceding cells, so re-runs reuse them across sessions.
+- When some results are missing from the cache, only what needs it is evaluated again. The setup section and every section up to the last one with a missing result are evaluated, since a later section may depend on what an earlier one did, such as a package it loaded, and the sections after it keep their results. With `"PartialEvaluation" -> True`, an earlier section whose results are all cached keeps them too, unless its code may change what later sections evaluate to: loading code, setting options or system variables, definitions for symbols of other contexts, random numbers, files, kernels or the cloud. `"PartialEvaluation" -> False` evaluates every example whenever one result is missing. A document whose sections share one context, `"EvaluateSeparator" -> None`, is one section.
 - Manage that cache the standard way: [PersistentObjects]()["MarkdownToNotebook/ExampleOutput/*", "Local"] lists it, [DeleteObject]() clears it, and [$PersistencePath]() / [PersistenceLocation]() relocate it.
 - An input cell shows its code as typed. To show a sub-expression typeset instead - a `Quantity` as its unit form, an integral in `TraditionalForm` - ask for it, in either of two ways. A `Typeset:` frontmatter mapping lists `pattern: form` lines (`_Quantity: StandardForm`), or holds one rule or a rule list as a scalar, and the outermost sub-expression of each input that a pattern matches is typeset. A comment naming a box form right before a sub-expression marks just that one: `f[(*TraditionalForm*)Integrate[x^2, x], 2]`. The comment is inert when the code runs as text, so the markdown stays runnable, and the typeset form is of the expression as written, never its value, so evaluating the notebook's input cell runs exactly the markdown's code. Typesetting is formatting: it applies whether or not the examples are evaluated.
 - An output can be shown in a form its value asks for, with the input left as code. A `TypesetOutput:` frontmatter mapping lists `pattern: form` lines, or gives one rule or a list of rules as `Typeset:` does, and an output whose value matches a pattern is shown in that form, in a cell labelled as the front end labels it, `Out[n]//TraditionalForm=`. A pattern names a symbol as the page's code does, on the page's context path, and in `{p1, p2} -> form` the list is alternatives, each a pattern as written, so `{_f, {__f}} -> form` matches an `f` and a list of them. A cell's `#| typeset-output:` rule is tried before the document's, and `#| typeset-output: None` turns the document's off for that cell. The rules are part of the keys of the cached results, so a change to them evaluates the examples again.
@@ -1645,6 +1646,34 @@ VerificationTest[
     ],
     {{"Out[1]//TraditionalForm= ", "Out[2]//TraditionalForm= ", "Out[3]= "}, {}},
     TestID -> "typeset-output: a short name is the page's symbol, and a list among the alternatives matches a list"
+]
+```
+
+With a result missing from the cache, the sections after the last missing one keep theirs; with `"PartialEvaluation" -> True` an earlier pure section does too, and `False` evaluates everything:
+
+```wl
+VerificationTest[
+    Module[{store = CreateDirectory[], md, outs, names, drop, changed, result},
+        md = "---\nName: PartialDoc\n---\n\n## A\n\n```wl\nHash[{\"A\", AbsoluteTime[]}]\n```\n\n## B\n\n```wl\nHash[{\"B\", AbsoluteTime[]}]\n```\n\n## C\n\n```wl\nHash[{\"C\", AbsoluteTime[]}]\n```\n";
+        result = Block[{$cacheLocation = PersistenceLocation["Local", store]},
+            outs[opts___] := Cases[MarkdownToNotebook[md, opts], Cell[BoxData[b_], "Output", ___] :> b, Infinity];
+            names = MapIndexed[exampleCacheName["PartialDoc", First[#2], #1] &,
+                cumulativeHashes[Automatic, Cases[resolveIncludes[litParse[md]["Blocks"], ""], b_ /; (executableQ[b] || MatchQ[b["Type"], "Separator" | "Heading"]), Infinity]]];
+            drop[i_] := DeleteObject[PersistentObject[names[[i]], $cacheLocation]];
+            changed[before_, after_] := MapThread[UnsameQ, {before, after}];
+            Module[{first = outs[], again, auto, partial, all},
+                again = outs[];
+                drop[2]; auto = outs[];
+                drop[2]; partial = outs["PartialEvaluation" -> True];
+                drop[2]; all = outs["PartialEvaluation" -> False];
+                {changed[first, again], changed[again, auto], changed[auto, partial], changed[partial, all]}
+            ]
+        ];
+        DeleteDirectory[store, DeleteContents -> True];
+        {result, impureCodeQ /@ {"f[x]", "x = 2", "Needs[\"A`\"]", "$Foo = 2", "A`b = 2", "RandomReal[]", "f /: g[f] = 1"}}
+    ],
+    {{{False, False, False}, {True, True, False}, {False, True, False}, {True, True, True}}, {False, False, True, True, True, True, True}},
+    TestID -> "partial evaluation: sections after the last missing result keep theirs, an earlier pure section too when asked, and False evaluates all"
 ]
 ```
 
