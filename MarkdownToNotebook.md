@@ -58,7 +58,7 @@ the implementation inline:
 - Evaluated example outputs are cached as a [PersistentSymbol]() per cell at the `"Local"` [PersistenceLocation](), keyed by a cumulative hash of the preceding cells, so re-runs reuse them across sessions.
 - Manage that cache the standard way: [PersistentObjects]()["MarkdownToNotebook/ExampleOutput/*", "Local"] lists it, [DeleteObject]() clears it, and [$PersistencePath]() / [PersistenceLocation]() relocate it.
 - An input cell shows its code as typed. To show a sub-expression typeset instead - a `Quantity` as its unit form, an integral in `TraditionalForm` - ask for it, in either of two ways. A `Typeset:` frontmatter mapping lists `pattern: form` lines (`_Quantity: StandardForm`), or holds one rule or a rule list as a scalar, and the outermost sub-expression of each input that a pattern matches is typeset. A comment naming a box form right before a sub-expression marks just that one: `f[(*TraditionalForm*)Integrate[x^2, x], 2]`. The comment is inert when the code runs as text, so the markdown stays runnable, and the typeset form is of the expression as written, never its value, so evaluating the notebook's input cell runs exactly the markdown's code. Typesetting is formatting: it applies whether or not the examples are evaluated.
-- An output can be shown in a form its value asks for, with the input left as code. A `TypesetOutput:` frontmatter mapping lists `pattern: form` lines, or gives one rule or a list of rules as `Typeset:` does, and an output whose value matches a pattern is shown in that form, in a cell labelled as the front end labels it, `Out[n]//TraditionalForm=`. A cell's `#| typeset-output:` rule is tried before the document's, and `#| typeset-output: None` turns the document's off for that cell. The rules are part of the keys of the cached results, so a change to them evaluates the examples again.
+- An output can be shown in a form its value asks for, with the input left as code. A `TypesetOutput:` frontmatter mapping lists `pattern: form` lines, or gives one rule or a list of rules as `Typeset:` does, and an output whose value matches a pattern is shown in that form, in a cell labelled as the front end labels it, `Out[n]//TraditionalForm=`. A pattern names a symbol as the page's code does, on the page's context path, and in `{p1, p2} -> form` the list is alternatives, each a pattern as written, so `{_f, {__f}} -> form` matches an `f` and a list of them. A cell's `#| typeset-output:` rule is tried before the document's, and `#| typeset-output: None` turns the document's off for that cell. The rules are part of the keys of the cached results, so a change to them evaluates the examples again.
 - A comment `(*Iconize["label"]*)` right before a sub-expression shows it as an icon, as the front end's Iconize does, while the cell still evaluates the code as written: a long string, such as a Lean source passed to `LeanImportString`, shows as one icon named `label, 120 lines` that opens to the string in a monospaced font, and a kernel alone evaluating the notebook gets the string character for character. `(*Iconize*)` names a string by its count of lines alone, and any other expression by its head.
 - A fenced `mermaid` block is a diagram: flowcharts, sequence, state and class diagrams are read and drawn by Wolfram/Parser's `MermaidDiagram`, with no web service. The block becomes an input cell that gives its text to that function, evaluated and cached as any example, with the input hidden, so the page shows the diagram and the cell group's bracket opens to the call. The block's own `#| collapse` or `#| eval` option stands. It needs Wolfram/Parser 1.8.0 or later.
 - The source lives on GitHub, which renders the markdown directly: [github.com/WolframInstitute/MarkdownToNotebook](https://github.com/WolframInstitute/MarkdownToNotebook).
@@ -1616,6 +1616,22 @@ VerificationTest[
     {{{"Input", "In[1]:= ", False}, {"Output", "Out[1]//TraditionalForm= ", True}, {"Input", "In[2]:= ", False}, {"Output", "Out[2]= ", False}},
      True, False, ""},
     TestID -> "typeset-output: a matching value's output is shown in the form and its input stays code; None turns it off; the rules are in the cache keys"
+]
+```
+
+An output rule names a symbol as the page's code does, a package's symbol by its short name among them, and a list inside the alternatives is a pattern for a list:
+
+```wl
+VerificationTest[
+    Module[{context = "TypesetOutputTest" <> IntegerString[RandomInteger[10^9], 36] <> "`", labels},
+        Symbol[context <> "thing"];
+        labels = Cases[
+            MarkdownToNotebook["---\nContext: " <> context <> "\nTypesetOutput: \"{_thing, {__thing}} -> TraditionalForm\"\n---\n\n## A\n\n```wl\nthing[1]\n```\n\n```wl\n{thing[1], thing[2]}\n```\n\n```wl\n{1, 2}\n```\n", "UseCache" -> False],
+            Cell[_, "Output", o___] :> Lookup[{o}, CellLabel], Infinity];
+        {labels, Names["MarkdownToNotebookTypeset`*"]}
+    ],
+    {{"Out[1]//TraditionalForm= ", "Out[2]//TraditionalForm= ", "Out[3]= "}, {}},
+    TestID -> "typeset-output: a short name is the page's symbol, and a list among the alternatives matches a list"
 ]
 ```
 

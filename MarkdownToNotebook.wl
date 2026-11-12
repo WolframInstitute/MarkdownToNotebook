@@ -942,13 +942,20 @@ outputBoxes[res_, opts_] := Which[
    with None turning the document's off. The first rule whose pattern the value matches gives the
    form, and the output is the value's boxes in it, as the front end's Out[n]//TraditionalForm=
    cell holds them. The input stays the code as written. *)
-$docTypesetOutputRules = {}
+$docTypesetOutputSpec = None
+(* The rules are read when an output is made, on the context path its cell ran on, so that a
+   pattern names a symbol as the page's code does, a package's symbol among them that the code
+   loaded on the way. A name that is no symbol yet is read into a context of its own and removed
+   again, so that it names the real symbol once there is one. *)
 typesetOutputRules[opts_] := With[{o = Lookup[Replace[opts, Except[_Association] -> <||>], "typeset-output", Missing[]]},
     Which[
-        MissingQ[o], $docTypesetOutputRules,
         o === False || (StringQ[o] && StringTrim[o] === "None"), {},
-        StringQ[o], Join[typesetSpecRules[o], $docTypesetOutputRules],
-        True, $docTypesetOutputRules
+        True, Block[{$Context = "MarkdownToNotebookTypeset`"},
+            With[{rules = Join[If[StringQ[o], typesetSpecRules[o], {}], docTypesetRules[<|"TypesetOutput" -> $docTypesetOutputSpec|>, "TypesetOutput"]]},
+                Quiet[Remove["MarkdownToNotebookTypeset`*"], Remove::rmnsm];
+                rules
+            ]
+        ]
     ]]
 typesetOutputForm[res_, opts_] := FirstCase[typesetOutputRules[opts], {p_, form_} /; MatchQ[Unevaluated[res], p] :> form, None]
 typesetOutputBoxes[res_, StandardForm] := ToBoxes[res, StandardForm]
@@ -1884,7 +1891,9 @@ typesetFormOf[s_String] := SelectFirst[$BoxForms, SymbolName[#] === StringTrim[s
 typesetFormOf[_] := None
 
 (* {{pattern, form}, ...} from a held rule spec, every pattern kept unevaluated *)
-typesetHeldPattern[HoldComplete[l_List]] := Alternatives @@ Map[typesetHeldPattern,
+(* a rule's left side: a list is alternatives, and each of them a pattern as written, so that a
+   list inside it, {__f}, is a pattern for a list *)
+typesetHeldPattern[HoldComplete[l_List]] := Alternatives @@ Map[Replace[HoldComplete[p_] :> HoldPattern[p]],
     Extract[HoldComplete[l], Table[{1, i}, {i, Length[Unevaluated[l]]}], HoldComplete]]
 typesetHeldPattern[HoldComplete[p_]] := HoldPattern[p]
 typesetRulesOf[held_HoldComplete] := Cases[held,
@@ -6960,7 +6969,7 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
        conversion (an example cell that converts another document) otherwise leaves
        the inner document's Name / Paclet / Context / Template / math font in place,
        and the outer notebook is then built under the inner document's identity. *)
-    $docName, $docPaclet, $docContext, $docTemplate, $mathFontFamily, $docTypesetRules, $docTypesetOutputRules, $exampleSalt, $docSourceDir,
+    $docName, $docPaclet, $docContext, $docTemplate, $mathFontFamily, $docTypesetRules, $docTypesetOutputSpec, $exampleSalt, $docSourceDir,
     src, text, parsed, meta, blocks, sections, tmplName, defCode, ctx, ctxPath,
     orderedCode, hashes, cacheDocName, cacheNames, cached, allHit, outputs, data, filled
 },
@@ -6985,7 +6994,7 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
     evalSeparator = Replace[evalSeparator, Automatic :> If[MemberQ[$narrativeTemplates, tmplName], None, Automatic]];
     $docTemplate = tmplName;
     $docTypesetRules = docTypesetRules[meta];
-    $docTypesetOutputRules = docTypesetRules[meta, "TypesetOutput"];
+    $docTypesetOutputSpec = Lookup[meta, "TypesetOutput", None];
     $exampleSalt = outputSalt[meta];
     (* a template notebook's code is evaluated by GenerateDocument, never here *)
     If[tmplName === "NotebookTemplate", evalExamples = False];
