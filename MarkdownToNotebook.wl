@@ -88,6 +88,7 @@ MarkdownToNotebook::revcomment =
     "The reviewer comment \"`1`\" has no \"#| comment:\" directive holding its cell; a reviewer comment is never rebuilt from text, so it is kept as a quote.";
 MarkdownToNotebook::comdate =
     "The comment header \"`1`\" gives no time as \"Name, YYYY-MM-DD HH:MM UTC\"; the comment is dated at build time.";
+MarkdownToNotebook::mermaid = "The document has mermaid blocks, which Wolfram/Parser 1.8.0 or later draws; the parser loaded here has no MermaidDiagram, so they are left as unevaluated calls. Install the current Wolfram/Parser."
 MarkdownToNotebook::evaluator =
     "\"Evaluator\" -> `1` is no evaluator, an Association with an \"Evaluate\" function; the cells are evaluated here.";
 MarkdownToNotebook::section =
@@ -697,7 +698,7 @@ resolveIncludes[blocks_List, base_String] := mermaidCells[Map[resolveBlock[#, ba
    cell's text alone, so the converter holds no symbol of the parser's. *)
 mermaidCells[blocks_] := blocks /. b_Association /; Lookup[b, "Type", None] === "Code" && Lookup[b, "Lang", None] === "mermaid" :>
     Join[b, <|
-        "Lang" -> "wl",
+        "Lang" -> "wl", "Mermaid" -> True,
         "Code" -> "Wolfram`Parser`Languages`Mermaid`MermaidDiagram[" <> ToString[StringTrim[Lookup[b, "Code", ""]], InputForm] <> "]",
         "Options" -> Join[<|"collapse" -> "input"|>, Replace[Lookup[b, "Options", <||>], Except[_Association] -> <||>]]
     |>]
@@ -6974,6 +6975,10 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
     $docPaclet = Lookup[meta, "Paclet", ""];
     $docContext = Lookup[meta, "Context", ""];
     blocks = resolveIncludes[parsed["Blocks"], src["Base"]];
+    (* a mermaid block needs the parser's MermaidDiagram: an older parser has none, and the cell
+       would show its call unevaluated *)
+    If[ ! FreeQ[blocks, KeyValuePattern["Mermaid" -> True]] && Names["Wolfram`Parser`Languages`Mermaid`MermaidDiagram"] === {},
+        Message[MarkdownToNotebook::mermaid]];
     tmplName = Lookup[meta, "Template", "Default"];
     (* a tutorial, an Overview page or a computational essay is one narrative, whose later sections
        use what its earlier ones define: by default it runs in one context *)
