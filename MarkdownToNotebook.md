@@ -771,9 +771,10 @@ On the same fallback the built-in importer maps `\hbar` to an empty box - the re
 ```wl
 VerificationTest[
     {texImportStrip["E = \\hbar \\omega"],
-     ! FreeQ[texBoxesViaImport["\\hbar"], s_String /; StringContainsQ[s, "\[HBar]"]]},
-    {"E = \\hslash \\omega", True},
-    TestID -> "\\hbar imports as its glyph instead of a blank box on the ImportString fallback (issue #61)"
+     ! texImportAvailableQ[] || ! FreeQ[texBoxesViaImport["\\hbar"], s_String /; StringContainsQ[s, "\[HBar]"]],
+     texImportAvailableQ[] || texBoxesViaImport["\\hbar"] === $Failed},
+    {"E = \\hslash \\omega", True, True},
+    TestID -> "\\hbar imports as its glyph instead of a blank box on the ImportString fallback, where this Wolfram has the importer (issue #61)"
 ]
 ```
 
@@ -1267,18 +1268,33 @@ VerificationTest[
 ]
 ```
 
-A norm whose bars never became the bracketing pair - `\|…\|` has no matchfix production and a bare-bar ket poisons the `\lVert…\rVert` matchfix, so both spellings emit a bare `\[DoubleVerticalBar]` (U+2225, a *relational* glyph that cannot stretch) - is still promoted around a **tall** argument, so `$\||\psi\rangle\|$` draws a full-height rule instead of two one-line ticks. Bare U+2225 is also how `\parallel` is spelled, so the promotion is guarded: a genuine relation `a \parallel b` (an operand on each outer side, scalar argument) keeps its plain glyph (issue #64):
+A norm whose bars never became the bracketing pair - `\|…\|` has no matchfix production and a bare-bar ket poisons the `\lVert…\rVert` matchfix, so both spellings emit a bare `\[DoubleVerticalBar]` (U+2225, a *relational* glyph that cannot stretch) - is promoted, so `$\||\psi\rangle\|$` draws a full-height rule instead of two one-line ticks. Bare U+2225 is also how `\parallel` is spelled, so the promotion is guarded: a genuine relation `a \parallel b`, with an operand on each outer side, keeps its plain glyph (issue #64):
 
 ```wl
 VerificationTest[
     With[{bars = GridBoxDividers -> {"Columns" -> {True, True}, ___}},
         {Count[MarkdownToNotebook["$\\||\\psi\\rangle\\| = 1$", "Evaluate" -> False], bars, Infinity],
          FreeQ[MarkdownToNotebook["$a \\parallel b$", "Evaluate" -> False], bars],
-         FreeQ[MarkdownToNotebook["$\\|x\\|$", "Evaluate" -> False], bars]}],
+         FreeQ[MarkdownToNotebook["$x \\parallel y \\parallel z$", "Evaluate" -> False], bars]}],
     {2, True, True},
-    TestID -> "tall bare-double-bar norm drawn full-height, \\parallel relation and scalar left alone (issue #64)"
+    TestID -> "tall bare-double-bar norm drawn full-height, \\parallel relations left alone (issue #64)"
 ]
 ```
+
+A one-line norm is a norm too. A bare pair around a scalar is promoted, with a factor on one side, inside a fraction, and with its subscript or superscript lifted onto the norm; a relation with an operand on each side, a chain of them, and a single bar stay as they are (issue #112):
+
+```wl
+VerificationTest[
+    With[{bars = GridBoxDividers -> {"Columns" -> {True, True}, ___},
+          count = Function[tex, Count[MarkdownToNotebook["$" <> tex <> "$", "Evaluate" -> False], GridBoxDividers -> {"Columns" -> {True, True}, ___}, Infinity]]},
+        {count /@ {"\\|x\\|", "2\\|x\\|", "\\|x\\|\\,\\|y\\|", "\\|\\Delta\\rho\\|_1", "\\|x\\|^2", "\\frac{\\|a\\|_1}{\\|b\\|_1}", "\\lVert x\\rVert", "|x|", "\\lvert x\\rvert^2"},
+         count /@ {"a\\parallel b", "x\\parallel y\\parallel z", "S(\\rho\\|\\sigma)"},
+         ! FreeQ[MarkdownToNotebook["$\\|\\Delta\\rho\\|_1$", "Evaluate" -> False], SubscriptBox[_GridBox, "1"]]}],
+    {{2, 2, 4, 2, 2, 4, 2, 1, 1}, {0, 0, 0}, True},
+    TestID -> "one-line \\|..\\| norm promoted: scalar, factor, product, scripts, fraction; relations and a lone bar left alone (issue #112)"
+]
+```
+
 
 A script on a `\|…\|` norm hangs on the *closing bar glyph* itself - `\|` is a bare atom, so the parser has no matchfix span to carry the script - and a pair whose closer is a `SuperscriptBox` / `SubscriptBox` is not a bare pair. Such a pair is promoted too, with the script lifted onto the promoted norm, so `$\||\psi\rangle\|^2$` draws the full-height rule squared; a scripted operand beside a genuine `\parallel` relation keeps its plain glyph (issue #74):
 

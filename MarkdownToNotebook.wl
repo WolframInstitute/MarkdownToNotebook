@@ -3701,29 +3701,31 @@ barContent[parts_List] := With[{c = DeleteCases[parts, $barSpacer]},
    spellings converge on this shape (\|...\| has no matchfix production; a bare-bar ket poisons
    the \lVert..\rVert matchfix). Promote such a pair to Norm as well - barsToGrid then
    draws it as a full-height column rule and NotebookToMarkdown round-trips it to \lVert. Bare
-   U+2225 is ambiguous (\parallel vs norm), so three guards carry the distinction: the bars are
-   the SAME glyph (matched by one pattern), the argument is TALL (a scalar \|x\| is already
-   correct at nominal size and is left alone), and the pair is NOT flanked by an operand - a
-   binary relation a || x || c has operands on both outer sides, whereas a delimiter's opener
-   follows an operator, an opening bracket, or nothing. *)
+   U+2225 is ambiguous (\parallel vs norm), so two guards carry the distinction: the bars are
+   the SAME glyph (matched by one pattern), and the pair is not flanked by an operand on BOTH
+   outer sides - a chain of relations a || x || c has an operand on each side, whereas a norm
+   starts or ends its row, follows an operator or a bracket, or has a factor on one side only.
+   A scalar's norm is promoted as a tall one is: a bare pair is drawn as two relations. *)
 $bareDBar = "\[DoubleVerticalBar]" | StyleBox["\[DoubleVerticalBar]", ___]
 operandBoxQ[b_] := MatchQ[b, _TemplateBox | _RowBox | _SqrtBox | _FractionBox | _RadicalBox |
-        SuperscriptBox[__] | SubscriptBox[__] | SubsuperscriptBox[__] | UnderoverscriptBox[__]] ||
-    (StringQ[b] && StringMatchQ[b, (LetterCharacter | DigitCharacter) ..])
+        SuperscriptBox[__] | SubscriptBox[__] | SubsuperscriptBox[__] | UnderoverscriptBox[__] |
+        OverscriptBox[__] | UnderscriptBox[__]] ||
+    (StringQ[b] && StringMatchQ[b, (LetterCharacter | DigitCharacter) ..]) ||
+    MatchQ[b, StyleBox[s_String /; StringMatchQ[s, (LetterCharacter | DigitCharacter) ..], ___]]
 normPairUnflankedQ[pre_List, post_List] := With[
     {p = DeleteCases[pre, $barSpacer], q = DeleteCases[post, $barSpacer]},
-    (p === {} || ! operandBoxQ[Last[p]]) && (q === {} || ! operandBoxQ[First[q]])
+    (p === {} || ! operandBoxQ[Last[p]]) || (q === {} || ! operandBoxQ[First[q]])
 ]
 templatizeBars[boxes_] := boxes //. {
     RowBox[{pre___, $bareDBar, mid : Except[$bareDBar] .., $bareDBar, post___}] /;
-        tallArgQ[barContent[{mid}]] && normPairUnflankedQ[{pre}, {post}] :>
+        normPairUnflankedQ[{pre}, {post}] :>
         RowBox[{pre, TemplateBox[{barContent[{mid}]}, "Norm"], post}],
     (* \|...\|^2 hangs the script on the closing bar glyph itself (\| is a bare
        atom, so no matchfix span exists to carry the script); the script is lifted
        onto the promoted Norm. Same tall / unflanked guards as the bare pair. *)
     RowBox[{pre___, $bareDBar, mid : Except[$bareDBar] ..,
             (h : SuperscriptBox | SubscriptBox)[$bareDBar, s_], post___}] /;
-        tallArgQ[barContent[{mid}]] && normPairUnflankedQ[{pre}, {post}] :>
+        normPairUnflankedQ[{pre}, {post}] :>
         RowBox[{pre, h[TemplateBox[{barContent[{mid}]}, "Norm"], s], post}],
     RowBox[{pre___, $openDBar, mid : Except[$openDBar | $closeDBar] .., $closeDBar, post___}] :>
         RowBox[{pre, TemplateBox[{barContent[{mid}]}, "Norm"], post}],
@@ -3740,9 +3742,6 @@ templatizeBars[boxes_] := boxes //. {
         RowBox[{pre, TemplateBox[{barContent[{mid}]}, "Abs"], post}]
 }
 
-(* "tall" = an argument that exceeds one text line, which is the only case where the
-   #64 rule above may re-read an ambiguous bare U+2225 as a norm delimiter. *)
-tallArgQ[arg_] := ! FreeQ[arg, TemplateBox[_, "Ket" | "Bra" | "Braket" | "BraKet"]]
 
 (* A modulus / norm is drawn as a GridBox column rule, not the Abs / Norm
    TemplateBox. That template draws EXTENSIBLE bars: stretched past ~one line height
@@ -3814,6 +3813,10 @@ texImportStrip[math_String] := StringReplace[math, {
     RegularExpression["\\\\hbar(?![a-zA-Z])"] -> "\\hslash",
     RegularExpression["\\\\(?:B|b)igg?[lrm]?(?![a-zA-Z])"] -> ""
 }]
+(* whether this Wolfram has the TeX importer the fallback uses: a build without its
+   LaTeXFileTools package leaves ImportString[..., "TeX"] unevaluated *)
+texImportAvailableQ[] := texImportAvailableQ[] = StringQ[FindFile["LaTeXFileTools`"]]
+texBoxesViaImport[math_String] /; ! texImportAvailableQ[] := $Failed
 texBoxesViaImport[math_String] :=
     Block[{nb = Quiet @ ImportString["$" <> texImportStrip[math] <> "$", "TeX"]},
         If[ MatchQ[nb, _Notebook],
