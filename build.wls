@@ -15,6 +15,16 @@ Quiet @ PacletInstall["DefinitionNotebookClient", UpdateSites -> True]
    persist into the desktop app): the converter renders example thumbnails in its
    "LightDark" mode (light by default) and gives a resource notebook LightDark -> "Light". *)
 
+(* Wolfram 15.1 has a System`SelectPositions, which is Protected. The resource page's copy of
+   Transmogrify, written before it, defines SelectPositions rules of its own from its package
+   context, where the name now reads as the System symbol: the rules are refused
+   (SetDelayed::write) and the page's walk of a definition notebook recurses past
+   $RecursionLimit. A symbol of that name in each package's own context, made before the package
+   loads, is the one its code reads. *)
+If[ NameQ["System`SelectPositions"],
+    Scan[Symbol[# <> "SelectPositions"] &, {"Transmogrify`", "ResourceShingleTransmogrify`"}]
+]
+
 dir = DirectoryName[$InputFileName]
 
 (* phase 1: pull every `#| file: path` reference out of the "## Definition" section
