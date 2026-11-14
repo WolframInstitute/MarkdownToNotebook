@@ -32,6 +32,16 @@
    ImportString when MTN ran from elsewhere (issue #25) *)
 $parserDir = FileNameJoin[{
     Replace[DirectoryName[$InputFileName], "" :> Directory[]], "examples", "Paclet", "WolframParser"}]
+
+(* The submodule is the converter's only when it is read from this file. A published function's
+   definitions hold the path its deploying kernel read this file from, which means nothing where
+   it runs, and on the deploying machine names a checkout that has moved on; its symbols are in a
+   FunctionRepository` context, so it is told at call time and uses an installed parser alone. *)
+vendoredParserDir[] := If[
+    StringStartsQ[Context[vendoredParserDir], "FunctionRepository`"] || ! DirectoryQ[$parserDir],
+    None,
+    $parserDir
+]
 $parserReady = False
 $parserTried = False
 (* Make Wolfram`Parser` available, once per session. Prefer the vendored submodule
@@ -57,7 +67,7 @@ ensureParser[] := If[! TrueQ[$parserReady] && ! TrueQ[$parserTried],
     $parserTried = True;
     (* An already-installed or vendored copy is used as-is; only a machine with neither
        reaches PacletInstall, and it is told what happened by ::noparser below. *)
-    If[ DirectoryQ[$parserDir], PacletDirectoryLoad[$parserDir]];
+    With[{vendored = vendoredParserDir[]}, If[ StringQ[vendored], PacletDirectoryLoad[vendored]]];
     Quiet @ Check[Needs["Wolfram`Parser`"], Null];
     If[ ! parserLoadedQ[],
         (* Retry the install. A caller that converts on a parallel pool has every kernel reach
