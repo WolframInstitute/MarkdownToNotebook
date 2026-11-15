@@ -241,6 +241,15 @@ example lands under `PrimaryExamplesSection`. A `wl` cell may be followed by an
 `<!-- => ... -->` comment recording the expected output; comments are stripped
 on conversion, so they document the source without affecting the build.
 
+A name in `SeeAlso`, `RelatedTutorials`, a guide's listings or an inferred
+`[Name]()` link that the page's own paclet has no page for links to a paclet it
+depends on that has one: a paclet its `PacletInfo.wl` names under
+`"Dependencies"`, or the paclet of a `ContextPath` context. A symbol belongs to
+the paclet whose context defines it, a guide or tech note to the paclet whose
+documentation has its page (built, or a markdown source in a `docs/en` tree
+beside the paclet). PacletPage's deploy points such a link at that paclet's
+published page.
+
 A Symbol page has **no** `Description:` field. Unlike a Guide, the function
 summary comes from the `## Usage` line, so frontmatter carries only metadata
 (`Name`, `Context`, `Paclet`, `URI`, `Keywords`, `SeeAlso`, `RelatedTutorials`,

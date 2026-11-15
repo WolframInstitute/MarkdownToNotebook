@@ -3241,12 +3241,16 @@ docLinkCell[name_String, uri_String] :=
    paclet-qualified for the documented paclet (the typed-link templates need
    the qualified path; a bare paclet:guide/Name is the System form).  The URI
    carries the paclet name verbatim, slash preserved (issue #23). *)
-linkURI[name_String, paclet_String, kind_String] := Block[{pkg = packagePath[paclet, $docContext]},
+linkURI[name_String, paclet_String, kind_String] := Block[{pkg = packagePath[paclet, $docContext], dependency = None},
     Which[
+        kind === "ref" && ! symbolInDocQ[name] && (dependency = dependencyOf[name, "ref"]) =!= None,
+            First[dependency] <> "/ref/" <> name,
         kind === "ref" && symbolInContextQ[name, "System`"] && ! symbolInDocQ[name],
             "ref/" <> name,
         kind === "guide" && systemGuideQ[name],
             "guide/" <> name,
+        kind =!= "ref" && ! ownPageQ[name, kind] && (dependency = dependencyOf[name, kind]) =!= None,
+            First[dependency] <> "/" <> kind <> "/" <> name,
         pkg =!= "",
             pkg <> "/" <> kind <> "/" <> name,
         True,
@@ -3583,6 +3587,73 @@ docPacletContext[] := If[$docPaclet === "", "", StringReplace[$docPaclet, "/" ->
    PackageImport-ing its parent paclet at load. *)
 symbolInDocQ[name_String] := symbolInContextQ[name, $docContext] ||
     With[{primary = docPacletContext[]}, primary =!= $docContext && symbolInContextQ[name, primary]]
+
+(* === links into the paclets a paclet depends on ===
+   A name the documented paclet has no page for links to the paclet that has one, among the paclets
+   the page depends on: the ones its paclet's PacletInfo names under "Dependencies", for the paclet a
+   kernel finds, then the paclets of its "ContextPath" contexts that a kernel finds. Each is a
+   {paclet name, primary context} pair. A symbol belongs to a paclet whose context defines it or
+   whose documentation has its reference page; a guide or a tech note to a paclet whose
+   documentation has its page, built (Documentation/English) or as a markdown source in a docs
+   tree beside the paclet. *)
+$docDependencies = {}
+
+docDependencies[meta_] := With[{own = Lookup[meta, "Paclet", ""]},
+    DeleteCases[
+        DeleteDuplicatesBy[
+            Join[dependencyPair /@ declaredDependencies[own], contextPathPair /@ asList[Lookup[meta, "ContextPath", {}]]],
+            Replace[{{n_, _} :> n, _ -> None}]],
+        None | {own, _}]]
+
+declaredDependencies[""] := {}
+declaredDependencies[paclet_String] := Replace[First[PacletFind[paclet], None], {
+    p_PacletObject :> Cases[Replace[p["Dependencies"], Except[_List] -> {}], (n_String -> _) | n_String :> n],
+    _ -> {}}]
+
+dependencyPair[name_String] := {name, Replace[First[PacletFind[name], None], {
+    p_PacletObject :> Replace[p["PrimaryContext"], Except[_String?(StringEndsQ["`"])] :> nameContext[name]],
+    _ :> nameContext[name]}]}
+
+nameContext[name_String] := StringReplace[name, "/" -> "`"] <> "`"
+
+contextPathPair[context_String] /; ! MemberQ[{"Global`", "System`", ""}, context] :=
+    With[{name = StringReplace[StringTrim[context, "`"], "`" -> "/"]}, If[PacletFind[name] =!= {}, {name, context}, None]]
+contextPathPair[_] := None
+
+(* the dependency {paclet, context} that has a page of the kind for the name, or None *)
+dependencyOf[name_String, kind_String] := SelectFirst[$docDependencies, dependencyHasQ[#, name, kind] &, None]
+
+dependencyHasQ[{paclet_, context_}, name_, "ref"] := symbolInContextQ[name, context] || dependencyPageQ[paclet, "ref", name]
+dependencyHasQ[{paclet_, _}, name_, kind_] := dependencyPageQ[paclet, kind, name]
+
+dependencyPageQ[paclet_String, kind_String, name_String] := MemberQ[Lookup[dependencyPages[paclet], kind, {}], name]
+
+(* a dependency's page names by kind, read once from its directory *)
+dependencyPages[paclet_String] := dependencyPages[paclet] = Replace[First[PacletFind[paclet], None], {
+    p_PacletObject :> With[{dir = p["Location"]}, Merge[{builtPages[dir], sourcePages[dir]}, Union @@ # &]],
+    _ -> <||>}]
+
+$pageKinds = {"ref" -> "ReferencePages", "guide" -> "Guides", "tutorial" -> "Tutorials"};
+
+builtPages[dir_String] := With[{english = FileNameJoin[{dir, "Documentation", "English"}]},
+    Association @ Map[
+        First[#] -> FileBaseName /@ FileNames["*.nb", FileNameJoin[{english, Last[#]}], Infinity] &,
+        $pageKinds]]
+
+(* the markdown sources of a docs tree beside the paclet, docs/en/ReferencePages, docs/en/Guides
+   and docs/en/Tutorials, in the paclet's directory or the one above it *)
+sourcePages[dir_String] := With[{
+    docs = SelectFirst[FileNameJoin[{#, "docs", "en"}] & /@ {dir, ParentDirectory[dir]}, DirectoryQ, None]},
+    If[ docs === None, <||>,
+        Association @ Map[
+            First[#] -> FileBaseName /@ FileNames["*.md", FileNameJoin[{docs, Last[#]}], Infinity] &,
+            $pageKinds]]]
+
+(* whether the documented paclet has a page of the kind for the name: a guide or tech note source
+   in the docs tree of this document's source; a source read from elsewhere is taken to have it *)
+ownPageQ[name_String, kind_String] := ! StringQ[$docSourceDir] || With[{
+    dir = SelectFirst[FileNameJoin[{#, kind /. $pageKinds}] & /@ NestList[ParentDirectory, $docSourceDir, 6], DirectoryQ, None]},
+    dir === None || FileNames[name <> ".md", dir, Infinity] =!= {}]
 
 (* drop every ButtonBox link wrapper, keeping its content. ParseTextTemplate
    eagerly links any System symbol it recognizes (Notebook, ResourceFunction,
@@ -4060,9 +4131,10 @@ linkInline[text_String, url_String] := Which[
 (* the ref-page URI a bare symbol name resolves to: a name in the documented
    paclet's context links to its paclet ref page, a System symbol to its system
    ref page; anything else does not resolve. *)
-inferURL[name_String] := With[{pkg = packagePath[$docPaclet, $docContext]}, Which[
+inferURL[name_String] := Block[{pkg = packagePath[$docPaclet, $docContext], dependency}, Which[
     symbolInDocQ[name] && pkg =!= "", "paclet:" <> pkg <> "/ref/" <> name, (* issue #23 *)
     symbolInDocQ[name], "paclet:ref/" <> name,
+    (dependency = dependencyOf[name, "ref"]) =!= None, "paclet:" <> First[dependency] <> "/ref/" <> name,
     symbolInContextQ[name, "System`"], "paclet:ref/" <> name,
     True, None
 ]]
@@ -4070,13 +4142,15 @@ inferURL[name_String] := With[{pkg = packagePath[$docPaclet, $docContext]}, Whic
 (* the public web URL a bare symbol name resolves to. Mirrors inferURL but for the
    GitHub-renderable twin: paclet symbols point at their PacletRepository page, System
    symbols at the Wolfram Language reference site. *)
-inferWebURL[name_String] := Which[
+inferWebURL[name_String] := Block[{dependency}, Which[
     symbolInDocQ[name] && $docPaclet =!= "",
         "https://resources.wolframcloud.com/PacletRepository/resources/" <> $docPaclet <> "/ref/" <> name,
+    ! symbolInDocQ[name] && (dependency = dependencyOf[name, "ref"]) =!= None,
+        "https://resources.wolframcloud.com/PacletRepository/resources/" <> First[dependency] <> "/ref/" <> name,
     symbolInContextQ[name, "System`"],
         "https://reference.wolfram.com/language/ref/" <> name <> ".html",
     True, None
-]
+]]
 
 (* translate a "paclet:..." URI (the notebook's internal link target) to the public
    web URL of the same ref/guide/tutorial. Used when serialising the markdown twin
@@ -4610,14 +4684,18 @@ builtinSymbolQ[name_String] := Names["System`" <> name] =!= {} &&
    the same typed link the Documentation Tools button produces (issue #20). A
    built-in links to the SYSTEM reference page "paclet:ref/Sym" (with an italic
    label so the listing reads paclet-vs-built-in at a glance); a paclet symbol
-   links to the paclet's own ref page. The kind is inferred from context - there is
-   no marker to read. *)
+   links to the paclet's own ref page, and a symbol of a paclet it depends on to that
+   paclet's. The kind is inferred from context - there is no marker to read. *)
 guideFnChip[name_String, paclet_String] := With[
-    {pkg = packagePath[paclet, $docContext]},
+    {pkg = packagePath[paclet, $docContext], dependency = If[symbolInDocQ[name], None, dependencyOf[name, "ref"]]},
     Cell[
-        BoxData @ If[ builtinSymbolQ[name],
-            pacletLinkBox[StyleBox[name, FontSlant -> "Italic"], "paclet:ref/" <> name],
-            pacletLinkBox[name, "paclet:" <> If[pkg === "", paclet, pkg] <> "/ref/" <> name]
+        BoxData @ Which[
+            dependency =!= None,
+                pacletLinkBox[name, "paclet:" <> First[dependency] <> "/ref/" <> name],
+            builtinSymbolQ[name],
+                pacletLinkBox[StyleBox[name, FontSlant -> "Italic"], "paclet:ref/" <> name],
+            True,
+                pacletLinkBox[name, "paclet:" <> If[pkg === "", paclet, pkg] <> "/ref/" <> name]
         ],
         "InlineGuideFunction", TaggingRules -> {"PageType" -> "Function"}
     ]
@@ -7026,7 +7104,7 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
        conversion (an example cell that converts another document) otherwise leaves
        the inner document's Name / Paclet / Context / Template / math font in place,
        and the outer notebook is then built under the inner document's identity. *)
-    $docName, $docPaclet, $docContext, $docTemplate, $mathFontFamily, $docTypesetRules, $docTypesetOutputSpec, $exampleSalt, $docSourceDir,
+    $docName, $docPaclet, $docContext, $docDependencies, $docTemplate, $mathFontFamily, $docTypesetRules, $docTypesetOutputSpec, $exampleSalt, $docSourceDir,
     src, text, parsed, meta, blocks, sections, tmplName, defCode, ctx, ctxPath,
     orderedCode, hashes, cacheDocName, cacheNames, cached, allHit, outputs, data, filled
 },
@@ -7040,6 +7118,7 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
     $docName = Lookup[meta, "Name", ""];
     $docPaclet = Lookup[meta, "Paclet", ""];
     $docContext = Lookup[meta, "Context", ""];
+    $docDependencies = docDependencies[meta];
     blocks = resolveIncludes[parsed["Blocks"], src["Base"]];
     (* a mermaid block needs the parser's MermaidDiagram: an older parser has none, and the cell
        would show its call unevaluated *)
