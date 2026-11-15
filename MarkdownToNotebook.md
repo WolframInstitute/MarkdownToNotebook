@@ -836,7 +836,7 @@ VerificationTest[
 ]
 ```
 
-A hub guide builds the documentation hierarchy (the collapsible sidebar tree) by pointing at sub-guides. `DocumentationBuild` reads parent→child edges only from `ButtonBox[…, BaseStyle -> "Link", ButtonData -> "paclet:…/guide/…"]` links sitting in `GuideFunctionsSubsection` / `GuideTOCLink` cells - NOT from `TemplateBox` "RefLinkPlain" links or links in `GuideText`/`GuideMoreAbout`. Two authoring channels emit the scanned form: a whole-heading guide link `### [Sub](paclet:…/guide/Sub)` (becomes a `GuideFunctionsSubsection` link) and a `## Guides` index list (each item a `GuideTOCLink`):
+A hub guide builds the documentation hierarchy (the collapsible sidebar tree) by pointing at sub-guides. `DocumentationBuild` reads parent→child edges only from `ButtonBox[…, BaseStyle -> "Link", ButtonData -> "paclet:…/guide/…"]` links sitting in `GuideFunctionsSubsection` / `GuideTOCLink` cells - NOT from `TemplateBox` "RefLinkPlain" links or links in `GuideText`/`GuideMoreAbout`. Two authoring channels emit the scanned form: a whole-heading guide link `### [Sub](paclet:…/guide/Sub)` (becomes a `GuideFunctionsSubsection` link, its label ending in " »" as such a heading does in the Wolfram Language's own guides) and a `## Guides` index list (each item a `GuideTOCLink`):
 
 ```wl
 VerificationTest[
@@ -884,7 +884,7 @@ VerificationTest[
         ]
     ],
     {
-        {"K-Theory Basics", "Prime Sieves"},
+        {"K-Theory Basics \[RightGuillemet]", "Prime Sieves"},
         {"### [K-Theory Basics](paclet:Pub/Pkg/guide/KTheoryBasics)", "- [Prime Sieves](paclet:Pub/Pkg/guide/PrimeSieves)"}
     },
     TestID -> "a sub-guide link's label stays text through a save and reads back as the link"
@@ -902,10 +902,26 @@ VerificationTest[
         }
     ],
     {
-        {{"Algebra", None}, {"Conics", "IncludedEmptySection"}, {"Topology", None}},
+        {{"Algebra \[RightGuillemet]", None}, {"Conics \[RightGuillemet]", "IncludedEmptySection"}, {"Topology \[RightGuillemet]", None}},
         {"### [Algebra](paclet:Pub/Pkg/guide/Algebra)", "### [Conics](paclet:Pub/Pkg/guide/Conics)", "### [Topology](paclet:Pub/Pkg/guide/Topology)"}
     },
     TestID -> "a guide heading with nothing under it carries the IncludedEmptySection tag and reads back"
+]
+```
+
+A sub-guide heading's label ends in " »", inside the link, as in the Wolfram Language's own guides; a label that ends in the mark already keeps it once, and a heading that is no link, or links to no guide, has none. NotebookToMarkdown reads the heading back without it:
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook["---\nTemplate: Guide\nName: Hub\nContext: Pub`Pkg`\nPaclet: Pub/Pkg\nURI: Pub/Pkg/guide/Hub\n---\n\n## Functions\n\n### [Algebra \[RightGuillemet]](paclet:Pub/Pkg/guide/Algebra)\n- `Foo` does foo\n\n### Plain heading\n- `Bar` does bar\n\n### [Bar](paclet:Pub/Pkg/ref/Bar)\n- `Baz` does baz\n", "Evaluate" -> False]},
+        {
+            Cases[nb, Cell[_[ButtonBox[l_String, ___]], "GuideFunctionsSubsection", ___] :> l, Infinity],
+            FreeQ[Cases[nb, Cell[_, "GuideFunctionsSubsection", ___], Infinity][[2 ;;]], "\[RightGuillemet]"],
+            StringCases[NotebookToMarkdown[nb], StartOfLine ~~ "### [Algebra" ~~ Except["\n"] ..]
+        }
+    ],
+    {{"Algebra \[RightGuillemet]"}, True, {"### [Algebra](paclet:Pub/Pkg/guide/Algebra)"}},
+    TestID -> "a sub-guide heading's label ends in a right guillemet once, and reads back without it"
 ]
 ```
 

@@ -1144,7 +1144,8 @@ blockFor["GuideFunctionsSection", _] := "## Functions"
    in BoxData, split at its spaces (RowBox[{"Euclidean", " ", "Geometry"}]), read
    as the code they spell *)
 linkLabelText[lbl_] := cellPlain[lbl /. r_RowBox :> boxToCode[r]]
-(* the OrangeLink label with the template's decorative trailing chevron trimmed *)
+(* a sub-guide heading's label with its trailing chevron trimmed, the one the forward converter and
+   the OrangeLink template add *)
 orangeLinkLabel[lbl_] := StringTrim @ StringReplace[linkLabelText[lbl],
     WhitespaceCharacter ... ~~ "\[RightGuillemet]" ~~ EndOfString -> ""]
 blockFor["GuideFunctionsSubsection", c_] := Which[
@@ -1153,7 +1154,7 @@ blockFor["GuideFunctionsSubsection", c_] := Which[
     (* a whole-heading guide link: "### [Sub](paclet:.../guide/Sub)" *)
     MatchQ[c, (TextData | BoxData)[ButtonBox[_, ___, ButtonData -> _String, ___]]],
         Replace[c, _[ButtonBox[l_, ___, ButtonData -> u_String, ___]] :>
-            "### [" <> linkLabelText[l] <> "](" <> u <> ")"],
+            "### [" <> orangeLinkLabel[l] <> "](" <> u <> ")"],
     (* a hub guide heads each sub-guide block with an OrangeLink chip - a
        {label, uri} TemplateBox. It walks back to the same whole-heading link
        form, which the forward path rebuilds as the registering ButtonBox. *)

@@ -4754,9 +4754,15 @@ guideLinkLeading[text_String] := StringCases[StringTrim[text],
 guideSubsectionHead[text_String] := With[{m = guideLinkLeading[text]},
     If[m === {} || m[[1, 3]] =!= "",
         Cell[TextData @ inlineTextData[text], "GuideFunctionsSubsection"],
-        Cell[TextData[guideNavButtonBox[m[[1, 1]], m[[1, 2]]]], "GuideFunctionsSubsection"]
+        Cell[TextData[guideNavButtonBox[subGuideLabel[m[[1, 1]]], m[[1, 2]]]], "GuideFunctionsSubsection"]
     ]
 ]
+
+(* a sub-guide heading's label ends in a right guillemet, as a heading that links to another guide
+   does in the Wolfram Language's own guides: the Documentation Tools palette writes the mark into
+   the authoring notebook, and the documentation build carries the label as it is into the page's
+   OrangeLink. A label that ends in the mark already keeps it once. *)
+subGuideLabel[label_String] := If[StringEndsQ[StringTrim[label], "\[RightGuillemet]"], label, label <> " \[RightGuillemet]"]
 
 (* a heading with nothing under it but delimiters, such as a sub-guide's link
    alone, carries the IncludedEmptySection tag, which DocumentationBuild's
