@@ -925,7 +925,7 @@ VerificationTest[
 ]
 ```
 
-A name the documented paclet has no page for links to a paclet it depends on that has one: a paclet its PacletInfo names under `"Dependencies"`, or the paclet of a `ContextPath` context. A symbol belongs to the paclet whose context defines it, and a tech note or guide to the paclet whose documentation has its page. See Also, the Tech Notes, a guide's listings and an inferred `[Name]()` link all resolve so; a System symbol still links to its system page:
+A name the documented paclet has no page for links to a paclet it depends on that has one: a paclet its PacletInfo names under `"Dependencies"`, or the paclet of a `ContextPath` context. A symbol belongs to the paclet whose documentation has its reference page, or, where that paclet's pages are not to be found, whose context defines it; a name the dependency defines but documents nowhere, `DepHidden` here, has no link. A tech note or guide belongs to the paclet whose documentation has its page. See Also, the Tech Notes, a guide's listings and an inferred `[Name]()` link all resolve so; a System symbol still links to its system page:
 
 ```wl
 VerificationTest[
@@ -938,17 +938,19 @@ VerificationTest[
         Export[FileNameJoin[{dep, "PacletInfo.wl"}], PacletObject[<|"Name" -> "TestPub/DepPaclet", "Version" -> "1.0.0", "PrimaryContext" -> "TestPub`DepPaclet`"|>], "Package"];
         Export[FileNameJoin[{main, "PacletInfo.wl"}], PacletObject[<|"Name" -> "TestPub/MainPaclet", "Version" -> "1.0.0", "PrimaryContext" -> "TestPub`MainPaclet`", "Dependencies" -> {"TestPub/DepPaclet" -> "1.0+"}|>], "Package"];
         Put[Notebook[{}], FileNameJoin[{dep, "Documentation", "English", "Tutorials", "DepNotes.nb"}]];
+        CreateDirectory[FileNameJoin[{dep, "Documentation", "English", "ReferencePages", "Symbols"}], CreateIntermediateDirectories -> True];
+        Put[Notebook[{}], FileNameJoin[{dep, "Documentation", "English", "ReferencePages", "Symbols", "DepFn.nb"}]];
         Put[Notebook[{}], FileNameJoin[{docs, "Tutorials", "MainNotes.md"}]];
-        ToExpression["TestPub`DepPaclet`DepFn"]; ToExpression["TestPub`MainPaclet`MainFn"];
+        ToExpression["TestPub`DepPaclet`DepFn"]; ToExpression["TestPub`DepPaclet`DepHidden"]; ToExpression["TestPub`MainPaclet`MainFn"];
         PacletDirectoryLoad[{dep, main}];
         page = FileNameJoin[{docs, "ReferencePages", "Symbols", "MainFn.md"}];
-        Export[page, "---\nTemplate: Symbol\nName: MainFn\nContext: TestPub`MainPaclet`\nPaclet: TestPub/MainPaclet\nSeeAlso: [DepFn, Plot, MainFn]\nRelatedTutorials: [DepNotes, MainNotes]\n---\n\n## Usage\n\n`MainFn[x]` calls [DepFn]() on *x*.\n", "Text"];
+        Export[page, "---\nTemplate: Symbol\nName: MainFn\nContext: TestPub`MainPaclet`\nPaclet: TestPub/MainPaclet\nSeeAlso: [DepFn, Plot, MainFn]\nRelatedTutorials: [DepNotes, MainNotes]\n---\n\n## Usage\n\n`MainFn[x]` calls [DepFn]() on *x*, and [DepHidden]() too.\n", "Text"];
         nb = MarkdownToNotebook[page, "Evaluate" -> False];
         guide = MarkdownToNotebook["---\nTemplate: Guide\nName: Main\nContext: TestPub`MainPaclet`\nPaclet: TestPub/MainPaclet\n---\n\n## Functions\n\n- `DepFn` from the dependency\n- `MainFn` of its own\n", "Evaluate" -> False];
         targets = {
             Cases[nb, Cell[c_, "SeeAlso", ___] :> Cases[c, TemplateBox[{_, u_String, ___}, __] :> u, Infinity], Infinity],
             Cases[nb, Cell[c_, "Tutorials" | "RelatedTutorials", ___] :> Cases[c, (ButtonData -> u_String) :> u, Infinity], Infinity],
-            DeleteDuplicates @ Cases[nb, TemplateBox[{_, u_String /; StringContainsQ[u, "DepFn"], ___}, "PackageLink", ___] :> u, Infinity],
+            DeleteDuplicates @ Cases[nb, TemplateBox[{_, u_String /; StringContainsQ[u, "DepFn" | "DepHidden"], ___}, "PackageLink", ___] :> u, Infinity],
             Cases[guide, Cell[c_, "InlineGuideFunction", ___] :> First[Cases[c, TemplateBox[{_, u_String, ___}, __] :> u, Infinity], None], Infinity]
         };
         PacletDirectoryUnload[{dep, main}];

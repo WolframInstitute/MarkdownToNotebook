@@ -3596,8 +3596,8 @@ symbolInDocQ[name_String] := symbolInContextQ[name, $docContext] ||
    A name the documented paclet has no page for links to the paclet that has one, among the paclets
    the page depends on: the ones its paclet's PacletInfo names under "Dependencies", for the paclet a
    kernel finds, then the paclets of its "ContextPath" contexts that a kernel finds. Each is a
-   {paclet name, primary context} pair. A symbol belongs to a paclet whose context defines it or
-   whose documentation has its reference page; a guide or a tech note to a paclet whose
+   {paclet name, primary context} pair. A symbol belongs to a paclet whose documentation has its
+   reference page, or, where the paclet's pages are not to be found, whose context defines it; a guide or a tech note to a paclet whose
    documentation has its page, built (Documentation/English) or as a markdown source in a docs
    tree beside the paclet. *)
 $docDependencies = {}
@@ -3627,7 +3627,10 @@ contextPathPair[_] := None
 (* the dependency {paclet, context} that has a page of the kind for the name, or None *)
 dependencyOf[name_String, kind_String] := SelectFirst[$docDependencies, dependencyHasQ[#, name, kind] &, None]
 
-dependencyHasQ[{paclet_, context_}, name_, "ref"] := symbolInContextQ[name, context] || dependencyPageQ[paclet, "ref", name]
+(* a symbol of a dependency whose reference pages are known has a link only if one of them is its:
+   a name the dependency defines without documenting it has no page to lead to *)
+dependencyHasQ[{paclet_, context_}, name_, "ref"] := With[{refs = Lookup[dependencyPages[paclet], "ref", {}]},
+    If[refs === {}, symbolInContextQ[name, context], MemberQ[refs, name]]]
 dependencyHasQ[{paclet_, _}, name_, kind_] := dependencyPageQ[paclet, kind, name]
 
 dependencyPageQ[paclet_String, kind_String, name_String] := MemberQ[Lookup[dependencyPages[paclet], kind, {}], name]
