@@ -1733,6 +1733,34 @@ VerificationTest[
 ]
 ```
 
+A section that is evaluated runs every cell, its opening one included, even where a section taken from the cache opens with the same code, and so with the same key, as sections that each begin `x = ...` do; the result and the messages are those of a conversion that evaluates everything:
+
+```wl
+VerificationTest[
+    Module[{store = CreateDirectory[], md, outs, names, drop, result},
+        md = "---\nName: OpeningProbe\n---\n\n## Basic Examples\n\n```wl\nsch = 7\n```\n\n```wl\nf[sch]\n```\n\n## Scope\n\n```wl\ng[1]\n```\n\n```wl\nsch = 7\n```\n\n```wl\ng[sch]\n```\n\n## Properties and Relations\n\n```wl\nsch = 7\n```\n\n```wl\nh[sch]\n```\n\n## Possible Issues\n\n```wl\nsch = 7\n```\n\n```wl\nk[sch]\n```\n\n---\n\n```wl\nsch = 7\n```\n\n```wl\nm[sch]\n```\n";
+        result = Block[{$cacheLocation = PersistenceLocation["Local", store]},
+            (* each conversion on a fresh page context, as each build kernel converts a page *)
+            outs[opts___] := (Quiet[ClearAll @@ Names["MTNB$*`*"]];
+                Quiet[Check[Cases[MarkdownToNotebook[md, opts], Cell[BoxData[b_], "Output", ___] :> b, Infinity], "section reported", MarkdownToNotebook::section], MarkdownToNotebook::section]);
+            names = MapIndexed[exampleCacheName["OpeningProbe", First[#2], #1] &,
+                cumulativeHashes[Automatic, Cases[resolveIncludes[litParse[md]["Blocks"], ""], b_ /; (executableQ[b] || MatchQ[b["Type"], "Separator" | "Heading"]), Infinity]]];
+            drop[i_] := DeleteObject[PersistentObject[names[[i]], $cacheLocation]];
+            Module[{cold = outs[], warm, next},
+                drop[7]; drop[9];
+                warm = outs[];
+                next = outs[];
+                {FreeQ[cold, "sch"], warm === cold, next === cold}
+            ]
+        ];
+        DeleteDirectory[store, DeleteContents -> True];
+        result
+    ],
+    {True, True, True},
+    TestID -> "partial evaluation: an evaluated section runs its opening cell even where a cached section opens with the same code"
+]
+```
+
 A `mermaid` block becomes an input cell that calls the parser's `MermaidDiagram` on the block's text, with the input hidden in its group:
 
 ```wl

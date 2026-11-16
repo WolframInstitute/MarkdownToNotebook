@@ -927,6 +927,7 @@ cachedSections[partial_, sections_List, missing_List, codes_List] := Module[{las
     Select[DeleteCases[Keys[bySection], 0],
         Function[s, s > last || (partial === True && NoneTrue[bySection[s], #[[2]] &] && NoneTrue[bySection[s], impureCodeQ[#[[3]]] &])]]
 ]
+(* the results the evaluation takes from the cache, by the place of each cell among the executable ones *)
 $cachedCells = <||>
 
 (* the light/dark mode example renderings are pinned to. Default light (the
@@ -1252,12 +1253,15 @@ resetState[state_] := If[
     ]
 ]
 
-evalCell[state_, b_] /; KeyExistsQ[$cachedCells, stableHash[state["code"] <> mdSep <> b["Code"] <> cellSalt[b]]] :=
-    (* a cell whose section is taken from the cache: its result as kept, and the code chain moved on *)
+evalCell[state_, b_] /; KeyExistsQ[$cachedCells, state["index"]] :=
+    (* a cell of a section taken from the cache, known by its place among the executable cells: its
+       result as kept, and the code chain moved on. A cell of a section that is evaluated runs, even
+       where a cached cell has the same code and so the same key, as the opening x = ... of two
+       sections has: the cells after it read what it binds. *)
     With[{code = state["code"] <> mdSep <> b["Code"] <> cellSalt[b]},
         <|state, "code" -> code,
           "base" -> If[state["protected"] === None, state["base"] <> mdSep <> b["Code"] <> cellSalt[b], state["base"]],
-          "out" -> Append[state["out"], stableHash[code] -> $cachedCells[stableHash[code]]]|>
+          "out" -> Append[state["out"], stableHash[code] -> $cachedCells[state["index"]]]|>
     ]
 evalCell[state_, b_] := Block[{code = state["code"] <> mdSep <> b["Code"] <> cellSalt[b], captured},
     (* captureCellRun parses b["Code"] into top-level statements via
@@ -1342,7 +1346,7 @@ accumEval[state0_, b_] := Block[{state = state0, s},
     ];
     If[ $setupHeadingQ[b], state = <|state, "defLevel" -> b["Level"]|>];
     s = If[resetBoundaryQ[state["mode"], b], resetState[state], state];
-    If[executableQ[b], evalCell[s, b], s]
+    If[executableQ[b], evalCell[<|s, "index" -> s["index"] + 1|>, b], s]
 ]
 
 (* Pre-load every package whose first use during evaluation would otherwise
@@ -1430,7 +1434,7 @@ installSelfAlias[ctx_String] := With[{realName = Context[MarkdownToNotebook] <> 
 evaluateAll[items_List, ctx_String, ctxPath_List, mode_, evaluator_ : Automatic] := Block[{$Context = ctx, $ContextPath = ctxPath},
     If[ evaluator === Automatic, preloadContextPath[ctxPath], evaluatorCall[<|"evaluator" -> evaluator|>, "Start", ctxPath]];
     UsingFrontEnd[Fold[accumEval,
-        <|"code" -> $exampleSalt, "base" -> $exampleSalt, "cleared" -> {}, "heading" -> "", "out" -> <||>, "ctx" -> ctx, "mode" -> mode, "evaluator" -> evaluator,
+        <|"code" -> $exampleSalt, "base" -> $exampleSalt, "cleared" -> {}, "heading" -> "", "out" -> <||>, "ctx" -> ctx, "mode" -> mode, "evaluator" -> evaluator, "index" -> 0,
           (* no setup section to protect means an empty baseline from the start,
              so the first delimiter already clears whatever the document bound *)
           "protected" -> If[AnyTrue[items, $setupHeadingQ], None, {}],
@@ -7199,7 +7203,8 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
         (* some results are missing: the sections that need no evaluation keep theirs *)
         True, With[{sections = exampleSections[evalSeparator, orderedCode], missing = MissingQ /@ Lookup[cached, hashes, Missing[]]},
             With[{kept = If[useCache, cachedSections[OptionValue["PartialEvaluation"], sections, missing, #["Code"] & /@ Select[orderedCode, executableQ]], {}]},
-                Block[{$cachedCells = KeyTake[cached, Pick[hashes, MemberQ[kept, #] & /@ sections]]},
+                (* the kept sections' cells by their place, each with its result *)
+                Block[{$cachedCells = With[{places = Pick[Range[Length[hashes]], MemberQ[kept, #] & /@ sections]}, AssociationThread[places -> Lookup[cached, hashes[[places]]]]]},
                     evaluateAll[orderedCode, ctx, ctxPath, evalSeparator, evaluator]
                 ]
             ]
