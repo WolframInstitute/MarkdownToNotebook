@@ -1740,8 +1740,9 @@ VerificationTest[
     Module[{store = CreateDirectory[], md, outs, names, drop, result},
         md = "---\nName: OpeningProbe\n---\n\n## Basic Examples\n\n```wl\nsch = 7\n```\n\n```wl\nf[sch]\n```\n\n## Scope\n\n```wl\ng[1]\n```\n\n```wl\nsch = 7\n```\n\n```wl\ng[sch]\n```\n\n## Properties and Relations\n\n```wl\nsch = 7\n```\n\n```wl\nh[sch]\n```\n\n## Possible Issues\n\n```wl\nsch = 7\n```\n\n```wl\nk[sch]\n```\n\n---\n\n```wl\nsch = 7\n```\n\n```wl\nm[sch]\n```\n";
         result = Block[{$cacheLocation = PersistenceLocation["Local", store]},
-            (* each conversion on a fresh page context, as each build kernel converts a page *)
-            outs[opts___] := (Quiet[ClearAll @@ Names["MTNB$*`*"]];
+            (* each conversion on a fresh page context, as each build kernel converts a page: this
+               page's context alone, since a conversion that runs these tests has its own *)
+            outs[opts___] := (With[{context = "MTNB$" <> IntegerString[stableHash[md], 36] <> "`"}, Quiet[ClearAll @@ Join[Names[context <> "*"], Names[context <> "*`*"]]]];
                 Quiet[Check[Cases[MarkdownToNotebook[md, opts], Cell[BoxData[b_], "Output", ___] :> b, Infinity], "section reported", MarkdownToNotebook::section], MarkdownToNotebook::section]);
             names = MapIndexed[exampleCacheName["OpeningProbe", First[#2], #1] &,
                 cumulativeHashes[Automatic, Cases[resolveIncludes[litParse[md]["Blocks"], ""], b_ /; (executableQ[b] || MatchQ[b["Type"], "Separator" | "Heading"]), Infinity]]];
