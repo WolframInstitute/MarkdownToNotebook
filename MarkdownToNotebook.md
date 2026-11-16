@@ -1715,7 +1715,7 @@ VerificationTest[
         md = "---\nName: PartialDoc\n---\n\n## A\n\n```wl\nHash[{\"A\", AbsoluteTime[]}]\n```\n\n## B\n\n```wl\nHash[{\"B\", AbsoluteTime[]}]\n```\n\n## C\n\n```wl\nHash[{\"C\", AbsoluteTime[]}]\n```\n";
         result = Block[{$cacheLocation = PersistenceLocation["Local", store]},
             outs[opts___] := Cases[MarkdownToNotebook[md, opts], Cell[BoxData[b_], "Output", ___] :> b, Infinity];
-            names = MapIndexed[exampleCacheName["PartialDoc", First[#2], #1] &,
+            names = MapIndexed[exampleCacheName["PartialDoc" <> evaluatorTag[Automatic], First[#2], #1] &,
                 cumulativeHashes[Automatic, Cases[resolveIncludes[litParse[md]["Blocks"], ""], b_ /; (executableQ[b] || MatchQ[b["Type"], "Separator" | "Heading"]), Infinity]]];
             drop[i_] := DeleteObject[PersistentObject[names[[i]], $cacheLocation]];
             changed[before_, after_] := MapThread[UnsameQ, {before, after}];
@@ -1746,7 +1746,7 @@ VerificationTest[
                page's context alone, since a conversion that runs these tests has its own *)
             outs[opts___] := (With[{context = "MTNB$" <> IntegerString[stableHash[md], 36] <> "`"}, Quiet[ClearAll @@ Join[Names[context <> "*"], Names[context <> "*`*"]]]];
                 Quiet[Check[Cases[MarkdownToNotebook[md, opts], Cell[BoxData[b_], "Output", ___] :> b, Infinity], "section reported", MarkdownToNotebook::section], MarkdownToNotebook::section]);
-            names = MapIndexed[exampleCacheName["OpeningProbe", First[#2], #1] &,
+            names = MapIndexed[exampleCacheName["OpeningProbe" <> evaluatorTag[Automatic], First[#2], #1] &,
                 cumulativeHashes[Automatic, Cases[resolveIncludes[litParse[md]["Blocks"], ""], b_ /; (executableQ[b] || MatchQ[b["Type"], "Separator" | "Heading"]), Infinity]]];
             drop[i_] := DeleteObject[PersistentObject[names[[i]], $cacheLocation]];
             Module[{cold = outs[], warm, next},
@@ -1761,6 +1761,16 @@ VerificationTest[
     ],
     {True, True, True},
     TestID -> "partial evaluation: an evaluated section runs its opening cell even where a cached section opens with the same code"
+]
+```
+
+An example's result is kept under the kernel that evaluated it, by a tag of its `$Version` in the cache name, as a result another evaluator gives is under that evaluator's: a newer Wolfram, or another implementation of the language, converting the same page on the same store evaluates the examples itself:
+
+```wl
+VerificationTest[
+    {evaluatorTag[Automatic] === "@" <> IntegerString[stableHash[$Version], 36], evaluatorTag[Automatic] =!= evaluatorTag[<|"Identity" -> "another kernel"|>]},
+    {True, True},
+    TestID -> "example cache: a result is kept under the kernel that evaluated it"
 ]
 ```
 

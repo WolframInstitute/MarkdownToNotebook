@@ -7013,7 +7013,10 @@ sanitiseDocNameForCache[_] := "unnamed"
 (* the part of an example's cache name an evaluator adds: none for this kernel's, else its
    "Identity", so that each kernel's outputs are kept apart, or the evaluator itself, which keeps
    none from one conversion to the next *)
-evaluatorTag[Automatic] := ""
+(* the kernel an example's result was evaluated by, in its cache name: a result one kernel gave is
+   never read back as another's, a newer Wolfram's or another implementation's converting the same
+   page on the same store *)
+evaluatorTag[Automatic] := "@" <> IntegerString[stableHash[$Version], 36]
 evaluatorTag[evaluator_Association] := "@" <> IntegerString[stableHash[Lookup[evaluator, "Identity", evaluator]], 36]
 
 exampleCacheName[docName_String, cellIdx_Integer, h_Integer] :=
