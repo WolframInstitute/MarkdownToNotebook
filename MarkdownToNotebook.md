@@ -1764,11 +1764,11 @@ VerificationTest[
 ]
 ```
 
-An example's result is kept under the kernel that evaluated it, by a tag of its `$Version` in the cache name, as a result another evaluator gives is under that evaluator's: a newer Wolfram, or another implementation of the language, converting the same page on the same store evaluates the examples itself:
+An example's result is kept under the kernel that evaluated it, by a tag of its `$Version` and `$CreationDate` in the cache name, as a result another evaluator gives is under that evaluator's: a newer Wolfram, or another implementation of the language, converting the same page on the same store evaluates the examples itself:
 
 ```wl
 VerificationTest[
-    {evaluatorTag[Automatic] === "@" <> IntegerString[stableHash[$Version], 36], evaluatorTag[Automatic] =!= evaluatorTag[<|"Identity" -> "another kernel"|>]},
+    {evaluatorTag[Automatic] === "@" <> IntegerString[stableHash[{$Version, ToString[$CreationDate, InputForm]}], 36], evaluatorTag[Automatic] =!= evaluatorTag[<|"Identity" -> "another kernel"|>]},
     {True, True},
     TestID -> "example cache: a result is kept under the kernel that evaluated it"
 ]
