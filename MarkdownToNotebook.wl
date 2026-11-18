@@ -3896,6 +3896,15 @@ templatizeBars[boxes_] := boxes //. {
     RowBox[{pre___, $openBar, mid : Except[$openBar | $closeBar | $braOpen | $ketClose] ..,
             $ketClose, post___}] :>
         RowBox[{pre, TemplateBox[{barContent[{mid}]}, "Ket"], post}],
+    (* Two bras in one row with no other bar between them (\langle1|\otimes\langle0|): the
+       parser pairs their two closing bars as a modulus, so the first bra ends in an OPENING
+       bracketing bar. An opening bar whose next bar or angle is another \langle closes the
+       first bra; the second keeps its closing bar for the rule below. A modulus has no
+       \langle before its closing bar, so none is read as a bra (issue #119). *)
+    RowBox[{pre___, $braOpen, mid : Except[$openBar | $closeBar | $braOpen | $ketClose] ..,
+            $openBar, gap : Except[$openBar | $closeBar | $braOpen | $ketClose] ...,
+            next : $braOpen, post___}] :>
+        RowBox[{pre, TemplateBox[{barContent[{mid}]}, "Bra"], gap, next, post}],
     RowBox[{pre___, $braOpen, mid : Except[$openBar | $closeBar | $braOpen | $ketClose] ..,
             $closeBar, post___}] :>
         RowBox[{pre, TemplateBox[{barContent[{mid}]}, "Bra"], post}],

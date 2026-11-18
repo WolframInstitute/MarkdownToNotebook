@@ -1409,6 +1409,21 @@ VerificationTest[
 ]
 ```
 
+Two bras in one formula with no other bar between them each fold into a Bra: the parser pairs their two closing bars as a modulus, so the first bra ends in an opening bar, which is read as closing it when another `\langle` follows. A modulus, with no `\langle` before its bar, stays a modulus.
+
+```wl
+VerificationTest[
+    {Cases[MarkdownToNotebook["t\n\n$$\n\\langle1|\\otimes\\langle0|\n$$\n\nend", "Evaluate" -> False], TemplateBox[_, t : "Bra" | "Ket" | "Abs"] :> t, Infinity],
+     Cases[MarkdownToNotebook["$\\langle1|+\\langle0|$", "Evaluate" -> False], TemplateBox[_, t : "Bra" | "Ket" | "Abs"] :> t, Infinity],
+     Cases[MarkdownToNotebook["$\\langle a|\\langle b|$", "Evaluate" -> False], TemplateBox[_, t : "Bra" | "Ket" | "Abs"] :> t, Infinity],
+     Cases[MarkdownToNotebook["$|a\\rangle\\langle b|$", "Evaluate" -> False], TemplateBox[_, t : "Bra" | "Ket" | "Abs"] :> t, Infinity],
+     FreeQ[MarkdownToNotebook["t\n\n$$\n\\langle1|\\otimes\\langle0|\n$$\n\nend", "Evaluate" -> False], "\[LeftBracketingBar]" | "\[RightBracketingBar]"],
+     FreeQ[MarkdownToNotebook["$|x|+|y|$", "Evaluate" -> False], TemplateBox[_, "Bra"]]},
+    {{"Bra", "Bra"}, {"Bra", "Bra"}, {"Bra", "Bra"}, {"Ket", "Bra"}, True, True},
+    TestID -> "two bras in one formula both fold into Bra, the first not left as an angle and a bar (issue #119)"
+]
+```
+
 A symbol page keeps the standard Examples-Initialization section - the `ExamplesInitializationSection` group with an `ExampleInitialization` cell that `Needs[]` the documented context - exactly as the authoring template ships it and every built ref page has it (e.g. Wolfram/LeanLink). `DocumentationBuild` folds it into the Examples section at build time:
 
 ```wl
