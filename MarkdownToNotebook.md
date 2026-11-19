@@ -1247,6 +1247,19 @@ VerificationTest[
 ]
 ```
 
+A message's argument that is a fraction, a power, a subscript or a root reads in linear syntax, a part of more than one piece in parentheses:
+
+```wl
+VerificationTest[
+    {
+        messageMd[messageBoxData["Power::infy", "Infinite expression `1` encountered.", {HoldForm[1/0]}]],
+        messageMd[messageBoxData["f::m", "got `1` and `2`", {HoldForm[x^(a + b)], HoldForm[Sqrt[Subscript[y, 1]]]}]]
+    },
+    {"> Power::infy: Infinite expression 1/0 encountered.", "> f::m: got x^(a+b) and Sqrt[Subscript[y, 1]]"},
+    TestID -> "a fraction, a power, a subscript and a root in a message read in linear syntax in the markdown twin"
+]
+```
+
 An echo reads in the markdown twin as the front end shows it, after the `»` marker of an `Echo` cell, and a machine number shows without the precision mark its boxes carry:
 
 ```wl

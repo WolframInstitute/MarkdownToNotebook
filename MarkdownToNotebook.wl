@@ -1105,7 +1105,15 @@ msgBoxText[RowBox[xs_List]] := StringJoin[msgBoxText /@ xs]
 msgBoxText[TemplateBox[xs_List, "RowDefault", ___]] := StringJoin[msgBoxText /@ xs]
 msgBoxText[TemplateBox[{sep_, _, xs___}, "RowWithSeparators", ___]] := StringRiffle[msgBoxText /@ {xs}, msgBoxText[sep]]
 msgBoxText[(StyleBox | TagBox | InterpretationBox | FrameBox)[b_, ___]] := msgBoxText[b]
+(* a fraction, a power, a subscript and a root read in linear syntax, as the message's argument is
+   written: 1/0, x^(a+b); a part of more than one piece is parenthesized *)
+msgBoxText[FractionBox[a_, b_]] := msgBoxPart[a] <> "/" <> msgBoxPart[b]
+msgBoxText[SuperscriptBox[a_, b_]] := msgBoxPart[a] <> "^" <> msgBoxPart[b]
+msgBoxText[SubscriptBox[a_, b_]] := "Subscript[" <> msgBoxText[a] <> ", " <> msgBoxText[b] <> "]"
+msgBoxText[SqrtBox[a_]] := "Sqrt[" <> msgBoxText[a] <> "]"
 msgBoxText[b_] := ToString[b, InputForm]
+msgBoxPart[b : RowBox[{_, __}]] := "(" <> msgBoxText[b] <> ")"
+msgBoxPart[b_] := msgBoxText[b]
 
 (* Plain-text rendering of captured messages / prints for the markdown twin.
    A box-level message renders via msgBoxText; a legacy text string is cleaned.
