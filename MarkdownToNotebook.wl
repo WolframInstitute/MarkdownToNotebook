@@ -3619,7 +3619,7 @@ docDependencies[meta_] := With[{own = Lookup[meta, "Paclet", ""]},
 
 declaredDependencies[""] := {}
 declaredDependencies[paclet_String] := Replace[First[PacletFind[paclet], None], {
-    p_PacletObject :> Cases[Replace[p["Dependencies"], Except[_List] -> {}], (n_String -> _) | n_String :> n],
+    p_PacletObject :> Cases[Replace[p["Dependencies"], Except[_List] -> {}], (n_String -> _) | n_String | KeyValuePattern["Name" -> n_String] :> n],
     _ -> {}}]
 
 dependencyPair[name_String] := {name, Replace[First[PacletFind[name], None], {

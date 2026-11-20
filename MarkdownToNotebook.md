@@ -967,6 +967,25 @@ VerificationTest[
 ]
 ```
 
+A dependency the PacletInfo declares as an association, with its `"Name"` among other keys, counts as one the paclet depends on, as a name or a name with its version does:
+
+```wl
+VerificationTest[
+    Module[{dir = FileNameJoin[{$TemporaryDirectory, CreateUUID["declared-"]}], names},
+        CreateDirectory[dir];
+        Export[FileNameJoin[{dir, "PacletInfo.wl"}], PacletObject[<|"Name" -> "TestPub/Declaring", "Version" -> "1.0.0",
+            "Dependencies" -> {"TestPub/A", "TestPub/B" -> "1.0+", <|"Name" -> "TestPub/C", "Git" -> "https://github.com/testpub/c", "Commit" -> "abcdef0"|>}|>], "Package"];
+        PacletDirectoryLoad[dir];
+        names = declaredDependencies["TestPub/Declaring"];
+        PacletDirectoryUnload[dir];
+        DeleteDirectory[dir, DeleteContents -> True];
+        names
+    ],
+    {"TestPub/A", "TestPub/B", "TestPub/C"},
+    TestID -> "a dependency declared as an association counts by its Name"
+]
+```
+
 A guide's Related Guides and Tech Notes entries are `ButtonBox` links in `TextData`, the form `DocumentationBuild` reads its link lists from and gives a bare `GuideMoreAbout` title. NotebookToMarkdown reads them back as the front matter's lists:
 
 ```wl
