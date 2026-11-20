@@ -704,14 +704,32 @@ resolveIncludes[blocks_List, base_String] := mermaidCells[Map[resolveBlock[#, ba
 (* A ```mermaid block is a diagram: it becomes an input cell that gives its text to Wolfram/Parser's
    MermaidDiagram, which reads and draws it here, evaluated and cached as any example is, with the
    input hidden, so that the page shows the diagram alone and the group's bracket opens to the
-   call. A block's own "#| collapse" or "#| eval" option stands. The function is named in the
-   cell's text alone, so the converter holds no symbol of the parser's. *)
+   call. A block's own "#| collapse" or "#| eval" option stands. The input shows the function as
+   a symbol of Wolfram/Parser (mermaidHead). The function is named in the cell's text alone, so the
+   converter holds no symbol of the parser's. *)
+$mermaidSymbol = "Wolfram`Parser`Languages`Mermaid`MermaidDiagram";
 mermaidCells[blocks_] := blocks /. b_Association /; Lookup[b, "Type", None] === "Code" && Lookup[b, "Lang", None] === "mermaid" :>
     Join[b, <|
         "Lang" -> "wl", "Mermaid" -> True,
-        "Code" -> "Wolfram`Parser`Languages`Mermaid`MermaidDiagram[" <> ToString[StringTrim[Lookup[b, "Code", ""]], InputForm] <> "]",
+        "Code" -> $mermaidSymbol <> "[" <> ToString[StringTrim[Lookup[b, "Code", ""]], InputForm] <> "]",
         "Options" -> Join[<|"collapse" -> "input"|>, Replace[Lookup[b, "Options", <||>], Except[_Association] -> <||>]]
     |>]
+
+(* The input of a mermaid block shows MermaidDiagram as the resource pages show a paclet's symbol:
+   the box of PacletSymbol["Wolfram/Parser", ...], which reads back as that PacletSymbol, so that a
+   reader's kernel finds the function in the paclet, while the cell's code, and so its cached
+   result, is the call as written. The stock function that makes the box is named in text alone,
+   so the converter holds no symbol of PacletResource's; without it, the input keeps the name. *)
+mermaidHeadBoxes[] := mermaidHeadBoxes[] = Module[{boxes = None},
+    Needs["PacletResource`"];
+    If[ NameQ["PacletResource`Private`fancyPacletSymbolBoxes"],
+        boxes = Symbol["PacletResource`Private`fancyPacletSymbolBoxes"][HoldComplete["Wolfram/Parser"], "Wolfram/Parser", $mermaidSymbol]];
+    If[MatchQ[boxes, _InterpretationBox], boxes, $mermaidSymbol]
+];
+mermaidHead[block_, x_] := If[ TrueQ[Lookup[block, "Mermaid", False]],
+    x /. Cell[BoxData[b_], st_String /; typesetInputStyleQ[st], o___] :> Cell[BoxData[b /. $mermaidSymbol -> mermaidHeadBoxes[]], st, o],
+    x
+];
 
 (* === sections === *)
 
@@ -2128,14 +2146,14 @@ applyTypeset[block_, x_] := With[{rules = blockTypesetRules[block]},
     ]]
 
 exampleIOFor[block_, n_Integer] :=
-    applyExcluded[block, applyHidden[block, applyCollapse[block, withCellFlag[block, withScreenshotMark[block, applyTypeset[block, exampleIO[
+    applyExcluded[block, applyHidden[block, applyCollapse[block, withCellFlag[block, withScreenshotMark[block, applyTypeset[block, mermaidHead[block, exampleIO[
         block["Code"], block["OutputBoxes"], n,
         extraOutputOpts[block], Lookup[block, "Messages", {}],
         Lookup[block["Options"], "input", True] === False,
         Lookup[block, "Prints", {}],
         Lookup[block, "ExtraCells", {}],
         Lookup[block, "Outputs", Automatic]
-    ]]]]]]]
+    ]]]]]]]]
 
 (* a document-level flag banner ("Flag" frontmatter) prepended to the notebook *)
 applyDocFlag[nb_, ""] := nb
@@ -7149,7 +7167,7 @@ MarkdownToNotebook[file_String, spec : (_String | Automatic) : Automatic, opts :
     blocks = resolveIncludes[parsed["Blocks"], src["Base"]];
     (* a mermaid block needs the parser's MermaidDiagram: an older parser has none, and the cell
        would show its call unevaluated *)
-    If[ ! FreeQ[blocks, KeyValuePattern["Mermaid" -> True]] && Names["Wolfram`Parser`Languages`Mermaid`MermaidDiagram"] === {},
+    If[ ! FreeQ[blocks, KeyValuePattern["Mermaid" -> True]] && Names[$mermaidSymbol] === {},
         Message[MarkdownToNotebook::mermaid]];
     tmplName = Lookup[meta, "Template", "Default"];
     (* a tutorial, an Overview page or a computational essay is one narrative, whose later sections
