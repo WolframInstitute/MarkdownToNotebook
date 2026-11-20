@@ -3490,14 +3490,17 @@ loadedContexts[meta_] := DeleteCases[docContextList[meta], "Global`"]
 
 (* A tutorial loads its contexts as DocumentationBuild loads a reference page's, which it does
    for no tutorial: a visible Needs input before the first example, and a CellProlog on every
-   input that loads them, so an example a reader evaluates first finds them loaded. *)
+   input that loads them, so an example a reader evaluates first finds them loaded. An example
+   group that shows only some of its cells, as "#| collapse: input" and a mermaid diagram do,
+   names them by position, so the Needs input goes before that group, not into it. *)
 tutorialLoads[body_List, meta_] := With[{contexts = loadedContexts[meta]},
     If[ contexts === {} || FreeQ[body, Cell[_, "Input", ___]],
         body,
         Insert[
             body /. Cell[b_, "Input", o___] :> Cell[b, "Input", o, CellProlog :> Scan[Needs, contexts]],
             Cell[BoxData[inputBoxes[exampleInitCode[meta]]], "Input", CellProlog :> Scan[Needs, contexts]],
-            FirstPosition[body, Cell[_, "Input", ___]]
+            With[{first = FirstPosition[body, Cell[_, "Input", ___]]},
+                If[ Length[first] > 3 && MatchQ[Extract[body, Drop[first, -2]], CellGroupData[_, _List]], Drop[first, -3], first]]
         ]
     ]
 ]

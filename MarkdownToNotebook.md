@@ -1836,6 +1836,19 @@ VerificationTest[
 ]
 ```
 
+A tutorial's `Needs` input goes before a first example that hides its input, so that the example still shows its output alone:
+
+```wl
+VerificationTest[
+    With[{nb = MarkdownToNotebook["---\nTemplate: TechNote\nContext: PacletTools`\n---\n\n## A\n\n```wl\n#| collapse: input\n1 + 1\n```", "Evaluate" -> True]},
+        {Cases[nb, Cell[CellGroupData[cells_, state_List], ___] :> Cases[cells[[state]], Cell[_, s_String, ___] :> s], Infinity],
+         Cases[nb, Cell[CellGroupData[cells_, _List], ___] :> Count[cells, Cell[b_, "Input", ___] /; ! FreeQ[b, "Needs"]], Infinity],
+         Count[nb, Cell[b_, "Input", ___] /; ! FreeQ[b, "Needs"], Infinity]}],
+    {{{"Output"}}, {0}, 1},
+    TestID -> "tutorial loads: the Needs input goes before an example group that shows only some of its cells"
+]
+```
+
 A sub-expression with no typeset form until it is evaluated - a `DateObject` built from a date list - is evaluated for its display, while the interpretation stays the code as written (issue #90):
 
 ```wl
