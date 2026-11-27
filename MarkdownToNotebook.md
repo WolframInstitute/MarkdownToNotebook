@@ -491,6 +491,18 @@ VerificationTest[
 ]
 ```
 
+A symbol page's front-matter `Keywords` fill the template's Keywords cells, which the documentation build reads a page's keywords from, for its metadata and its search index (regression: they reached only the notebook's own metadata, which the build does not read, so a built page had none):
+
+```wl
+VerificationTest[
+    Cases[
+        MarkdownToNotebook["---\nTemplate: Symbol\nName: Foo\nContext: KeywordTest`\nPaclet: KeywordTest/Pkg\nURI: KeywordTest/Pkg/ref/Foo\nKeywords: [first keyword, second keyword]\n---\n\n## Usage\n\n<code>[Foo]()[*x*]</code> gives the foo of *x*.\n", "Evaluate" -> False],
+        Cell[k_String, "Keywords", ___] :> k, Infinity],
+    {"first keyword", "second keyword"},
+    TestID -> "A symbol page's Keywords fill its Keywords cells"
+]
+```
+
 A paclet chosen in the Documentation Tools palette changes no link on a page: with DocumentationTools set to the page's paclet, whose symbol has a usage message, a `<code>[Symbol]()</code>` reference in the details still carries the converter's paclet link, not the palette's `Link` button:
 
 ```wl

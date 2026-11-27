@@ -4656,6 +4656,9 @@ symbolNotebook[data_] := Block[{meta = data["meta"], sections = data["sections"]
     usagePairs = usageLines[sections];
     notes = detailsCells[sections, "NotesSubsection"];
     nb = fillDocString[nb, "ObjectName", name];
+    (* the front matter's Keywords fill the template's Keywords cells, which the documentation
+       build reads a page's keywords from, for its metadata and the search index *)
+    nb = fillDocList[nb, "Keywords", asList @ Lookup[meta, "Keywords", {}]];
     Which[
         usagePairs =!= {},
             nb = nb /. Cell[_, "Usage", ___] :> usageMultiCell[usagePairs],
